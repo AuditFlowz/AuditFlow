@@ -409,7 +409,7 @@ V['dashboard']=()=>{
 
   var html="";
   html+='<div class="topbar"><div class="tbtitle">Tableau de bord — '+CY+'</div>';
-  html+='<button class="bp" onclick="nav(\"plan-audit\")">+ Nouvel audit</button></div>';
+  html+='<button class="bp" onclick="nav(\'plan-audit\')">+ Nouvel audit</button></div>';
   html+='<div class="content">';
   html+='<div class="metrics">';
   html+='<div class="mc"><div class="ml">Audits planifiés '+CY+'</div><div class="mv">'+yearAudits.length+'</div><div class="ms">Plan annuel</div></div>';
@@ -418,11 +418,11 @@ V['dashboard']=()=>{
   html+='<div class="mc"><div class="ml">Planifiés (à démarrer)</div><div class="mv" style="color:var(--am)">'+yPlanned.length+'</div><div class="ms">Non démarrés</div></div>';
   html+='</div>';
   html+='<div style="margin-bottom:1.25rem">';
-  html+='<div class="sth"><div class="st">Audits '+CY+'</div><button class="bs" style="font-size:11px" onclick="nav(\"mes-audits\")">Voir tout</button></div>';
+  html+='<div class="sth"><div class="st">Audits '+CY+'</div><button class="bs" style="font-size:11px" onclick="nav(\'mes-audits\')">Voir tout</button></div>';
   html+='<div class="tw"><table>';
   html+='<thead><tr><th>Titre</th><th>Type</th><th>Détail</th><th>Auditeurs</th><th>Statut</th><th>Avancement</th></tr></thead>';
   html+='<tbody>'+auditRows+'</tbody></table></div></div>';
-  html+='<div class="sth"><div class="st">Plans d\'action urgents</div><button class="bs" style="font-size:11px" onclick="nav(\"plans-action\")">Voir tout</button></div>';
+  html+='<div class="sth"><div class="st">Plans d\'action urgents</div><button class="bs" style="font-size:11px" onclick="nav(\'plans-action\')">Voir tout</button></div>';
   html+='<div>'+lateRows+'</div>';
   html+='</div>';
   return html;
@@ -471,8 +471,6 @@ function renderPlanAuditTable(){
       h+='</tr>';
     });
   }
-  document.getElementById('pa-tbl').innerHTML=h+'</tbody>';
-}
   document.getElementById('pa-tbl').innerHTML=h+'</tbody>';
 }
 
@@ -846,12 +844,7 @@ function renderDetContent(){
       <div style="font-size:13px;font-weight:600">Contrôles identifiés</div>
       <button class="bs" style="font-size:11px" onclick="showAddControlModal()">+ Ajouter</button>
     </div>
-    ${ctrls.length?'<div class="ch"><span>Controle</span><span>Owner</span><span>Frequence</span><span>Clef ?</span><span>Design</span><span></span></div><div>'+ctrls.map(function(ctrl,ci){return'<div class="cr"><span style="font-weight:500">'+ctrl.name+'</span><span style="color:var(--t2)">'+ctrl.owner+'</span><span style="color:var(--t2)">'+ctrl.freq+'</span><span><span class="badge '+(ctrl.clef?'bps':'bpl')+'">'+(ctrl.clef?'Oui':'Non')+'</span></span><span><span class="badge '+(ctrl.design==='existing'?'bdn':'btg')+'">'+(ctrl.design==='existing'?'Existing':'Target')+'</span></span><button class="bd" style="font-size:10px;padding:2px 6px" onclick="removeControl('+ci+')">X</button></div>';}).join('')+'</div>':'<div style="font-size:12px;color:var(--t3);padding:.5rem">Aucun controle identifie.</div>'}
-    <div>'+buildControlList(ctrls)+'</div>
-      <span><span class="badge ${c.clef?'bps':'bpl'}">${c.clef?'Oui':'Non'}</span></span>
-      <span><span class="badge ${c.design==='existing'?'bdn':'btg'}">${c.design==='existing'?'Existing':'Target'}</span></span>
-      <button class="bd" style="font-size:10px;padding:2px 6px" onclick="removeControl(${i})">✕</button>
-    </div>`).join('')}</div>`:'<div style="font-size:12px;color:var(--t3);padding:.5rem">Aucun contrôle identifié.</div>'}
+    ${buildControlList(ctrls)}
     </div>`;
   }
 
@@ -863,10 +856,7 @@ function renderDetContent(){
       <div style="font-size:13px;font-weight:600;margin-bottom:.875rem">Tests — Contrôles clefs existants</div>
       ${keyExist.length?buildExecTable(keyExist):'<div style="font-size:12px;color:var(--t3);padding:.5rem">Aucun controle clef existant (definis a l\'etape 5).</div>'}
       <div style="font-size:13px;font-weight:600;margin:.875rem 0 .5rem">Contrôles Target — anomalies automatiques</div>
-    '+buildTargetList(targets)+'
-        <div class="fh"><span class="badge btg">Target</span><div class="ft">${c.name}</div></div>
-        <div style="font-size:11px;color:var(--rd)">Contrôle non existant à définir et mettre en place par ${c.owner}.</div>
-      </div>`).join(''):'<div style="font-size:12px;color:var(--t3);padding:.5rem">Aucun contrôle target.</div>'}
+      ${buildTargetList(targets)}
     </div>`;
   }
 
@@ -892,14 +882,14 @@ function renderDetContent(){
     if(!d.maturity)d.maturity={level:'',notes:'',saved:false};
     const MLEVELS=[
       {key:'unsatisfactory',label:'Unsatisfactory',color:'#A32D2D',bg:'#FCEBEB',
-        def:'Controle interne insuffisant. De nombreux controles manquent ou sont inefficaces. Des deficiences significatives exposent l'organisation a des risques importants.',
+        def:'Controle interne insuffisant. De nombreux controles manquent ou sont inefficaces. Des deficiences significatives exposent l\'organisation a des risques importants.',
         meas:'Plus de 70% des controles testes sont en Fail. Plusieurs controles Target identifies. Risque eleve non mitige.'},
       {key:'major',label:'Major Improvements Needed',color:'#854F0B',bg:'#FAEEDA',
-        def:'Le cadre de controle existe mais presente des lacunes importantes. Des ameliorations substantielles sont necessaires pour atteindre un niveau d'efficacite acceptable.',
-        meas:'40 a 70% des controles testes en Fail. Controles clefs manquants ou mal concus. Plans d'action correctifs requis a court terme.'},
+        def:'Le cadre de controle existe mais presente des lacunes importantes. Des ameliorations substantielles sont necessaires pour atteindre un niveau d\'efficacite acceptable.',
+        meas:'40 a 70% des controles testes en Fail. Controles clefs manquants ou mal concus. Plans d\'action correctifs requis a court terme.'},
       {key:'some',label:'Some Improvements Needed',color:'#1D6B45',bg:'#E1F5EE',
         def:'Le cadre de controle est globalement en place mais des ameliorations ponctuelles sont necessaires pour optimiser son efficacite.',
-        meas:'10 a 40% des controles en Fail. La majorite des controles clefs fonctionnent correctement. Axes d'amelioration identifies.'},
+        meas:'10 a 40% des controles en Fail. La majorite des controles clefs fonctionnent correctement. Axes d\'amelioration identifies.'},
       {key:'effective',label:'Effective',color:'#3B6D11',bg:'#EAF3DE',
         def:'Le cadre de controle est solide et efficace. Les controles clefs sont en place, bien concus et operationnels. Le processus est gere de maniere appropriee.',
         meas:'Moins de 10% des controles en Fail. Tous les controles clefs sont existants et fonctionnels. Aucun gap majeur identifie.'},
@@ -929,7 +919,7 @@ function renderDetContent(){
       const border='border:2px solid '+(sel?l.color:'var(--br)')+';';
       const bg='background:'+(sel?l.bg:'var(--bw)')+';';
       const radioBg='background:'+(sel?l.color:'transparent')+';';
-      html+='<div onclick="setMaturity(''+l.key+'')" style="'+border+'border-radius:var(--r);padding:.875rem 1rem;cursor:pointer;'+bg+'transition:all .15s">';
+      html+='<div onclick="setMaturity(\''+l.key+'\')" style="'+border+'border-radius:var(--r);padding:.875rem 1rem;cursor:pointer;'+bg+'transition:all .15s">';
       html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">';
       html+='<div style="width:14px;height:14px;border-radius:50%;border:2px solid '+l.color+';'+radioBg+'flex-shrink:0"></div>';
       html+='<div style="font-size:13px;font-weight:600;color:'+l.color+'">'+l.label+'</div>';
@@ -1135,13 +1125,13 @@ function buildExecTable(keyExist){
     const rowStyle=fin?'opacity:.7;background:var(--bg);border-radius:var(--r);padding:7px;margin-bottom:2px':'';
     h+='<div style="display:grid;grid-template-columns:2fr 1fr 1fr 2fr auto;gap:8px;align-items:center;padding:7px 0;border-bottom:.5px solid var(--br);font-size:11px;'+rowStyle+'">';
     h+='<span style="font-weight:500">'+ctrl.name+(fin?' <span class="tag-new">&#10003; Finalise</span>':'')+'</span>';
-    h+='<select style="font-size:11px"'+(fin?' disabled':'')+" onchange="setTestNature("+i+",this.value)">";
+    h+='<select style="font-size:11px"'+(fin?' disabled':'')+' onchange="setTestNature('+i+',this.value)">';
     h+='<option value="">- Type</option>';
     ['Observation','Inspection','Reperformance','Enquiry'].forEach(function(n){
       h+='<option'+(ctrl.testNature===n?' selected':'')+'>'+n+'</option>';
     });
     h+='</select>';
-    h+='<select style="font-size:11px"'+(fin?' disabled':'')+" onchange="setTestResult("+i+",this.value)">";
+    h+='<select style="font-size:11px"'+(fin?' disabled':'')+' onchange="setTestResult('+i+',this.value)">';
     h+='<option value="">- Resultat</option>';
     h+='<option value="pass"'+(ctrl.result==='pass'?' selected':'')+'>Pass</option>';
     h+='<option value="fail"'+(ctrl.result==='fail'?' selected':'')+'>Fail</option>';
@@ -1149,7 +1139,7 @@ function buildExecTable(keyExist){
     const inp_style='font-size:11px;'+(ctrl.result==='fail'?'border-color:var(--rd)':'');
     const inp_ph=ctrl.result==='fail'?'Finding obligatoire...':'--';
     const inp_dis=(ctrl.result!=='fail'||fin)?'disabled':'';
-    h+='<input style="'+inp_style+'" placeholder="'+inp_ph+'" value="'+(ctrl.finding||'')+'" '+inp_dis+" onchange="setFinding("+i+",this.value)"/>";
+    h+='<input style="'+inp_style+'" placeholder="'+inp_ph+'" value="'+(ctrl.finding||'')+'" '+inp_dis+' onchange="setFinding('+i+',this.value)"/>';
     if(!fin){
       h+='<button class="bp" style="font-size:10px;padding:3px 8px;white-space:nowrap" onclick="finalizeTest('+i+')">Finaliser</button>';
     } else {
@@ -1200,7 +1190,7 @@ function deleteAction(id){
   ACTIONS.splice(idx,1);
   addHist('del',`Plan d'action supprimé`);
   renderActionList();
-  toast('Plan d'action supprimé');
+  toast('Plan d\'action supprimé');
 }
 
 // ---- PLANIFICATION ----
@@ -1236,8 +1226,8 @@ V['modeles']=()=>`
   <div class="topbar"><div class="tbtitle">Modèles d'audit</div><button class="bp">+ Nouveau modèle</button></div>
   <div class="content">
     <div class="tabs"><div class="tab active" onclick="sTT(this,'tp-p')">Process</div><div class="tab" onclick="sTT(this,'tp-b')">BU</div></div>
-    <div id="tp-p" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">'+buildTplCards(['Product Development','Cybersecurity & Data','Treasury & Tax','Sales & Services','P2P / Third Party','Governance'],'bpc')+'</div>
-    <div id="tp-b" style="display:none;grid-template-columns:repeat(3,1fr);gap:10px">'+buildTplCards(['Legal/Compliance','HR','Sales','Procurement','Accounting','IS/IT'],'bbu')+'</div>
+    <div id="tp-p" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">${buildTplCards(['Product Development','Cybersecurity & Data','Treasury & Tax','Sales & Services','P2P / Third Party','Governance'],'bpc')}</div>
+    <div id="tp-b" style="display:none;grid-template-columns:repeat(3,1fr);gap:10px">${buildTplCards(['Legal/Compliance','HR','Sales','Procurement','Accounting','IS/IT'],'bbu')}</div>
   </div>`;
 function sTT(el,id){document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));el.classList.add('active');document.getElementById('tp-p').style.display=id==='tp-p'?'grid':'none';document.getElementById('tp-b').style.display=id==='tp-b'?'grid':'none';}
 
@@ -1277,13 +1267,13 @@ function renderActionList(){
         <div style="flex:1;height:5px;background:var(--bg);border-radius:3px;overflow:hidden"><div style="height:100%;border-radius:3px;background:${fc[a.status]||'var(--pu)'};width:${a.pct}%"></div></div>
         <span style="font-size:10px;color:var(--t3)">${a.pct}%</span>
       </div>
-    </div>`).join('')||'<div style="font-size:12px;color:var(--t3)">Aucun plan d'action.</div>';
+    </div>`).join('')||'<div style="font-size:12px;color:var(--t3)">Aucun plan d\'action.</div>';
 }
 
 function showNewActionModal(){
   openModal("Nouveau plan d'action",`
     <div><label>Titre</label><input id="pa-title" placeholder="ex : Revue des accès ERP"/></div>
-    <div><label>Lié à l'audit</label><select id="pa-audit">'+AUDIT_PLAN.map(function(a){return'<option>'+a.titre+'</option>';}).join('')+'</select></div>
+    <div><label>Lié à l'audit</label><select id="pa-audit">${AUDIT_PLAN.map(function(a){return'<option>'+a.titre+'</option>';}).join('')}</select></div>
     <div><label>Responsable</label><select id="pa-resp"><option>Selma H.</option><option>Nisrine E.</option></select></div>
     <div><label>Département owner</label><input id="pa-dept" placeholder="ex : Finance, IT, RH..."/></div>
     <div><label>Entité</label><select id="pa-ent"><option>Groupe</option><option>74S</option><option>SBS</option><option>AXW</option></select></div>
