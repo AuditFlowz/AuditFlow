@@ -1,0 +1,1614 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>AuditFlow</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,"Segoe UI",system-ui,sans-serif;font-size:14px;background:#F5F4F0;color:#1A1A18;line-height:1.5}
+:root{--pu:#534AB7;--pu-lt:#EEEDFE;--pu-dk:#3C3489;--tl:#1D9E75;--tl-lt:#E1F5EE;--bl:#378ADD;--bl-lt:#E6F1FB;--am:#854F0B;--am-lt:#FAEEDA;--rd:#A32D2D;--rd-lt:#FCEBEB;--gn:#3B6D11;--gn-lt:#EAF3DE;--gy:#5F5E5A;--gy-lt:#F1EFE8;--bg:#F5F4F0;--bw:#FFF;--bs:#EDEDEA;--br:rgba(0,0,0,.10);--bm:rgba(0,0,0,.18);--tx:#1A1A18;--t2:#5F5E5A;--t3:#9C9A92;--r:8px;--rl:12px}
+.login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg)}
+.login-card{background:var(--bw);border:.5px solid var(--br);border-radius:var(--rl);padding:2.5rem 2rem;width:380px;text-align:center}
+.login-logo{display:flex;align-items:center;justify-content:center;gap:8px;font-size:18px;font-weight:600;margin-bottom:1.5rem}
+.logo-dot{width:9px;height:9px;border-radius:50%;background:var(--pu);flex-shrink:0}
+.login-title{font-size:20px;font-weight:600;margin-bottom:.5rem}
+.login-sub{font-size:13px;color:var(--t2);margin-bottom:1.25rem}
+.login-btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:10px 16px;background:var(--pu);color:#fff;border:none;border-radius:var(--r);font-size:13px;font-weight:500;cursor:pointer}
+.login-btn:hover{background:var(--pu-dk)}
+.login-btn-sec{display:flex;align-items:center;justify-content:center;width:100%;padding:10px 16px;background:var(--bw);color:var(--pu);border:1.5px solid var(--pu);border-radius:var(--r);font-size:13px;font-weight:500;cursor:pointer;margin-top:8px}
+.login-btn-sec:hover{background:var(--pu-lt)}
+.login-version{font-size:11px;color:var(--t3);margin-top:1.5rem}
+.f-row{display:flex;flex-direction:column;gap:10px;margin-bottom:1rem;text-align:left}
+.f-lbl{font-size:11px;color:var(--t2);display:block;margin-bottom:4px}
+.f-inp{width:100%;padding:8px 10px;border:1px solid #D3D1C7;border-radius:8px;font-size:13px;background:#fff;color:var(--tx)}
+.f-inp:focus{outline:none;border-color:var(--pu)}
+.li-err{display:none;font-size:12px;color:var(--rd);background:var(--rd-lt);padding:7px 10px;border-radius:6px;margin-bottom:.75rem}
+.ll{font-size:12px;color:var(--pu);cursor:pointer;text-decoration:underline;margin-top:.5rem;display:block}
+.app{display:flex;height:100vh;overflow:hidden}
+.sidebar{width:215px;min-width:215px;background:var(--bs);border-right:.5px solid var(--br);padding:.875rem .75rem;display:flex;flex-direction:column;gap:2px;overflow-y:auto}
+.logo{display:flex;align-items:center;gap:7px;font-size:14px;font-weight:600;padding:.25rem .5rem .875rem;border-bottom:.5px solid var(--br);margin-bottom:.375rem}
+.ns{font-size:10px;font-weight:600;color:var(--t3);padding:8px 10px 3px;letter-spacing:.06em;text-transform:uppercase}
+.nav{padding:6px 10px;border-radius:var(--r);font-size:12px;color:var(--t2);cursor:pointer;display:flex;align-items:center;gap:7px}
+.nav:hover{background:var(--bw);color:var(--tx)}
+.nav.active{background:var(--pu-lt);color:var(--pu-dk);font-weight:500}
+.ni{font-size:12px;width:14px;text-align:center}
+.sf{margin-top:auto;padding-top:.875rem;border-top:.5px solid var(--br);display:flex;align-items:center;gap:8px}
+.uav{width:26px;height:26px;border-radius:50%;background:var(--pu-lt);color:var(--pu-dk);font-size:10px;font-weight:600;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.un{font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ur{font-size:10px;color:var(--t3)}
+.lb{background:none;border:none;color:var(--t3);cursor:pointer;font-size:14px;padding:4px}
+.lb:hover{color:var(--rd)}
+.main{flex:1;overflow-y:auto;background:var(--bg)}
+.topbar{background:var(--bw);border-bottom:.5px solid var(--br);padding:.625rem 1.25rem;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:10}
+.tbtitle{font-size:14px;font-weight:600}
+.content{padding:1.25rem}
+.bp{background:var(--pu);color:#fff;border:none;padding:6px 12px;border-radius:var(--r);font-size:12px;font-weight:500;cursor:pointer}
+.bp:hover{background:var(--pu-dk)}
+.bs{background:var(--bw);border:.5px solid var(--bm);color:var(--tx);padding:5px 10px;border-radius:var(--r);font-size:12px;cursor:pointer}
+.bs:hover{background:var(--bg)}
+.bd{background:var(--bw);border:.5px solid var(--bm);color:var(--rd);padding:5px 10px;border-radius:var(--r);font-size:12px;cursor:pointer}
+select,input,textarea{padding:6px 9px;border:.5px solid var(--bm);border-radius:var(--r);font-size:12px;background:var(--bw);color:var(--tx);font-family:inherit}
+select:focus,input:focus,textarea:focus{outline:none;border-color:var(--pu)}
+.card{background:var(--bw);border:.5px solid var(--br);border-radius:var(--rl);padding:1rem 1.25rem}
+.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:1.25rem}
+.mc{background:var(--bw);border:.5px solid var(--br);border-radius:var(--rl);padding:.875rem 1rem}
+.ml{font-size:11px;color:var(--t2);margin-bottom:4px}
+.mv{font-size:22px;font-weight:600}
+.ms{font-size:10px;color:var(--t3);margin-top:3px}
+.sth{display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem}
+.st{font-size:13px;font-weight:600}
+.tabs{display:flex;border-bottom:.5px solid var(--br);margin-bottom:1rem}
+.tab{padding:6px 14px;font-size:12px;color:var(--t2);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-.5px}
+.tab:hover{color:var(--tx)}
+.tab.active{color:var(--pu-dk);border-bottom-color:var(--pu);font-weight:500}
+.tw{background:var(--bw);border:.5px solid var(--br);border-radius:var(--rl);overflow:auto;margin-bottom:1rem}
+table{width:100%;border-collapse:collapse;font-size:11px}
+thead th{background:var(--bg);padding:6px 10px;text-align:left;font-weight:500;font-size:10px;color:var(--t2);border-bottom:.5px solid var(--br);border-right:.5px solid var(--br);white-space:nowrap;position:sticky;top:0}
+thead th:last-child{border-right:none}
+tbody td{padding:7px 10px;border-bottom:.5px solid var(--br);border-right:.5px solid var(--br);vertical-align:middle}
+tbody td:last-child{border-right:none}
+tbody tr:last-child td{border-bottom:none}
+tbody tr:hover td{background:var(--bg)}
+.sr td{background:var(--bg)!important;font-weight:500;font-size:10px;color:var(--t2);padding:4px 10px;text-transform:uppercase;letter-spacing:.04em}
+.badge{font-size:10px;font-weight:500;padding:2px 6px;border-radius:20px;white-space:nowrap;display:inline-flex}
+.bp2{background:var(--am-lt);color:var(--am)}.be{background:var(--bl-lt);color:#0C447C}.br2{background:var(--pu-lt);color:var(--pu-dk)}.bdn{background:var(--gn-lt);color:var(--gn)}.bpl{background:var(--gy-lt);color:var(--gy)}.blt{background:var(--rd-lt);color:var(--rd)}
+.bpc{background:var(--pu-lt);color:var(--pu-dk)}.bbu{background:var(--bl-lt);color:#0C447C}.bsbs{background:var(--tl-lt);color:#085041}.baxw{background:var(--bl-lt);color:#0C447C}.bgrp{background:var(--gy-lt);color:var(--gy)}
+.bhi{background:var(--rd-lt);color:var(--rd)}.bmi{background:var(--am-lt);color:var(--am)}.blo{background:var(--gn-lt);color:var(--gn)}
+.bps{background:var(--gn-lt);color:var(--gn)}.bfl{background:var(--rd-lt);color:var(--rd)}.btg{background:var(--am-lt);color:var(--am)}
+.pbar{height:4px;background:var(--bg);border-radius:2px;width:64px;overflow:hidden}
+.pfill{height:100%;border-radius:2px;background:var(--pu)}
+.ar{background:var(--bw);border:.5px solid var(--br);border-radius:var(--rl);padding:.75rem 1rem;display:flex;align-items:center;gap:10px;cursor:pointer;margin-bottom:6px}
+.ar:hover{border-color:var(--bm)}
+.an{font-size:12px;font-weight:500;flex:1}
+.am{font-size:11px;color:var(--t2)}
+.step-row{display:flex;align-items:flex-start;margin-bottom:1rem;position:relative}
+.step-row:last-child{margin-bottom:0}
+.step-item{display:flex;flex-direction:column;align-items:center;flex:1;cursor:pointer;position:relative;min-width:58px}
+.step-item:not(:last-child)::after{content:'';position:absolute;top:13px;left:50%;width:100%;height:2px;background:var(--bm);z-index:0}
+.step-item.done:not(:last-child)::after{background:var(--pu)}
+.sc{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:500;border:2px solid var(--bm);background:var(--bw);color:var(--t2);position:relative;z-index:1}
+.step-item.done .sc{background:var(--pu);border-color:var(--pu);color:#fff}
+.step-item.active .sc{background:var(--pu-lt);border-color:var(--pu);color:var(--pu-dk)}
+.sl{font-size:9px;color:var(--t2);text-align:center;margin-top:4px;line-height:1.3;max-width:58px}
+.step-item.active .sl{color:var(--pu-dk);font-weight:500}
+.pl{font-size:10px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.5rem}
+.ti{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:.5px solid var(--br)}
+.ti:last-child{border-bottom:none}
+.tcb{width:15px;height:15px;border-radius:3px;border:1.5px solid var(--bm);background:var(--bw);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:9px}
+.tcb.done{background:var(--pu);border-color:var(--pu);color:#fff}
+.tt{font-size:12px;flex:1}
+.tt.dt{color:var(--t3);text-decoration:line-through}
+.cr{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr auto;gap:8px;align-items:center;padding:7px 0;border-bottom:.5px solid var(--br);font-size:11px}
+.cr:last-child{border-bottom:none}
+.ch{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr auto;gap:8px;padding:5px 0;border-bottom:.5px solid var(--br);font-size:10px;font-weight:500;color:var(--t2)}
+.fr{background:var(--bw);border:.5px solid var(--br);border-radius:var(--r);padding:.75rem;margin-bottom:7px}
+.fh{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+.ft{font-size:12px;font-weight:500;flex:1}
+.mr-row{background:var(--bw);border:.5px solid var(--br);border-radius:var(--r);padding:.875rem;margin-bottom:8px}
+.mr-hdr{display:flex;align-items:center;gap:8px;margin-bottom:.75rem}
+.mr-title{font-size:12px;font-weight:500;flex:1}
+.mr-fields{display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px}
+.mr-fields input,.mr-fields select{font-size:11px}
+.uz{border:1px dashed var(--bm);border-radius:var(--r);padding:.75rem;text-align:center;cursor:pointer;margin-bottom:.75rem}
+.uz:hover{background:var(--bg)}
+.mo{display:none;position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:100;align-items:center;justify-content:center}
+.mo.show{display:flex}
+.md{background:var(--bw);border-radius:var(--rl);border:.5px solid var(--br);padding:1.25rem;width:500px;max-width:92vw;max-height:90vh;overflow-y:auto}
+.mh{display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem}
+.mt{font-size:14px;font-weight:600}
+.mc2{background:none;border:none;color:var(--t2);cursor:pointer;font-size:16px}
+.mb{display:flex;flex-direction:column;gap:8px}
+.mb label{font-size:11px;color:var(--t2);margin-bottom:1px;display:block}
+.mb input,.mb select,.mb textarea{width:100%}
+.mf{display:flex;justify-content:flex-end;gap:8px;margin-top:1rem}
+.toast{position:fixed;bottom:20px;right:20px;background:var(--pu);color:#fff;padding:8px 14px;border-radius:var(--r);font-size:12px;opacity:0;transition:opacity .3s;pointer-events:none;z-index:999}
+.toast.show{opacity:1}
+.loading{display:flex;align-items:center;justify-content:center;height:200px;color:var(--t3);font-size:13px;gap:10px}
+.sp{width:18px;height:18px;border:2px solid var(--bm);border-top-color:var(--pu);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.ao{display:none}.is-admin .ao{display:flex}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.notice{background:var(--am-lt);border:.5px solid #EF9F27;border-radius:var(--r);padding:8px 12px;font-size:12px;color:var(--am);margin-bottom:.75rem}
+.avsm{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;flex-shrink:0}
+.gw{background:var(--bw);border:.5px solid var(--br);border-radius:var(--rl);overflow:auto}
+.gr{display:grid;grid-template-columns:170px repeat(12,1fr)}
+.gc{padding:5px 3px;font-size:10px;color:var(--t2);border-right:.5px solid var(--br);text-align:center}
+.gn2{padding:6px 8px;font-size:11px;font-weight:500;border-right:.5px solid var(--br);display:flex;align-items:center;gap:5px}
+.gm{border-right:.5px solid var(--br);min-height:28px;position:relative}
+.gm.td{background:rgba(83,74,183,.07)}
+.gb{position:absolute;left:1px;right:1px;height:14px;border-radius:3px;top:50%;transform:translateY(-50%)}
+.tag-new{display:inline-flex;align-items:center;gap:3px;background:var(--gn-lt);color:var(--gn);font-size:10px;font-weight:500;padding:1px 6px;border-radius:20px}
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="ls" class="login-screen" style="display:none">
+  <div class="login-card" style="width:400px">
+    <div class="login-logo" style="flex-direction:column;gap:10px;margin-bottom:1.25rem">
+      <img src="data:image/png;base64,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" style="width:72px;height:72px;object-fit:contain;border-radius:12px" alt="AuditFlow logo"/>
+      <span>AuditFlow</span>
+    </div>
+    <div class="login-title">Connexion</div>
+    <div class="login-sub">Accédez à votre espace d'audit interne</div>
+    <div class="f-row">
+      <div><label class="f-lbl">Email</label><input id="li-em" class="f-inp" type="email" placeholder="prenom.nom@axway.com" autocomplete="username"/></div>
+      <div>
+        <label class="f-lbl">Mot de passe</label>
+        <div style="position:relative">
+          <input id="li-pw" class="f-inp" type="password" placeholder="••••••••" autocomplete="current-password" style="width:100%;padding-right:36px"/>
+          <span onclick="togglePwd()" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);cursor:pointer;font-size:13px;color:var(--t2)" id="pwd-eye">👁</span>
+        </div>
+        <div id="pw-rules" style="font-size:10px;color:var(--t3);margin-top:4px;display:none">
+          <span id="r-len" style="margin-right:8px">✗ 8 caractères min.</span>
+          <span id="r-maj" style="margin-right:8px">✗ 1 majuscule</span>
+          <span id="r-spec">✗ 1 caractère spécial</span>
+        </div>
+      </div>
+    </div>
+    <div class="li-err" id="li-err" style="display:none">Email ou mot de passe incorrect.</div>
+    <button class="login-btn" id="li-btn">Se connecter</button>
+    <div class="login-version">AuditFlow v4.0 · Groupe</div>
+  </div>
+</div>
+<!-- APP -->
+<div id="app" class="app" style="display:none">
+  <div class="sidebar">
+    <div class="logo" style="gap:8px"><img src="data:image/png;base64,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" style="width:24px;height:24px;object-fit:contain;border-radius:4px" alt="logo"/>AuditFlow</div>
+    <div class="ns">Référentiels</div>
+    <div class="nav" data-view="plan-audit" id="nav-plan-audit"><span class="ni">◆</span>Plan Audit</div>
+    <div class="nav" data-view="plan-process" id="nav-plan-process"><span class="ni">◈</span>Plan Process</div>
+    <div class="nav" data-view="plan-bu" id="nav-plan-bu"><span class="ni">◉</span>Plan BU</div>
+    <div class="nav" data-view="historique" id="nav-historique"><span class="ni">◷</span>Historique</div>
+    <div class="ns">Audit Flow</div>
+    <div class="nav active" data-view="dashboard" id="nav-dashboard"><span class="ni">◻</span>Tableau de bord</div>
+    <div class="nav" data-view="mes-audits" id="nav-mes-audits"><span class="ni">≡</span>Mes audits</div>
+    <div class="nav" data-view="planification" id="nav-planification"><span class="ni">▦</span>Planification</div>
+    <div class="nav" data-view="modeles" id="nav-modeles"><span class="ni">▤</span>Modèles</div>
+    <div class="ns">Suivi</div>
+    <div class="nav" data-view="plans-action" id="nav-plans-action"><span class="ni">✦</span>Plans d'action</div>
+    <div class="ns ao">Administration</div>
+    <div class="nav ao" data-view="roles" id="nav-roles"><span class="ni">⊙</span>Rôles & Accès</div>
+    <div style="margin-top:auto"><div style="height:.5px;background:var(--br);margin:.5rem 0"></div>
+      <div class="sf"><div style="display:flex;align-items:center;gap:7px;flex:1;min-width:0"><div class="uav" id="uav">?</div><div><div class="un" id="uname">—</div><div class="ur" id="urole">—</div></div></div>
+      <button class="lb" id="lbtn" title="Déconnecter">↗</button></div>
+    </div>
+  </div>
+  <div class="main"><div id="vc"></div></div>
+</div>
+
+<div class="toast" id="toast"></div>
+<div class="mo" id="modal">
+  <div class="md">
+    <div class="mh"><div class="mt" id="mtitle">—</div><button class="mc2" onclick="closeModal()">×</button></div>
+    <div class="mb" id="mbody"></div>
+    <div class="mf"><button class="bs" onclick="closeModal()">Annuler</button><button class="bp" id="mok">Confirmer</button></div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// AUDITFLOW CONFIG — remplir avec les valeurs Entra
+// ============================================================
+var AUDITFLOW_CONFIG = {
+  clientId:      "ba6dcaee-c8d6-4181-9c30-6ea770928455",   // Application (client) ID dans Entra
+  tenantId:      "9be1af73-7472-4112-9b68-dd37385cba7c",   // Directory (tenant) ID dans Entra
+  sharePointUrl: "https://axwaysoftware.sharepoint.com/sites/AuditInterne27",
+};
+
+// ============ CONSTANTS ============
+const MO=['Jan','Fév','Mar','Avr','Mai','Juin','Juil','Août','Sep','Oct','Nov','Déc'];
+const STEPS=[
+  {s:'Scope & Preparation',ph:1},{s:'Work Program',ph:1},{s:'Audit Kick Off',ph:1},
+  {s:'Interviews / Process Review',ph:2},{s:'Flowcharts/Testing Strategy',ph:2},{s:'Testings',ph:2},
+  {s:'Report',ph:3},{s:'Report Restitution',ph:3},{s:'Management Responses',ph:3},
+  {s:'Exec. Committee Report',ph:3},{s:'Audit Committee Report',ph:3}
+];
+const PRCT={'Préparation':10,'Exécution':50,'Revue':80,'Clôturé':100,'Planifié':0,'Restitution':90};
+const BMAP={'Préparation':'bp2','Exécution':'be','Revue':'br2','Clôturé':'bdn','Planifié':'bpl','Restitution':'br2','En retard':'blt','En cours':'be','Non démarré':'bpl'};
+const GC=['#AFA9EC','#85B7EB','#5DCAA5','#EF9F27','#F0997B','#97C459','#AFA9EC','#85B7EB','#5DCAA5','#EF9F27'];
+const AVC={pm:'background:#CECBF6;color:#3C3489',sh:'background:#9FE1CB;color:#085041',ne:'background:#B5D4F4;color:#0C447C'};
+const TM={pm:{name:'Philippe M.',short:'PM',role:'admin',title:'Directeur Audit Interne'},sh:{name:'Selma H.',short:'SH',role:'auditeur',title:'Auditrice'},ne:{name:'Nisrine E.',short:'NE',role:'auditeur',title:'Auditrice'}};
+const RS={1:'<span style="color:var(--gn)">★</span>',2:'<span style="color:var(--am)">★★</span>',3:'<span style="color:var(--rd)">★★★</span>'};
+const ENT={sbs:'<span class="badge bsbs">SBS</span>',axw:'<span class="badge baxw">AXW</span>','74s':'<span class="badge bpc">74S</span>',both:'<span class="badge" style="background:var(--am-lt);color:#633806">SBS/AXW</span>',grp:'<span class="badge bgrp">Groupe</span>'};
+
+// ============ STATE ============
+let CU=null,CV='dashboard',CA=null,CS=0,CT='roles';
+
+// Membres de l'equipe — roles determines par le nom du compte Microsoft
+// Les utilisateurs sont authentifies via SSO Azure AD (MSAL)
+var USERS=[
+  {id:'pm',name:'Philippe M.',email:'philippe.massard@axway.com',role:'admin',status:'actif'},
+  {id:'sh',name:'Selma H.',email:'selma.habib@axway.com',role:'auditeur',status:'actif'},
+  {id:'ne',name:'Nisrine E.',email:'nisrine.el@axway.com',role:'auditeur',status:'actif'},
+];
+let PENDING=[];
+
+// PLAN AUDIT — source unique de vérité
+let AUDIT_PLAN=[
+  {id:'ap1',type:'Process',domaine:'Edition',process:'Product Development',processId:'p5',titre:'Product Development 2025',annee:2025,auditeurs:['sh'],statut:'En cours'},
+  {id:'ap2',type:'Process',domaine:'Deployment',process:'Product Deployment',processId:'p6',titre:'Product Deployment 2025',annee:2025,auditeurs:['ne'],statut:'En cours'},
+  {id:'ap3',type:'Process',domaine:'Support',process:'Budget / Forecast',processId:'p15',titre:'Budget / Forecast 2025',annee:2025,auditeurs:['sh'],statut:'Planifié'},
+  {id:'ap4',type:'BU',entite:'SBS',region:'AMEE',pays:['Maroc','Tunisie','Cameroun'],titre:'BU Maroc/Afrique 2025',annee:2025,auditeurs:['sh'],statut:'Clôturé'},
+  {id:'ap5',type:'BU',entite:'SBS',region:'AMEE',pays:['Liban'],titre:'BU Lebanon 2025',annee:2025,auditeurs:['ne'],statut:'En cours'},
+  {id:'ap6',type:'BU',entite:'SBS',region:'Europe',pays:['UK'],titre:'BU UK SBS 2025',annee:2025,auditeurs:['sh','ne'],statut:'Planifié'},
+  {id:'ap7',type:'Process',domaine:'Distribution',process:'Go-to-Market',processId:'p8',titre:'GTM Audit 2026',annee:2026,auditeurs:['sh'],statut:'En cours'},
+  {id:'ap8',type:'Process',domaine:'Support',process:'Cybersecurity & Data',processId:'p13',titre:'Cybersecurity Audit 2026',annee:2026,auditeurs:['ne'],statut:'Planifié'},
+  {id:'ap9',type:'BU',entite:'SBS',region:'AMEE',pays:['Liban'],titre:'BU Lebanon 2026',annee:2026,auditeurs:['sh'],statut:'Planifié'},
+  {id:'ap10',type:'BU',entite:'AXWAY',region:'Europe',pays:['Romania'],titre:'BU Romania 2026',annee:2026,auditeurs:['ne'],statut:'Clôturé'},
+  {id:'ap11',type:'Process',domaine:'Edition',process:'Product Development',processId:'p5',titre:'E2E Cross PL 2026',annee:2026,auditeurs:['sh','ne'],statut:'En cours'},
+];
+
+let PROCESSES=[
+  {id:'p1',dom:'Governance',proc:'Acquisitions',risk:3,archived:false,y26:{l:'SBS Integration',e:'sbs'},y27:{l:'Product Strat.',e:'both'}},
+  {id:'p2',dom:'Governance',proc:'Compliance',risk:1,archived:false,y28:{l:'Compliance / IP',e:'grp'}},
+  {id:'p3',dom:'Edition',proc:'Products & Portfolio',risk:2,archived:false,y27:{l:'Product Strat.',e:'both'}},
+  {id:'p5',dom:'Edition',proc:'Product Development',risk:2,archived:false,y26:{l:'E2E Cross PL',e:'74s'},y27:{l:'Product Devt',e:'74s'},y28:{l:'Research Tax Credit',e:'grp'}},
+  {id:'p6',dom:'Deployment',proc:'Product Deployment',risk:2,archived:false,y27:{l:'Product Deployment',e:'74s'}},
+  {id:'p7',dom:'Deployment',proc:'Product Quality & Support',risk:2,archived:false,y27:{l:'Support',e:'74s'}},
+  {id:'p8',dom:'Distribution',proc:'Go-to-Market',risk:1,archived:false,y26:{l:'GTM',e:'74s'},y28:{l:'GTM',e:'74s'}},
+  {id:'p9',dom:'Distribution',proc:'Sales & Services',risk:1,archived:false,y27:{l:'Sales',e:'both'}},
+  {id:'p10',dom:'Distribution',proc:'Customer Experience',risk:2,archived:false,y26:{l:'Customer Success',e:'74s'}},
+  {id:'p11',dom:'Support',proc:'OTC',risk:1,archived:false,y28:{l:'OTC',e:'grp'}},
+  {id:'p12',dom:'Support',proc:'Treasury & Tax',risk:1,archived:false,y26:{l:'Cash',e:'grp'},y28:{l:'Research Tax Credit',e:'grp'}},
+  {id:'p13',dom:'Support',proc:'Cybersecurity & Data',risk:3,archived:false,y27:{l:'Cybersecurity',e:'grp'}},
+  {id:'p15',dom:'Support',proc:'Budget / Forecast',risk:1,archived:false},
+];
+
+let ACTIONS=[
+  {id:'ac1',title:'Contrôles d\'accès SI',audit:'Cybersecurity',resp:'Nisrine E.',dept:'IT / Sécurité',ent:'Groupe',year:2025,quarter:'Q4',status:'En retard',pct:30,fromFinding:false},
+  {id:'ac2',title:'Séparation des tâches OTC',audit:'OTC',resp:'Selma H.',dept:'Finance',ent:'Groupe',year:2025,quarter:'Q4',status:'En retard',pct:10,fromFinding:false},
+  {id:'ac3',title:'Mise à jour procédure achats',audit:'P2P',resp:'Nisrine E.',dept:'Procurement',ent:'Groupe',year:2026,quarter:'Q1',status:'En cours',pct:60,fromFinding:false},
+];
+
+// Données par audit : contrôles, tâches, findings, mgmt responses
+let AUD_DATA={};
+
+function getAudData(id){if(!AUD_DATA[id])AUD_DATA[id]={tasks:{},controls:{},findings:[],mgtResp:[],docs:[],notes:''};return AUD_DATA[id];}
+
+// Audits dérivés du Plan Audit
+function getAudits(){
+  return AUDIT_PLAN.map(ap=>({
+    id:ap.id,
+    name:ap.titre,
+    type:ap.type,
+    ent:ap.type==='BU'?ap.entite:'74S',
+    start:0,dur:ap.annee===2025?6:3,
+    status:ap.statut||'Planifié',
+    step:ap.statut==='Clôturé'?10:ap.statut==='En cours'?2:0,
+    assignedTo:ap.auditeurs||[],
+    planRef:ap.id
+  }));
+}
+
+// ============ AUTH ============
+// ============================================================
+// AUTHENTIFICATION SSO MICROSOFT (MSAL)
+// ============================================================
+// ============================================================
+// AUTHENTIFICATION EMAIL / MOT DE PASSE
+// ============================================================
+// ============================================================
+// SUPABASE CONFIG
+// ============================================================
+var SUPABASE_URL = 'https://rdukdwwicctgywyaxlgw.supabase.co';
+var SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJkdWtkd3dpY2N0Z3l3eWF4bGd3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU4MjU4MjYsImV4cCI6MjA5MTQwMTgyNn0.TeGSNPW6231i1qs_ceP8o_1qaENIURDvJfdPWmZoHvI';
+var _sb = null; // instance Supabase
+
+function getSB(){
+  if(!_sb) _sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  return _sb;
+}
+
+// Cache local des données
+var DB = {
+  users: [],
+  auditPlan: [],
+  processes: [],
+  actions: [],
+  auditData: {},
+  history: [],
+};
+
+// ---- CRUD helpers ----
+async function sbGet(table, filter){
+  var q = getSB().from(table).select('*');
+  if(filter) q = q.match(filter);
+  var {data,error} = await q;
+  if(error){ console.error(table, error); return []; }
+  return data||[];
+}
+
+async function sbUpsert(table, row){
+  var {error} = await getSB().from(table).upsert(row, {onConflict:'id'});
+  if(error) console.error('upsert', table, error);
+}
+
+async function sbDelete(table, id){
+  var {error} = await getSB().from(table).delete().eq('id', id);
+  if(error) console.error('delete', table, error);
+}
+
+async function sbInsert(table, row){
+  var {error} = await getSB().from(table).insert(row);
+  if(error) console.error('insert', table, error);
+}
+
+// ---- Chargement initial ----
+async function loadAllData(){
+  DB.users     = await sbGet('af_users');
+  DB.auditPlan = (await sbGet('af_audit_plan')).map(function(r){
+    return {
+      id:r.id, type:r.type, titre:r.titre, annee:r.annee,
+      statut:r.statut||'Planifié',
+      auditeurs:r.auditeurs||[],
+      domaine:r.domaine, process:r.process, processId:r.process_id,
+      entite:r.entite, region:r.region, pays:r.pays||[],
+    };
+  });
+  DB.processes = (await sbGet('af_processes')).map(function(r){
+    return {id:r.id,dom:r.dom,proc:r.proc,risk:r.risk,archived:r.archived,
+      y25:r.y25,y26:r.y26,y27:r.y27,y28:r.y28};
+  });
+  DB.actions   = (await sbGet('af_actions')).map(function(r){
+    return {id:r.id,title:r.title,audit:r.audit,resp:r.resp,dept:r.dept,
+      ent:r.ent,year:r.year,quarter:r.quarter,status:r.status,pct:r.pct,
+      fromFinding:r.from_finding,findingTitle:r.finding_title};
+  });
+  DB.history   = (await sbGet('af_history')).map(function(r){
+    return {type:r.type,msg:r.msg,user:r.user_name,
+      date:new Date(r.created_at).toLocaleDateString('fr-FR',{day:'numeric',month:'short',year:'numeric'})};
+  });
+
+  // Sync vers STATE global
+  AUDIT_PLAN = DB.auditPlan;
+  PROCESSES  = DB.processes;
+  ACTIONS    = DB.actions;
+  HISTORY_LOG= DB.history;
+  USERS      = DB.users.map(function(u){
+    return {id:u.id,name:u.name,email:u.email,role:u.role,
+      initials:u.initials||u.name.split(' ').map(function(w){return w[0];}).join('').toUpperCase().slice(0,2),
+      status:u.status,pwd:u.pwd||''};
+  });
+}
+
+async function loadAuditData(auditId){
+  if(DB.auditData[auditId]) return DB.auditData[auditId];
+  var rows = await sbGet('af_audit_data', {audit_id: auditId});
+  if(rows.length){
+    DB.auditData[auditId] = {
+      tasks:    rows[0].tasks||{},
+      controls: rows[0].controls||{},
+      findings: rows[0].findings||[],
+      mgtResp:  rows[0].mgt_resp||[],
+      docs:     rows[0].docs||[],
+      notes:    rows[0].notes||'',
+      maturity: rows[0].maturity||null,
+    };
+  } else {
+    DB.auditData[auditId] = {tasks:{},controls:{},findings:[],mgtResp:[],docs:[],notes:'',maturity:null};
+  }
+  AUD_DATA[auditId] = DB.auditData[auditId];
+  return DB.auditData[auditId];
+}
+
+async function saveAuditData(auditId){
+  var d = AUD_DATA[auditId];
+  if(!d) return;
+  await sbUpsert('af_audit_data', {
+    audit_id: auditId,
+    tasks:    d.tasks,
+    controls: d.controls,
+    findings: d.findings,
+    mgt_resp: d.mgtResp,
+    docs:     d.docs,
+    notes:    d.notes,
+    maturity: d.maturity,
+    updated_at: new Date().toISOString(),
+  });
+}
+
+async function saveAuditPlan(ap){
+  await sbUpsert('af_audit_plan', {
+    id: ap.id, type: ap.type, titre: ap.titre, annee: ap.annee,
+    statut: ap.statut, auditeurs: ap.auditeurs,
+    domaine: ap.domaine, process: ap.process, process_id: ap.processId,
+    entite: ap.entite, region: ap.region, pays: ap.pays,
+    updated_at: new Date().toISOString(),
+  });
+}
+
+async function saveAction(ac){
+  await sbUpsert('af_actions', {
+    id: ac.id, title: ac.title, audit: ac.audit, resp: ac.resp,
+    dept: ac.dept, ent: ac.ent, year: ac.year, quarter: ac.quarter,
+    status: ac.status, pct: ac.pct,
+    from_finding: ac.fromFinding||false,
+    finding_title: ac.findingTitle||null,
+  });
+}
+
+async function addHistoryDB(type, msg, userName){
+  await sbInsert('af_history', {type, msg, user_name: userName, created_at: new Date().toISOString()});
+}
+
+async function saveUser(user){
+  await sbUpsert('af_users', {
+    id: user.id, email: user.email, name: user.name,
+    role: user.role, initials: user.initials, status: user.status,
+    pwd: user.pwd||'',
+  });
+}
+
+async function initLogin(){
+  document.getElementById('ls').style.display='flex';
+  document.getElementById('app').style.display='none';
+  document.getElementById('li-btn').onclick=doLogin;
+  document.getElementById('li-pw').onkeydown=function(e){if(e.key==='Enter')doLogin();};
+  document.getElementById('li-em').onkeydown=function(e){if(e.key==='Enter')document.getElementById('li-pw').focus();};
+  document.getElementById('li-pw').oninput=validatePwd;
+  document.getElementById('li-pw').onfocus=function(){document.getElementById('pw-rules').style.display='block';};
+
+  // Pré-charge les données Supabase
+  try {
+    await loadAllData();
+    console.log('Supabase connecté — données chargées');
+  } catch(e) {
+    console.warn('Supabase non disponible, mode local');
+  }
+}
+
+function togglePwd(){
+  var inp=document.getElementById('li-pw');
+  inp.type=inp.type==='password'?'text':'password';
+}
+
+function validatePwd(){
+  var v=document.getElementById('li-pw').value;
+  var rLen=v.length>=8;
+  var rMaj=/[A-Z]/.test(v);
+  var rSpec=/[^a-zA-Z0-9]/.test(v);
+  var set=function(id,ok){var el=document.getElementById(id);el.style.color=ok?'var(--gn)':'var(--t3)';el.textContent=(ok?'✓ ':'✗ ')+el.textContent.slice(2);};
+  set('r-len',rLen); set('r-maj',rMaj); set('r-spec',rSpec);
+}
+
+async function doLogin(){
+  var email=document.getElementById('li-em').value.trim().toLowerCase();
+  var pwd=document.getElementById('li-pw').value;
+  var errEl=document.getElementById('li-err');
+
+  if(pwd.length<8||!/[A-Z]/.test(pwd)||!/[^a-zA-Z0-9]/.test(pwd)){
+    errEl.textContent='Le mot de passe doit contenir 8 caractères min., 1 majuscule et 1 caractère spécial.';
+    errEl.style.display='block';
+    return;
+  }
+
+  // Cherche l'utilisateur dans Supabase
+  var user = USERS.find(function(u){return u.email.toLowerCase()===email&&u.pwd===pwd&&u.status==='actif';});
+  if(!user){
+    errEl.textContent='Email ou mot de passe incorrect.';
+    errEl.style.display='block';
+    document.getElementById('li-pw').value='';
+    return;
+  }
+
+  errEl.style.display='none';
+  CU={id:user.id, name:user.name, email:user.email, role:user.role,
+      initials:user.initials||'?', status:'actif'};
+  launchApp();
+}
+
+
+function launchApp(){
+  document.getElementById('ls').style.display='none';
+  document.getElementById('app').style.display='flex';
+  if(CU.role==='admin')document.getElementById('app').classList.add('is-admin');
+  else document.getElementById('app').classList.remove('is-admin');
+  const tid=Object.keys(TM).find(k=>TM[k].name===CU.name)||'pm';
+  document.getElementById('uav').textContent=CU.name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);
+  if(AVC[tid])document.getElementById('uav').style.cssText=AVC[tid]+';width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600';
+  document.getElementById('uname').textContent=CU.name;
+  document.getElementById('urole').textContent=CU.role==='admin'?'Admin / Directeur':'Auditrice';
+  document.getElementById('lbtn').onclick=function(){
+    document.getElementById('app').classList.remove('is-admin');
+    CU=null;
+    document.getElementById('li-em').value='';
+    document.getElementById('li-pw').value='';
+    document.getElementById('li-err').style.display='none';
+    initLogin();
+  };
+  document.querySelectorAll('.nav[data-view]').forEach(n=>n.addEventListener('click',()=>nav(n.dataset.view)));
+  nav('dashboard');
+}
+
+// ============ NAV ============
+function nav(view){
+  CV=view;
+  document.querySelectorAll('.nav[data-view]').forEach(n=>n.classList.remove('active'));
+  const a=document.getElementById('nav-'+view);if(a)a.classList.add('active');
+  const c=document.getElementById('vc');
+  c.innerHTML='<div class="loading"><div class="sp"></div>Chargement...</div>';
+  setTimeout(()=>{try{c.innerHTML=V[view]?V[view]():'<div class="content">Vue introuvable.</div>';if(I[view])I[view]();}catch(e){c.innerHTML=`<div class="content" style="color:var(--rd)">Erreur : ${e.message}</div>`;console.error(e);}},50);
+}
+
+function openModal(title,body,onOk){
+  document.getElementById('mtitle').textContent=title;
+  document.getElementById('mbody').innerHTML=body;
+  document.getElementById('modal').classList.add('show');
+  document.getElementById('mok').onclick=()=>{onOk();closeModal();};
+}
+function closeModal(){document.getElementById('modal').classList.remove('show');}
+function toast(msg){const e=document.getElementById('toast');e.textContent=msg;e.classList.add('show');setTimeout(()=>e.classList.remove('show'),2500);}
+function addHist(type,msg){HISTORY_LOG.unshift({type,msg,user:CU?.name||'—',date:new Date().toLocaleDateString('fr-FR',{day:'numeric',month:'short',year:'numeric'})});}
+let HISTORY_LOG=[];
+
+function badge(s){return`<span class="badge ${BMAP[s]||'bpl'}">${s}</span>`}
+function pbar(s){return`<div class="pbar"><div class="pfill" style="width:${PRCT[s]||0}%"></div></div>`}
+function avEl(id,sz){const m=TM[id];if(!m)return'';return`<div class="avsm" style="${AVC[id]||''};width:${sz}px;height:${sz}px;font-size:${sz*.4}px">${m.short}</div>`}
+
+// ============ VIEWS ============
+const V={},I={};
+
+// ---- DASHBOARD ----
+V['dashboard']=()=>{
+  var CY=2026;
+  var audits=getAudits();
+  var yearAudits=AUDIT_PLAN.filter(function(a){return a.annee===CY;});
+  var yClosed=yearAudits.filter(function(a){return a.statut==='Clôturé';});
+  var yInProg=yearAudits.filter(function(a){return a.statut==='En cours';});
+  var yPlanned=yearAudits.filter(function(a){return a.statut==='Planifié';});
+  var closedPct=yearAudits.length?Math.round(yClosed.length/yearAudits.length*100):0;
+  var late=ACTIONS.filter(function(a){return a.status==='En retard';}).slice(0,3);
+
+  var auditRows=yearAudits.length?yearAudits.map(function(ap){
+    var detail=ap.type==='Process'?(ap.domaine+' > '+ap.process):(ap.pays||[]).join(', ');
+    var avs=(ap.auditeurs||[]).map(function(id){return avEl(id,18);}).join('');
+    var pct=ap.statut==='Clôturé'?100:ap.statut==='En cours'?50:0;
+    var tb=ap.type==='Process'?'bpc':'bbu';
+    var stat=badge(ap.statut||'Planifié');
+    return '<tr style="cursor:pointer" onclick="openAudit(this.getAttribute(\'data-id\'))" data-id="'+ap.id+'">'
+      +'<td style="font-weight:500;font-size:11px">'+ap.titre+'</td>'
+      +'<td><span class="badge '+tb+'">'+ap.type+'</span></td>'
+      +'<td style="font-size:10px;color:var(--t2)">'+detail+'</td>'
+      +'<td><div style="display:flex;gap:2px">'+avs+'</div></td>'
+      +'<td>'+stat+'</td>'
+      +'<td><div class="pbar" style="width:80px"><div class="pfill" style="width:'+pct+'%"></div></div>'
+      +'<div style="font-size:10px;color:var(--t3)">'+pct+'%</div></td>'
+      +'</tr>';
+  }).join(''):'<tr><td colspan="6" style="text-align:center;color:var(--t3);padding:1rem">Aucun audit planifié en '+CY+'</td></tr>';
+
+  var lateRows=late.map(function(a){
+    return '<div class="ar"><div style="flex:1"><div class="an">'+a.title+'</div>'
+      +'<div class="am">'+a.dept+' · '+a.quarter+' '+a.year+'</div></div>'
+      +badge(a.status)+'</div>';
+  }).join('')||'<div style="font-size:12px;color:var(--t3);padding:.5rem">Aucun plan urgent</div>';
+
+  var html="";
+  html+='<div class="topbar"><div class="tbtitle">Tableau de bord — '+CY+'</div>';
+  html+='<button class="bp" onclick="nav(\'plan-audit\')">+ Nouvel audit</button></div>';
+  html+='<div class="content">';
+  html+='<div class="metrics">';
+  html+='<div class="mc"><div class="ml">Audits planifiés '+CY+'</div><div class="mv">'+yearAudits.length+'</div><div class="ms">Plan annuel</div></div>';
+  html+='<div class="mc"><div class="ml">Clôturés</div><div class="mv" style="color:var(--gn)">'+yClosed.length+'</div><div class="ms">'+closedPct+'% du plan</div></div>';
+  html+='<div class="mc"><div class="ml">En cours</div><div class="mv" style="color:var(--pu)">'+yInProg.length+'</div><div class="ms">Missions actives</div></div>';
+  html+='<div class="mc"><div class="ml">Planifiés (à démarrer)</div><div class="mv" style="color:var(--am)">'+yPlanned.length+'</div><div class="ms">Non démarrés</div></div>';
+  html+='</div>';
+  html+='<div style="margin-bottom:1.25rem">';
+  html+='<div class="sth"><div class="st">Audits '+CY+'</div><button class="bs" style="font-size:11px" onclick="nav(\'mes-audits\')">Voir tout</button></div>';
+  html+='<div class="tw"><table>';
+  html+='<thead><tr><th>Titre</th><th>Type</th><th>Détail</th><th>Auditeurs</th><th>Statut</th><th>Avancement</th></tr></thead>';
+  html+='<tbody>'+auditRows+'</tbody></table></div></div>';
+  html+='<div class="sth"><div class="st">Plans d\'action urgents</div><button class="bs" style="font-size:11px" onclick="nav(\'plans-action\')">Voir tout</button></div>';
+  html+='<div>'+lateRows+'</div>';
+  html+='</div>';
+  return html;
+};
+
+
+// ---- PLAN AUDIT (écran central) ----
+V['plan-audit']=()=>`
+  <div class="topbar"><div class="tbtitle">Plan Audit</div><button class="bp ao" onclick="showAddAuditModal()">+ Ajouter un audit</button></div>
+  <div class="content">
+    <div style="display:flex;gap:8px;margin-bottom:1rem">
+      <select id="f-pa-type" onchange="renderPlanAuditTable()"><option value="all">Process + BU</option><option value="Process">Process</option><option value="BU">BU</option></select>
+      <select id="f-pa-year" onchange="renderPlanAuditTable()"><option value="all">Toutes années</option><option value="2025">2025</option><option value="2026">2026</option><option value="2027">2027</option><option value="2028">2028</option></select>
+    </div>
+    <div class="tw"><table id="pa-tbl"></table></div>
+  </div>`;
+
+I['plan-audit']=()=>renderPlanAuditTable();
+
+function renderPlanAuditTable(){
+  var ft=document.getElementById('f-pa-type')?document.getElementById('f-pa-type').value:'all';
+  var fy=document.getElementById('f-pa-year')?document.getElementById('f-pa-year').value:'all';
+  var rows=AUDIT_PLAN.filter(function(a){return(ft==='all'||a.type===ft)&&(fy==='all'||String(a.annee)===fy);});
+  var h='<thead><tr><th>Type</th><th>Titre</th><th>Detail</th><th>Annee</th><th>Auditeurs</th><th>Statut</th>'+(CU&&CU.role==='admin'?'<th>Actions</th>':'')+'</tr></thead><tbody>';
+  if(!rows.length){
+    h+='<tr><td colspan="7" style="text-align:center;color:var(--t3);padding:1.5rem">Aucun audit planifie.</td></tr>';
+  } else {
+    rows.forEach(function(ap){
+      var idx=AUDIT_PLAN.indexOf(ap);
+      var detail=ap.type==='Process'
+        ?'<span style="font-size:11px"><strong>'+ap.domaine+'</strong> &rsaquo; '+ap.process+'</span>'
+        :'<span style="font-size:11px"><strong>'+ap.entite+'</strong> &middot; '+ap.region+' &middot; '+(ap.pays||[]).join(', ')+'</span>';
+      var avs=(ap.auditeurs||[]).map(function(id){return avEl(id,20);}).join('');
+      var tb=ap.type==='Process'?'bpc':'bbu';
+      var adminBtn=CU&&CU.role==='admin'
+        ?'<td style="white-space:nowrap"><button class="bs" style="font-size:10px;padding:2px 7px" onclick="showEditAuditModal('+idx+')">Modifier</button> <button class="bd" style="font-size:10px;padding:2px 7px" onclick="deleteAudit('+idx+')">Supprimer</button></td>'
+        :'';
+      h+='<tr>';
+      h+='<td><span class="badge '+tb+'">'+ap.type+'</span></td>';
+      h+='<td style="font-weight:500;font-size:12px">'+ap.titre+'</td>';
+      h+='<td>'+detail+'</td>';
+      h+='<td style="font-weight:500;color:var(--pu-dk)">'+ap.annee+'</td>';
+      h+='<td><div style="display:flex;gap:3px">'+(avs||'<span style="font-size:10px;color:var(--t3)">-</span>')+'</div></td>';
+      h+='<td>'+badge(ap.statut||'Planifie')+'</td>';
+      h+=adminBtn;
+      h+='</tr>';
+    });
+  }
+  document.getElementById('pa-tbl').innerHTML=h+'</tbody>';
+}
+
+function auditModalBody(ap){
+  var doms=[...new Set(PROCESSES.map(function(p){return p.dom;}))];
+  var type=(ap&&ap.type)||'Process';
+  var domOpts=doms.map(function(d){
+    return '<option'+(ap&&ap.domaine===d?' selected':'')+'>'+d+'</option>';
+  }).join('');
+  var currentDom=(ap&&ap.domaine)||doms[0];
+  var procOpts=PROCESSES.filter(function(p){return p.dom===currentDom;}).map(function(p){
+    return '<option value="'+p.id+'"'+(ap&&ap.processId===p.id?' selected':'')+'>'+p.proc+'</option>';
+  }).join('');
+  var h='';
+  h+='<div><label>Type d\'audit</label>';
+  h+='<select id="m-type" onchange="toggleAuditTypeFields(this.value)">';
+  h+='<option value="Process"'+(type==='Process'?' selected':'')+'>Process Audit</option>';
+  h+='<option value="BU"'+(type==='BU'?' selected':'')+'>BU Audit</option>';
+  h+='</select></div>';
+  h+='<div id="m-proc-fields" style="'+(type==='BU'?'display:none':'')+'\">';
+  h+='<div><label>Domaine</label><select id="m-dom" onchange="updateProcessList()">'+domOpts+'</select></div>';
+  h+='<div><label>Processus</label><select id="m-proc">'+procOpts+'</select></div>';
+  h+='</div>';
+  h+='<div id="m-bu-fields" style="'+(type!=='BU'?'display:none':'')+'\">';
+  h+='<div><label>Entite</label><select id="m-ent">';
+  h+='<option'+(ap&&ap.entite==='SBS'?' selected':'')+'>SBS</option>';
+  h+='<option'+(ap&&ap.entite==='AXW'?' selected':'')+'>AXW</option>';
+  h+='<option'+(ap&&ap.entite==='ALL'?' selected':'')+'>ALL</option>';
+  h+='</select></div>';
+  h+='<div><label>Region</label><select id="m-reg">';
+  ['Europe','AMEE','North America','APAC','South America'].forEach(function(r){
+    h+='<option'+(ap&&ap.region===r?' selected':'')+'>'+r+'</option>';
+  });
+  h+='</select></div>';
+  h+='<div><label>Pays (separes par des virgules)</label>';
+  h+='<input id="m-pays" placeholder="ex : Maroc, Tunisie" value="'+((ap&&ap.pays||[]).join(', '))+'"/></div>';
+  h+='</div>';
+  h+='<div><label>Titre de la mission</label>';
+  h+='<input id="m-titre" placeholder="ex : BU Maroc 2025" value="'+((ap&&ap.titre)||'')+'"/></div>';
+  h+='<div class="g2">';
+  h+='<div><label>Annee</label><select id="m-annee">';
+  [2025,2026,2027,2028].forEach(function(y){
+    h+='<option'+(ap&&ap.annee===y?' selected':'')+'>'+y+'</option>';
+  });
+  h+='</select></div>';
+  h+='<div><label>Statut</label><select id="m-statut">';
+  ['Planifie','En cours','Cloture'].forEach(function(s){
+    var match=ap&&(ap.statut===s||(s==='Planifie'&&ap.statut==='Planifié')||(s==='Cloture'&&ap.statut==='Clôturé'));
+    h+='<option'+(match?' selected':'')+'>'+s+'</option>';
+  });
+  h+='</select></div></div>';
+  h+='<div><label>Auditeurs assignes</label>';
+  h+='<div style="display:flex;gap:12px;margin-top:4px">';
+  h+='<label style="display:flex;align-items:center;gap:5px;font-size:12px">';
+  h+='<input type="checkbox" id="a-sh"'+((ap&&ap.auditeurs&&ap.auditeurs.includes('sh'))?' checked':'')+'>  Selma H.</label>';
+  h+='<label style="display:flex;align-items:center;gap:5px;font-size:12px">';
+  h+='<input type="checkbox" id="a-ne"'+((ap&&ap.auditeurs&&ap.auditeurs.includes('ne'))?' checked':'')+'>  Nisrine E.</label>';
+  h+='</div></div>';
+  return h;
+}
+
+function toggleAuditTypeFields(val){
+  document.getElementById('m-proc-fields').style.display=val==='BU'?'none':'';
+  document.getElementById('m-bu-fields').style.display=val==='BU'?'':'none';
+}
+
+function updateProcessList(){
+  const dom=document.getElementById('m-dom')?.value;
+  const sel=document.getElementById('m-proc');
+  if(!sel||!dom)return;
+  sel.innerHTML=PROCESSES.filter(p=>p.dom===dom).map(p=>`<option value="${p.id}">${p.proc}</option>`).join('');
+}
+
+function collectAuditModal(){
+  const type=document.getElementById('m-type').value;
+  const titre=document.getElementById('m-titre').value.trim();
+  if(!titre){toast('Titre obligatoire');return null;}
+  const auditeurs=[];
+  if(document.getElementById('a-sh').checked)auditeurs.push('sh');
+  if(document.getElementById('a-ne').checked)auditeurs.push('ne');
+  const base={type,titre,annee:parseInt(document.getElementById('m-annee').value),statut:document.getElementById('m-statut').value,auditeurs};
+  if(type==='Process'){
+    const procEl=document.getElementById('m-proc');
+    const procId=procEl?.value;
+    const procObj=PROCESSES.find(p=>p.id===procId);
+    return{...base,domaine:document.getElementById('m-dom').value,process:procObj?.proc||'',processId:procId};
+  } else {
+    return{...base,entite:document.getElementById('m-ent').value,region:document.getElementById('m-reg').value,pays:document.getElementById('m-pays').value.split(',').map(s=>s.trim()).filter(Boolean)};
+  }
+}
+
+function showAddAuditModal(){
+  openModal('Nouvel audit',auditModalBody(null),()=>{
+    const data=collectAuditModal();
+    if(!data)return;
+    AUDIT_PLAN.push({id:'ap'+Date.now(),...data});
+    addHist('add',`Audit "${data.titre}" ajouté au plan`);
+    renderPlanAuditTable();toast('Audit créé ✓');
+  });
+}
+
+function showEditAuditModal(idx){
+  const ap=AUDIT_PLAN[idx];
+  openModal(`Modifier — ${ap.titre}`,auditModalBody(ap),()=>{
+    const data=collectAuditModal();
+    if(!data)return;
+    AUDIT_PLAN[idx]={...ap,...data};
+    addHist('edit',`Audit "${data.titre}" modifié`);
+    renderPlanAuditTable();toast('Audit mis à jour ✓');
+  });
+}
+
+function deleteAudit(idx){
+  const ap=AUDIT_PLAN[idx];
+  if(!confirm(`Supprimer "${ap.titre}" ?`))return;
+  AUDIT_PLAN.splice(idx,1);
+  addHist('del',`Audit "${ap.titre}" supprimé`);
+  renderPlanAuditTable();toast('Supprimé');
+}
+
+// ---- PLAN PROCESS (lecture depuis AUDIT_PLAN) ----
+V['plan-process']=()=>`
+  <div class="topbar"><div class="tbtitle">Plan Process 2025–2028</div>
+    <div style="display:flex;gap:7px">
+      <button class="bs ao" onclick="showAddProcModal()">+ Processus</button>
+      <button class="bp ao" onclick="nav('plan-audit')">Gérer le plan audit →</button>
+    </div>
+  </div>
+  <div class="content">
+    <div style="background:var(--pu-lt);border:.5px solid var(--pu);border-radius:var(--r);padding:8px 12px;font-size:12px;color:var(--pu-dk);margin-bottom:1rem">
+      Les missions planifiées sont gérées depuis l'écran <strong>Plan Audit</strong>. Cet écran affiche la vue consolidée.
+    </div>
+    <div class="tw"><table id="pp-tbl"></table></div>
+  </div>`;
+
+I['plan-process']=()=>renderProcTable();
+
+function renderProcTable(){
+  const doms=[...new Set(PROCESSES.map(p=>p.dom))];
+  const procAudits=AUDIT_PLAN.filter(a=>a.type==='Process');
+  var h='<thead><tr><th>Domaine</th><th>Processus</th><th>Risque</th><th>2025</th><th>2026</th><th>2027</th><th>2028</th>'+(CU&&CU.role==='admin'?'<th>Actions</th>':'')+'</tr></thead><tbody>';
+  doms.forEach(dom=>{
+    const rows=PROCESSES.filter(p=>p.dom===dom&&!p.archived);
+    if(!rows.length)return;
+    h+=`<tr class="sr"><td colspan="8">${dom}</td></tr>`;
+    rows.forEach(p=>{
+      const idx=PROCESSES.indexOf(p);
+      // cherche missions dans AUDIT_PLAN par année
+      const mByYear={};
+      [2025,2026,2027,2028].forEach(y=>{
+        const m=procAudits.find(a=>a.processId===p.id&&a.annee===y);
+        mByYear[y]=m;
+      });
+      const yc=y=>{const m=mByYear[y];return m?`<div style="display:flex;flex-direction:column;gap:2px"><span style="font-size:10px;font-weight:500;color:var(--pu-dk)">${m.titre}</span><div style="display:flex;gap:3px">${(m.auditeurs||[]).map(id=>avEl(id,16)).join('')}</div></div>`:'<span style="color:var(--t3)">—</span>';};
+      var riskCell = CU&&CU.role==='admin'
+        ? '<select style="font-size:10px;padding:2px 4px;border:none;background:transparent;cursor:pointer" onchange="editRisk('+idx+',this.value)"><option value="1" '+(p.risk===1?'selected':'')+'>&#9733;</option><option value="2" '+(p.risk===2?'selected':'')+'>&#9733;&#9733;</option><option value="3" '+(p.risk===3?'selected':'')+'>&#9733;&#9733;&#9733;</option></select>'
+        : RS[p.risk];
+      var adminCell = CU&&CU.role==='admin'
+        ? '<td style="white-space:nowrap"><button class="bs" style="font-size:10px;padding:2px 7px" onclick="showEditProcModal('+idx+')">Modifier</button> <button class="bd" style="font-size:10px;padding:2px 7px" onclick="archiveProc('+idx+')">Archiver</button></td>'
+        : '';
+      h+='<tr>';
+      h+='<td style="font-size:11px;color:var(--t2)">'+dom+'</td>';
+      h+='<td style="font-weight:500;font-size:11px">'+p.proc+'</td>';
+      h+='<td style="text-align:center">'+riskCell+'</td>';
+      h+='<td>'+yc(2025)+'</td><td>'+yc(2026)+'</td><td>'+yc(2027)+'</td><td>'+yc(2028)+'</td>';
+      h+=adminCell;
+      h+='</tr>';
+    });
+  });
+  document.getElementById('pp-tbl').innerHTML=h+'</tbody>';
+}
+
+function editRisk(idx,v){PROCESSES[idx].risk=parseInt(v);addHist('edit',`Risque "${PROCESSES[idx].proc}" modifié`);toast('Risque mis à jour');}
+function archiveProc(idx){PROCESSES[idx].archived=true;addHist('arch',`Process "${PROCESSES[idx].proc}" archivé`);renderProcTable();toast('Archivé');}
+
+function showAddProcModal(){
+  const doms=[...new Set(PROCESSES.map(p=>p.dom))];
+  openModal('Nouveau processus',`
+    <div><label>Domaine</label><select id="m-dom">'+doms.map(function(d){return'<option>'+d+'</option>';}).join('')+'<option>+ Nouveau domaine</option></select></div>
+    <div><label>Nom du processus</label><input id="m-proc" placeholder="ex : Gestion de la paie"/></div>
+    <div><label>Niveau de risque</label><select id="m-risk"><option value="1">★ Faible</option><option value="2" selected>★★ Moyen</option><option value="3">★★★ Élevé</option></select></div>`,
+    ()=>{
+      const proc=document.getElementById('m-proc').value.trim();
+      if(!proc){toast('Nom obligatoire');return;}
+      PROCESSES.push({id:'p'+Date.now(),dom:document.getElementById('m-dom').value,proc,risk:parseInt(document.getElementById('m-risk').value),archived:false});
+      addHist('add',`Process "${proc}" ajouté`);
+      renderProcTable();toast('Processus créé ✓');
+    });
+}
+
+function showEditProcModal(idx){
+  const p=PROCESSES[idx];
+  openModal(`Modifier "${p.proc}"`,`
+    <div><label>Nom du processus</label><input id="m-proc" value="${p.proc}"/></div>
+    <div><label>Risque</label><select id="m-risk"><option value="1" ${p.risk===1?'selected':''}>★</option><option value="2" ${p.risk===2?'selected':''}>★★</option><option value="3" ${p.risk===3?'selected':''}>★★★</option></select></div>`,
+    ()=>{
+      p.proc=document.getElementById('m-proc').value.trim();
+      p.risk=parseInt(document.getElementById('m-risk').value);
+      addHist('edit',`Process "${p.proc}" modifié`);
+      renderProcTable();toast('Mis à jour ✓');
+    });
+}
+
+// ---- PLAN BU (lecture depuis AUDIT_PLAN) ----
+V['plan-bu']=()=>`
+  <div class="topbar"><div class="tbtitle">Plan BU 2025–2028</div>
+    <button class="bp ao" onclick="nav('plan-audit')">Gérer le plan audit →</button>
+  </div>
+  <div class="content">
+    <div style="background:var(--pu-lt);border:.5px solid var(--pu);border-radius:var(--r);padding:8px 12px;font-size:12px;color:var(--pu-dk);margin-bottom:1rem">
+      Les BU Audits sont gérés depuis l'écran <strong>Plan Audit</strong>. Cet écran affiche la vue consolidée par entité.
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:1rem">
+      <select id="f-bu-ent" onchange="renderBUTable()"><option value="all">SBS + AXW + ALL</option><option value="SBS">SBS</option><option value="AXW">AXW</option></select>
+      <select id="f-bu-yr" onchange="renderBUTable()"><option value="all">Toutes années</option><option value="2025">2025</option><option value="2026">2026</option><option value="2027">2027</option><option value="2028">2028</option></select>
+    </div>
+    <div class="tw"><table id="bu-tbl"></table></div>
+  </div>`;
+
+I['plan-bu']=()=>renderBUTable();
+
+function renderBUTable(){
+  const fe=document.getElementById('f-bu-ent')?.value||'all';
+  const fy=document.getElementById('f-bu-yr')?.value||'all';
+  const rows=AUDIT_PLAN.filter(a=>a.type==='BU'&&(fe==='all'||a.entite===fe)&&(fy==='all'||String(a.annee)===fy));
+  const regs=[...new Set(rows.map(b=>b.region))];
+  var h='<thead><tr><th>Entite</th><th>Region</th><th>Pays</th><th>Titre mission</th><th>Annee</th><th>Auditeurs</th><th>Statut</th></tr></thead><tbody>';
+  if(!rows.length){h+=`<tr><td colspan="7" style="text-align:center;color:var(--t3);padding:1.5rem">Aucune BU planifiée.</td></tr>`;
+  } else {
+    regs.forEach(reg=>{
+      h+=`<tr class="sr"><td colspan="7">${reg}</td></tr>`;
+      rows.filter(b=>b.region===reg).forEach(b=>{
+        const avs=(b.auditeurs||[]).map(id=>avEl(id,20)).join('');
+        h+=`<tr>
+          <td><span class="badge ${b.entite==='SBS'?'bsbs':'baxw'}">${b.entite}</span></td>
+          <td style="color:var(--t2);font-size:11px">${b.region}</td>
+          <td style="font-weight:500;font-size:11px">${(b.pays||[]).join(', ')}</td>
+          <td style="font-size:11px">${b.titre}</td>
+          <td style="font-weight:500;color:var(--pu-dk)">${b.annee}</td>
+          <td><div style="display:flex;gap:3px">${avs||'<span style="font-size:10px;color:var(--t3)">—</span>'}</div></td>
+          <td>${badge(b.statut||'Planifié')}</td>
+        </tr>`;
+      });
+    });
+  }
+  document.getElementById('bu-tbl').innerHTML=h+'</tbody>';
+}
+
+// ---- MES AUDITS ----
+V['mes-audits']=()=>`
+  <div class="topbar"><div class="tbtitle">Mes audits</div><button class="bp ao" onclick="nav('plan-audit')">+ Nouvel audit</button></div>
+  <div class="content">
+    <div style="display:flex;gap:8px;margin-bottom:1rem">
+      <select id="f-ty" onchange="renderAuditList()"><option value="all">Process + BU</option><option value="Process">Process</option><option value="BU">BU</option></select>
+      <select id="f-st" onchange="renderAuditList()"><option value="all">Tous statuts</option><option>En cours</option><option>Planifié</option><option>Clôturé</option></select>
+    </div>
+    <div id="audit-list"></div>
+  </div>`;
+I['mes-audits']=()=>renderAuditList();
+
+function renderAuditList(){
+  const ft=document.getElementById('f-ty')?.value||'all';
+  const fs=document.getElementById('f-st')?.value||'all';
+  const rows=getAudits().filter(a=>(ft==='all'||a.type===ft)&&(fs==='all'||a.status===fs));
+  document.getElementById('audit-list').innerHTML=rows.length
+    ?rows.map(a=>`<div class="ar" onclick="openAudit('${a.id}')">
+        <div style="flex:1"><div class="an">${a.name}</div><div class="am">${a.ent} · ${a.type}</div></div>
+        <div style="display:flex;gap:2px">${(a.assignedTo||[]).map(id=>avEl(id,20)).join('')}</div>
+        <span class="badge ${a.type==='Process'?'bpc':'bbu'}">${a.type}</span>
+        ${badge(a.status)}
+        <div>${pbar(a.status)}</div>
+      </div>`).join('')
+    :'<div style="font-size:12px;color:var(--t3);padding:.5rem">Aucun audit.</div>';
+}
+
+async function openAudit(id){
+  CA=id;
+  var found=getAudits().find(function(a){return a.id===id;});
+  CS=found?found.step||0:0;
+  CT='roles';
+  await loadAuditData(id);
+  nav('audit-detail');
+};
+I['audit-detail']=()=>{};
+
+function getStepTabs(){
+  if(CS===4)return['roles','tasks','controls','docs','notes'];
+  if(CS===5)return['roles','tasks','controls-exec','findings-exec','docs','notes'];
+  if(CS===6)return['roles','tasks','findings','maturity','docs','notes'];
+  if(CS===8)return['roles','tasks','mgt-resp','docs','notes'];
+  return['roles','tasks','docs','notes'];
+}
+const TLBL={'roles':'Rôles','tasks':'Tâches','controls':'Contrôles','controls-exec':'Contrôles & Tests','findings-exec':'Findings (tests)','findings':'Findings','maturity':'Overall Maturity','mgt-resp':'Mgt Response','docs':'Documents','notes':'Notes'};
+
+function renderDetTabs(){
+  return getStepTabs().map(t=>`<div class="tab ${CT===t?'active':''}" onclick="switchDetTab('${t}')">${TLBL[t]}</div>`).join('');
+}
+
+function renderStepper(){
+  const phases=[[0,1,2],[3,4,5],[6,7,8,9,10]];
+  const pn=['Préparation','Réalisation','Restitution'];
+  const d=getAudData(CA);
+  return phases.map((idxs,pi)=>`
+    <div class="pl">${pn[pi]}</div>
+    <div class="step-row" style="margin-bottom:${pi<2?'1rem':'0'}">
+    ${idxs.map(i=>{
+      const cls=i<CS?'done':i===CS?'active':'';
+      const lbl=STEPS[i].s.replace('/',' /').split(' /');
+      const st=(d.tasks[i]||[]);
+      const assigned=[...new Set(st.map(t=>t.assignee).filter(x=>x&&x!=='none'))];
+      return`<div class="step-item ${cls}" onclick="goStep(${i})">
+        <div class="sc">${i<CS?'✓':i+1}</div>
+        <div class="sl">${lbl[0]}${lbl[1]?'<br>/'+lbl[1]:''}</div>
+        <div style="display:flex;gap:1px;margin-top:2px">${assigned.map(id=>avEl(id,12)).join('')}</div>
+      </div>`;
+    }).join('')}</div>`).join('');
+}
+
+function renderDetContent(){
+  const a=getAudits().find(x=>x.id===CA);
+  const s=STEPS[CS];
+  const d=getAudData(CA);
+  const stepTasks=d.tasks[CS]||[];
+
+  if(CT==='roles'){
+    return`<div class="card"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.875rem">
+      <div style="font-size:13px;font-weight:600">Étape ${CS+1} — ${s.s}</div>${badge(a.status)}</div>
+      <div class="g2" style="margin-bottom:.875rem">
+        ${(a.assignedTo||[]).map(id=>{const m=TM[id];if(!m)return'';const my=stepTasks.filter(t=>t.assignee===id);
+          return`<div class="card" style="background:var(--bg)"><div style="font-size:10px;color:var(--t3);margin-bottom:5px">Auditrice</div><div style="display:flex;align-items:center;gap:7px">${avEl(id,26)}<div><div style="font-size:12px;font-weight:500">${m.name}</div><div style="font-size:10px;color:${my.filter(t=>t.done).length===my.length&&my.length>0?'var(--gn)':'var(--am)'}">${my.length?my.filter(t=>t.done).length+'/'+my.length+' tâches':'Aucune tâche'}</div></div></div></div>`;}).join('')}
+        <div class="card" style="background:var(--bg)"><div style="font-size:10px;color:var(--t3);margin-bottom:5px">Valideur</div><div style="display:flex;align-items:center;gap:7px">${avEl('pm',26)}<div><div style="font-size:12px;font-weight:500">Philippe M.</div><div style="font-size:10px;color:var(--am)">Validation requise</div></div></div></div>
+      </div>
+      ${CU?.role!=='admin'?'<div class="notice">La validation est réservée au Directeur Audit.</div>':''}
+    </div>`;
+  }
+
+  if(CT==='tasks'){
+    const done=stepTasks.filter(t=>t.done).length;
+    return`<div class="card"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.875rem">
+      <div style="font-size:13px;font-weight:600">Tâches — ${s.s}</div>
+      <div style="display:flex;gap:8px;align-items:center"><span style="font-size:11px;color:var(--t2)">${done}/${stepTasks.length}</span><button class="bs" style="font-size:11px" onclick="showNewTaskModal()">+ Ajouter</button></div>
+    </div><div id="task-list">${renderTaskList(stepTasks,a)}</div></div>`;
+  }
+
+  if(CT==='controls'){
+    const ctrls=d.controls[CS]||[];
+    return`<div class="card"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.875rem">
+      <div style="font-size:13px;font-weight:600">Contrôles identifiés</div>
+      <button class="bs" style="font-size:11px" onclick="showAddControlModal()">+ Ajouter</button>
+    </div>
+    ${buildControlList(ctrls)}
+    </div>`;
+  }
+
+  if(CT==='controls-exec'){
+    const step5c=d.controls[4]||[];
+    const keyExist=step5c.filter(c=>c.clef&&c.design==='existing');
+    const targets=step5c.filter(c=>c.design==='target');
+    return`<div class="card">
+      <div style="font-size:13px;font-weight:600;margin-bottom:.875rem">Tests — Contrôles clefs existants</div>
+      ${keyExist.length?buildExecTable(keyExist):'<div style="font-size:12px;color:var(--t3);padding:.5rem">Aucun controle clef existant (definis a l\'etape 5).</div>'}
+      <div style="font-size:13px;font-weight:600;margin:.875rem 0 .5rem">Contrôles Target — anomalies automatiques</div>
+      ${buildTargetList(targets)}
+    </div>`;
+  }
+
+  if(CT==='findings-exec'||CT==='findings'){
+    const step5c=d.controls[4]||[];
+    const step6c=(d.controls[4]||[]).filter(x=>x.clef&&x.design==='existing'&&x.finalized&&x.result==='fail');
+    const failF=step6c.filter(c=>c.finding);
+    const targetF=step5c.filter(c=>c.design==='target');
+    const manualF=d.findings||[];
+    return`<div class="card"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.875rem">
+      <div style="font-size:13px;font-weight:600">Findings</div>
+      <button class="bs" style="font-size:11px" onclick="showAddFindingModal()">+ Ajouter un finding</button>
+    </div>
+    ${failF.length?('<div style="font-size:11px;font-weight:500;color:var(--t2);margin-bottom:.5rem">Controles - Fail</div>'+failF.map(function(ctrl){return'<div class="fr"><div class="fh"><span class="badge bfl">Fail</span><div class="ft">'+ctrl.name+'</div></div><div style="font-size:11px;color:var(--t2)">'+ctrl.finding+'</div></div>';}).join('')):''}
+    ${targetF.length?('<div style="font-size:11px;font-weight:500;color:var(--t2);margin:.75rem 0 .5rem">Controles non existants (Target)</div>'+targetF.map(function(ctrl){return'<div class="fr"><div class="fh"><span class="badge btg">Target</span><div class="ft">'+ctrl.name+'</div></div><div style="font-size:11px;color:var(--rd)">Controle non existant.</div></div>';}).join('')):''}
+    ${manualF.length?('<div style="font-size:11px;font-weight:500;color:var(--t2);margin:.75rem 0 .5rem">Findings additionnels</div>'+manualF.map(function(f,idx2){return'<div class="fr"><div class="fh"><span class="badge bpc">Finding</span><div class="ft">'+f.title+'</div><button class="bd" style="font-size:10px;padding:2px 6px" onclick="removeManualFinding('+idx2+')">X</button></div><div style="font-size:11px;color:var(--t2)">'+f.desc+'</div></div>';}).join('')):''}
+    ${!failF.length&&!targetF.length&&!manualF.length?'<div style="font-size:12px;color:var(--t3)">Aucun finding pour le moment.</div>':''}
+    </div>`;
+  }
+
+  if(CT==='maturity'){
+    const d=getAudData(CA);
+    if(!d.maturity)d.maturity={level:'',notes:'',saved:false};
+    const MLEVELS=[
+      {key:'unsatisfactory',label:'Unsatisfactory',color:'#A32D2D',bg:'#FCEBEB',
+        def:'Controle interne insuffisant. De nombreux controles manquent ou sont inefficaces. Des deficiences significatives exposent l\'organisation a des risques importants.',
+        meas:'Plus de 70% des controles testes sont en Fail. Plusieurs controles Target identifies. Risque eleve non mitige.'},
+      {key:'major',label:'Major Improvements Needed',color:'#854F0B',bg:'#FAEEDA',
+        def:'Le cadre de controle existe mais presente des lacunes importantes. Des ameliorations substantielles sont necessaires pour atteindre un niveau d\'efficacite acceptable.',
+        meas:'40 a 70% des controles testes en Fail. Controles clefs manquants ou mal concus. Plans d\'action correctifs requis a court terme.'},
+      {key:'some',label:'Some Improvements Needed',color:'#1D6B45',bg:'#E1F5EE',
+        def:'Le cadre de controle est globalement en place mais des ameliorations ponctuelles sont necessaires pour optimiser son efficacite.',
+        meas:'10 a 40% des controles en Fail. La majorite des controles clefs fonctionnent correctement. Axes d\'amelioration identifies.'},
+      {key:'effective',label:'Effective',color:'#3B6D11',bg:'#EAF3DE',
+        def:'Le cadre de controle est solide et efficace. Les controles clefs sont en place, bien concus et operationnels. Le processus est gere de maniere appropriee.',
+        meas:'Moins de 10% des controles en Fail. Tous les controles clefs sont existants et fonctionnels. Aucun gap majeur identifie.'},
+    ];
+    const step6c=(d.controls[4]||[]).filter(function(x){return x.clef&&x.design==='existing'&&x.finalized;});
+    const failCount=step6c.filter(function(x){return x.result==='fail';}).length;
+    const passCount=step6c.filter(function(x){return x.result==='pass';}).length;
+    const targetCount=(d.controls[4]||[]).filter(function(x){return x.design==='target';}).length;
+    const ratio=step6c.length?failCount/step6c.length:0;
+    const suggestedKey=step6c.length===0?'':ratio>0.7?'unsatisfactory':ratio>0.4?'major':ratio>0.1?'some':'effective';
+    const sugLabel=suggestedKey?MLEVELS.find(function(l){return l.key===suggestedKey;}):null;
+    let html='<div class="card">';
+    html+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem">';
+    html+='<div style="font-size:13px;font-weight:600">Overall Process Maturity</div>';
+    if(d.maturity.saved)html+='<span class="tag-new">&#10003; Evaluation sauvegardee</span>';
+    html+='</div>';
+    html+='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:1rem">';
+    html+='<div class="card" style="background:var(--bg);text-align:center"><div style="font-size:10px;color:var(--t3);margin-bottom:3px">Tests finalises</div><div style="font-size:20px;font-weight:600">'+step6c.length+'</div></div>';
+    html+='<div class="card" style="background:var(--gn-lt);text-align:center"><div style="font-size:10px;color:var(--t3);margin-bottom:3px">Pass</div><div style="font-size:20px;font-weight:600;color:var(--gn)">'+passCount+'</div></div>';
+    html+='<div class="card" style="background:var(--rd-lt);text-align:center"><div style="font-size:10px;color:var(--t3);margin-bottom:3px">Fail + Target</div><div style="font-size:20px;font-weight:600;color:var(--rd)">'+(failCount+targetCount)+'</div></div>';
+    html+='</div>';
+    if(sugLabel)html+='<div style="background:var(--pu-lt);border:.5px solid var(--pu);border-radius:var(--r);padding:8px 12px;font-size:12px;color:var(--pu-dk);margin-bottom:1rem">Niveau suggere : <strong>'+sugLabel.label+'</strong></div>';
+    html+='<div style="font-size:12px;font-weight:500;color:var(--t2);margin-bottom:.625rem">Selectionnez le niveau de maturite du processus audite :</div>';
+    html+='<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:1rem">';
+    MLEVELS.forEach(function(l){
+      const sel=d.maturity.level===l.key;
+      const border='border:2px solid '+(sel?l.color:'var(--br)')+';';
+      const bg='background:'+(sel?l.bg:'var(--bw)')+';';
+      const radioBg='background:'+(sel?l.color:'transparent')+';';
+      html+='<div onclick="setMaturity(\''+l.key+'\')" style="'+border+'border-radius:var(--r);padding:.875rem 1rem;cursor:pointer;'+bg+'transition:all .15s">';
+      html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">';
+      html+='<div style="width:14px;height:14px;border-radius:50%;border:2px solid '+l.color+';'+radioBg+'flex-shrink:0"></div>';
+      html+='<div style="font-size:13px;font-weight:600;color:'+l.color+'">'+l.label+'</div>';
+      html+='</div>';
+      html+='<div style="padding-left:24px">';
+      html+='<div style="font-size:11px;color:var(--t2);margin-bottom:4px"><strong>Definition :</strong> '+l.def+'</div>';
+      html+='<div style="font-size:11px;color:var(--t3)"><strong>Mesure :</strong> '+l.meas+'</div>';
+      html+='</div></div>';
+    });
+    html+='</div>';
+    html+='<div style="font-size:12px;font-weight:500;color:var(--t2);margin-bottom:.375rem">Commentaires / Justification</div>';
+    html+='<textarea id="maturity-notes" style="width:100%;min-height:80px;resize:vertical;font-size:12px" placeholder="Justifiez votre evaluation...">'+(d.maturity.notes||'')+'</textarea>';
+    html+='<div style="display:flex;justify-content:flex-end;margin-top:8px"><button class="bp" onclick="saveMaturity()">Sauvegarder</button></div>';
+    html+='</div>';
+    return html;
+  }
+
+  if(CT==='mgt-resp'){
+    // Collecte tous les findings de cet audit
+    const step5c=d.controls[4]||[];
+    const step6c=(d.controls[4]||[]).filter(x=>x.clef&&x.design==='existing'&&x.finalized&&x.result==='fail');
+    const allFindings=[
+      ...step6c.filter(c=>c.finding).map(c=>({id:'f_'+c.name,title:c.name,desc:c.finding,type:'fail'})),
+      ...step5c.filter(c=>c.design==='target').map(c=>({id:'t_'+c.name,title:c.name,desc:`Contrôle non existant — à définir par ${c.owner}`,type:'target'})),
+      ...(d.findings||[]).map((f,i)=>({id:'m_'+i,title:f.title,desc:f.desc,type:'manual'})),
+    ];
+    if(!d.mgtResp)d.mgtResp=[];
+    // Ensure each finding has a mgt response entry
+    allFindings.forEach(f=>{
+      if(!d.mgtResp.find(r=>r.findingId===f.id)){
+        d.mgtResp.push({findingId:f.id,action:'',owner:'',year:2026,quarter:'Q1',pushed:false});
+      }
+    });
+    return`<div class="card"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.875rem">
+      <div style="font-size:13px;font-weight:600">Management Responses</div>
+      <button class="bs" style="font-size:11px" onclick="pushAllMgtResp()">Envoyer vers Plans d'action →</button>
+    </div>
+    ${allFindings.length?allFindings.map((f,fi)=>{
+      const resp=d.mgtResp.find(r=>r.findingId===f.id)||{};
+      const tcolor={fail:'var(--rd)',target:'var(--am)',manual:'var(--pu-dk)'}[f.type];
+      const tbadge={fail:'bfl',target:'btg',manual:'bpc'}[f.type];
+      return`<div class="mr-row">
+        <div class="mr-hdr"><span class="badge ${tbadge}">${f.type==='fail'?'Fail':f.type==='target'?'Target':'Finding'}</span><div class="mr-title">${f.title}</div>${resp.pushed?'<span class="tag-new">✓ Envoyé</span>':''}</div>
+        <div style="font-size:11px;color:var(--t2);margin-bottom:.625rem">${f.desc}</div>
+        <div class="mr-fields">
+          <div><label style="font-size:10px;color:var(--t3);display:block;margin-bottom:3px">Action</label><input style="font-size:11px" placeholder="Action corrective à mener..." value="${resp.action||''}" onchange="setMgtResp('${f.id}','action',this.value)"/></div>
+          <div><label style="font-size:10px;color:var(--t3);display:block;margin-bottom:3px">Owner (département)</label><input style="font-size:11px" placeholder="ex : Finance, IT..." value="${resp.owner||''}" onchange="setMgtResp('${f.id}','owner',this.value)"/></div>
+          <div><label style="font-size:10px;color:var(--t3);display:block;margin-bottom:3px">Deadline</label>
+            <div style="display:flex;gap:4px">
+              <select style="font-size:11px" onchange="setMgtResp('${f.id}','year',parseInt(this.value))"><option ${resp.year===2025?'selected':''}>2025</option><option ${resp.year===2026?'selected':''} selected>2026</option><option ${resp.year===2027?'selected':''}>2027</option><option ${resp.year===2028?'selected':''}>2028</option></select>
+              <select style="font-size:11px" onchange="setMgtResp('${f.id}','quarter',this.value)"><option ${resp.quarter==='Q1'?'selected':''}>Q1</option><option ${resp.quarter==='Q2'?'selected':''}>Q2</option><option ${resp.quarter==='Q3'?'selected':''}>Q3</option><option ${resp.quarter==='Q4'?'selected':''}>Q4</option></select>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    }).join(''):'<div style="font-size:12px;color:var(--t3)">Aucun finding identifié (complétez les étapes 5, 6 et 7).</div>'}
+    </div>`;
+  }
+
+  if(CT==='docs'){
+    return`<div class="card"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.875rem"><div style="font-size:13px;font-weight:600">Documents</div><button class="bs" style="font-size:11px" onclick="addFakeDoc()">+ Ajouter</button></div>
+    <div class="uz" onclick="addFakeDoc()"><div style="font-size:12px;color:var(--t2)">Glissez vos fichiers ou cliquez</div><div style="font-size:10px;color:var(--t3);margin-top:2px">PDF, Excel, Word, PowerPoint</div></div>
+    <div id="doc-list">'+buildDocList(d.docs)+'</div>
+    </div>`;
+  }
+
+  if(CT==='notes'){
+    return`<div class="card"><div style="font-size:13px;font-weight:600;margin-bottom:.75rem">Notes de l'auditeur</div>
+    <textarea style="width:100%;min-height:120px;resize:vertical" placeholder="Observations, constats...">${d.notes||''}</textarea>
+    <div style="display:flex;justify-content:flex-end;margin-top:8px"><button class="bp" onclick="saveNotes()">Sauvegarder</button></div></div>`;
+  }
+  return'';
+}
+
+function goStep(i){CS=i;const tabs=getStepTabs();if(!tabs.includes(CT))CT='roles';document.getElementById('stepper-card').innerHTML=renderStepper();document.getElementById('gp-fill').style.width=Math.round(i/10*100)+'%';document.getElementById('gp-pct').textContent=Math.round(i/10*100)+'%';document.getElementById('gp-lbl').textContent=`Étape ${i+1}/11 — ${STEPS[i].s}`;document.getElementById('det-tabs').innerHTML=renderDetTabs();document.getElementById('det-content').innerHTML=renderDetContent();}
+function switchDetTab(tab){CT=tab;document.getElementById('det-tabs').innerHTML=renderDetTabs();document.getElementById('det-content').innerHTML=renderDetContent();}
+
+function validerEtape(){
+  const ap=AUDIT_PLAN.find(a=>a.id===CA);
+  if(CS<10){CS++;if(ap)ap.statut='En cours';addHist('edit',`Étape ${CS} validée — "${ap?.titre}"`);goStep(CS);toast(`"${STEPS[CS].s}" validée ✓`);}
+  else{if(ap)ap.statut='Clôturé';toast('Mission clôturée ✓');}
+}
+
+function renderTaskList(st,a){
+  if(!st.length)return'<div style="font-size:12px;color:var(--t3);padding:.5rem">Aucune tâche.</div>';
+  return st.map((t,i)=>`<div class="ti">
+    <div class="tcb ${t.done?'done':''}" onclick="toggleTask(${i})">${t.done?'✓':''}</div>
+    <div class="tt ${t.done?'dt':''}">${t.desc}</div>
+    <select style="font-size:11px;padding:2px 6px;border-radius:20px;background:var(--bg)" onchange="reassignTask(${i},this.value)">
+      <option value="none" ${!t.assignee||t.assignee==='none'?'selected':''}>—</option>
+      '+buildAssigneeOpts(a.assignedTo,t.assignee)+'
+    </select>
+    <span style="font-size:10px;color:${t.done?'var(--gn)':t.assignee&&t.assignee!=='none'?'var(--pu)':'var(--t3)'}">${t.done?'✓':t.assignee&&t.assignee!=='none'?'En cours':'À faire'}</span>
+  </div>`).join('');
+}
+
+function toggleTask(i){const d=getAudData(CA);if(!d.tasks[CS])d.tasks[CS]=[];d.tasks[CS][i].done=!d.tasks[CS][i].done;const a=getAudits().find(x=>x.id===CA);document.getElementById('task-list').innerHTML=renderTaskList(d.tasks[CS],a);document.getElementById('stepper-card').innerHTML=renderStepper();}
+function reassignTask(i,val){const d=getAudData(CA);if(d.tasks[CS]&&d.tasks[CS][i])d.tasks[CS][i].assignee=val;document.getElementById('stepper-card').innerHTML=renderStepper();if(val!=='none')toast(`Assigné à ${TM[val]?.name}`);}
+
+function showNewTaskModal(){
+  const a=getAudits().find(x=>x.id===CA);
+  openModal('Nouvelle tâche',`
+    <div><label>Description</label><input id="t-desc" placeholder="ex : Analyser les données..."/></div>
+    <div><label>Assignée à</label><select id="t-assign"><option value="none">— Non assignée</option>'+buildAssigneeOpts(a.assignedTo,null)+'</select></div>`,
+    ()=>{
+      const desc=document.getElementById('t-desc').value.trim();
+      if(!desc){toast('Description obligatoire');return;}
+      const d=getAudData(CA);if(!d.tasks[CS])d.tasks[CS]=[];
+      d.tasks[CS].push({desc,assignee:document.getElementById('t-assign').value,done:false});
+      document.getElementById('det-content').innerHTML=renderDetContent();
+      document.getElementById('stepper-card').innerHTML=renderStepper();
+      toast('Tâche créée ✓');
+    });
+}
+
+function showAddControlModal(){
+  openModal('Ajouter un contrôle',`
+    <div><label>Nom du contrôle</label><input id="c-name" placeholder="ex : Rapprochement mensuel des soldes"/></div>
+    <div><label>Contrôle owner (département)</label><input id="c-owner" placeholder="ex : Finance / Comptabilité"/></div>
+    <div class="g2">
+      <div><label>Fréquence</label><select id="c-freq"><option>Mensuel</option><option>Trimestriel</option><option>Semestriel</option><option>Annuel</option><option>Ad hoc</option></select></div>
+      <div><label>Contrôle clef ?</label><select id="c-clef"><option value="1">Oui — sera testé</option><option value="0">Non — non testé</option></select></div>
+    </div>
+    <div><label>Design</label><select id="c-design"><option value="existing">Existing — contrôle en place</option><option value="target">Target — contrôle non existant</option></select></div>`,
+    ()=>{
+      const name=document.getElementById('c-name').value.trim();
+      if(!name){toast('Nom obligatoire');return;}
+      const d=getAudData(CA);if(!d.controls[CS])d.controls[CS]=[];
+      d.controls[CS].push({name,owner:document.getElementById('c-owner').value,freq:document.getElementById('c-freq').value,clef:document.getElementById('c-clef').value==='1',design:document.getElementById('c-design').value,result:null,testNature:'',finding:''});
+      document.getElementById('det-content').innerHTML=renderDetContent();
+      toast('Contrôle ajouté ✓');
+    });
+}
+
+function removeControl(i){const d=getAudData(CA);d.controls[CS].splice(i,1);document.getElementById('det-content').innerHTML=renderDetContent();}
+
+function setTestNature(i,val){const d=getAudData(CA);const kc=(d.controls[4]||[]).filter(c=>c.clef&&c.design==='existing');if(kc[i])kc[i].testNature=val;}
+function setTestResult(i,val){const d=getAudData(CA);const kc=(d.controls[4]||[]).filter(c=>c.clef&&c.design==='existing');if(kc[i]){kc[i].result=val;document.getElementById('det-content').innerHTML=renderDetContent();}}
+function setFinding(i,val){const d=getAudData(CA);const kc=(d.controls[4]||[]).filter(c=>c.clef&&c.design==='existing');if(kc[i])kc[i].finding=val;}
+
+function showAddFindingModal(){
+  openModal('Nouveau finding',`
+    <div><label>Titre</label><input id="f-title" placeholder="ex : Absence de contrôle sur les accès"/></div>
+    <div><label>Description / Observation</label><textarea id="f-desc" style="height:80px" placeholder="Décrivez l'anomalie ou l'amélioration..."></textarea></div>`,
+    ()=>{
+      const title=document.getElementById('f-title').value.trim();
+      if(!title){toast('Titre obligatoire');return;}
+      const d=getAudData(CA);
+      d.findings.push({title,desc:document.getElementById('f-desc').value.trim()});
+      document.getElementById('det-content').innerHTML=renderDetContent();
+      toast('Finding ajouté ✓');
+    });
+}
+
+function removeManualFinding(i){const d=getAudData(CA);d.findings.splice(i,1);document.getElementById('det-content').innerHTML=renderDetContent();}
+
+function setMgtResp(findingId,field,val){
+  const d=getAudData(CA);
+  const r=d.mgtResp.find(x=>x.findingId===findingId);
+  if(r)r[field]=val;
+}
+
+function pushAllMgtResp(){
+  const d=getAudData(CA);
+  const ap=AUDIT_PLAN.find(a=>a.id===CA);
+  const pushed=d.mgtResp.filter(r=>r.action&&r.owner&&!r.pushed);
+  if(!pushed.length){toast('Aucune réponse complète à envoyer (action + owner requis)');return;}
+  pushed.forEach(r=>{
+    const step5c=d.controls[4]||[];
+    const step6c=d.controls[5]||[];
+    const allF=[
+      ...step6c.filter(c=>c.result==='fail'&&c.finding).map(c=>({id:'f_'+c.name,title:c.name})),
+      ...step5c.filter(c=>c.design==='target').map(c=>({id:'t_'+c.name,title:c.name})),
+      ...(d.findings||[]).map((f,i)=>({id:'m_'+i,title:f.title})),
+    ];
+    const f=allF.find(x=>x.id===r.findingId);
+    if(!f)return;
+    ACTIONS.unshift({id:'ac'+Date.now()+Math.random(),title:r.action,audit:ap?.titre||'—',resp:CU?.name||'—',dept:r.owner,ent:ap?.type==='BU'?ap.entite:'Groupe',year:r.year,quarter:r.quarter,status:'Non démarré',pct:0,fromFinding:true,findingTitle:f.title});
+    r.pushed=true;
+    addHist('add',`Plan d'action créé depuis finding "${f.title}"`);
+  });
+  document.getElementById('det-content').innerHTML=renderDetContent();
+  toast(`${pushed.length} plan(s) d'action créé(s) ✓`);
+}
+
+async function addFakeDoc(){
+  // Crée un input file et déclenche le sélecteur
+  var inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = '.pdf,.xlsx,.xls,.docx,.doc,.pptx,.ppt,.csv,.txt';
+  inp.multiple = true;
+  inp.onchange = async function(){
+    if(!inp.files.length) return;
+    var ap = AUDIT_PLAN.find(function(a){return a.id===CA;});
+    var folderName = ap ? ap.titre.replace(/[^a-zA-Z0-9]/g,'_') : CA;
+    for(var fi=0; fi<inp.files.length; fi++){
+      var file = inp.files[fi];
+      toast('Upload en cours : ' + file.name + '...');
+      try {
+        var path = folderName + '/' + Date.now() + '_' + file.name;
+        var {data, error} = await getSB().storage
+          .from('auditflow-docs')
+          .upload(path, file, {upsert: true});
+        if(error){ toast('Erreur upload : ' + error.message); continue; }
+        var {data: urlData} = getSB().storage
+          .from('auditflow-docs')
+          .getPublicUrl(path);
+        var d = getAudData(CA);
+        var sizeTxt = file.size < 1024*1024
+          ? Math.round(file.size/1024) + ' Ko'
+          : (file.size/1024/1024).toFixed(1) + ' Mo';
+        d.docs.push({name: file.name, size: sizeTxt, url: urlData.publicUrl, path: path});
+        await saveAuditData(CA);
+        document.getElementById('det-content').innerHTML=renderDetContent();
+        toast(file.name + ' uploadé ✓');
+      } catch(e){
+        console.error('Upload error:', e);
+        toast('Erreur : ' + e.message);
+      }
+    }
+  };
+  inp.click();
+}
+
+function saveNotes(){const d=getAudData(CA);d.notes=document.querySelector('textarea')?.value||'';toast('Notes sauvegardées ✓');}
+
+function buildExecTable(keyExist){
+  let h='<div style="display:grid;grid-template-columns:2fr 1fr 1fr 2fr auto;gap:8px;padding:5px 0;border-bottom:.5px solid var(--br);font-size:10px;font-weight:500;color:var(--t2)">';
+  h+='<span>Controle</span><span>Nature du test</span><span>Resultat</span><span>Finding (si Fail)</span><span></span></div>';
+  keyExist.forEach(function(ctrl,i){
+    const fin=ctrl.finalized;
+    const rowStyle=fin?'opacity:.7;background:var(--bg);border-radius:var(--r);padding:7px;margin-bottom:2px':'';
+    h+='<div style="display:grid;grid-template-columns:2fr 1fr 1fr 2fr auto;gap:8px;align-items:center;padding:7px 0;border-bottom:.5px solid var(--br);font-size:11px;'+rowStyle+'">';
+    h+='<span style="font-weight:500">'+ctrl.name+(fin?' <span class="tag-new">&#10003; Finalise</span>':'')+'</span>';
+    h+='<select style="font-size:11px"'+(fin?' disabled':'')+' onchange="setTestNature('+i+',this.value)">';
+    h+='<option value="">- Type</option>';
+    ['Observation','Inspection','Reperformance','Enquiry'].forEach(function(n){
+      h+='<option'+(ctrl.testNature===n?' selected':'')+'>'+n+'</option>';
+    });
+    h+='</select>';
+    h+='<select style="font-size:11px"'+(fin?' disabled':'')+' onchange="setTestResult('+i+',this.value)">';
+    h+='<option value="">- Resultat</option>';
+    h+='<option value="pass"'+(ctrl.result==='pass'?' selected':'')+'>Pass</option>';
+    h+='<option value="fail"'+(ctrl.result==='fail'?' selected':'')+'>Fail</option>';
+    h+='</select>';
+    const inp_style='font-size:11px;'+(ctrl.result==='fail'?'border-color:var(--rd)':'');
+    const inp_ph=ctrl.result==='fail'?'Finding obligatoire...':'--';
+    const inp_dis=(ctrl.result!=='fail'||fin)?'disabled':'';
+    h+='<input style="'+inp_style+'" placeholder="'+inp_ph+'" value="'+(ctrl.finding||'')+'" '+inp_dis+' onchange="setFinding('+i+',this.value)"/>';
+    if(!fin){
+      h+='<button class="bp" style="font-size:10px;padding:3px 8px;white-space:nowrap" onclick="finalizeTest('+i+')">Finaliser</button>';
+    } else {
+      const rc=ctrl.result==='pass'?'var(--gn)':'var(--rd)';
+      h+='<span style="font-size:10px;color:'+rc+'">&#10003; '+(ctrl.result==='pass'?'Pass':'Fail')+'</span>';
+    }
+    h+='</div>';
+  });
+  return h;
+}
+
+function finalizeTest(i){
+  const d=getAudData(CA);
+  const kc=(d.controls[4]||[]).filter(x=>x.clef&&x.design==='existing');
+  const ctrl=kc[i];
+  if(!ctrl)return;
+  if(!ctrl.testNature){toast('Veuillez sélectionner la nature du test');return;}
+  if(!ctrl.result){toast('Veuillez indiquer le résultat (Pass/Fail)');return;}
+  if(ctrl.result==='fail'&&!ctrl.finding){toast('Veuillez documenter le finding avant de finaliser');return;}
+  ctrl.finalized=true;
+  addHist('edit',`Test finalisé — "${ctrl.name}" : ${ctrl.result==='pass'?'Pass':'Fail'}`);
+  document.getElementById('det-content').innerHTML=renderDetContent();
+  toast(`Test "${ctrl.name}" finalisé — ${ctrl.result==='pass'?'✓ Pass':'✗ Fail'}`);
+}
+
+function setMaturity(key){
+  const d=getAudData(CA);
+  if(!d.maturity)d.maturity={level:'',notes:'',saved:false};
+  d.maturity.level=key;
+  d.maturity.saved=false;
+  document.getElementById('det-content').innerHTML=renderDetContent();
+}
+
+function saveMaturity(){
+  const d=getAudData(CA);
+  if(!d.maturity?.level){toast('Veuillez sélectionner un niveau de maturité');return;}
+  d.maturity.notes=document.getElementById('maturity-notes')?.value||'';
+  d.maturity.saved=true;
+  addHist('edit',`Maturité process définie : ${d.maturity.level} — "${AUDIT_PLAN.find(a=>a.id===CA)?.titre}"`);
+  toast('Évaluation sauvegardée ✓');
+  document.getElementById('det-content').innerHTML=renderDetContent();
+}
+
+function deleteAction(id){
+  const idx=ACTIONS.findIndex(a=>a.id===id);
+  if(idx===-1)return;
+  if(!confirm(`Supprimer "${ACTIONS[idx].title}" ?`))return;
+  ACTIONS.splice(idx,1);
+  addHist('del',`Plan d'action supprimé`);
+  renderActionList();
+  toast('Plan d\'action supprimé');
+}
+
+// ---- PLANIFICATION ----
+V['planification']=()=>`
+  <div class="topbar"><div class="tbtitle">Planification</div></div>
+  <div class="content">
+    <div style="display:flex;gap:8px;margin-bottom:1rem">
+      <select id="f-pl" onchange="renderGantt()"><option value="all">Process + BU</option><option value="Process">Process</option><option value="BU">BU</option></select>
+      <select id="f-pyr" onchange="renderGantt()"><option value="all">Toutes années</option><option value="2025" selected>2025</option><option value="2026">2026</option><option value="2027">2027</option><option value="2028">2028</option></select>
+    </div>
+    <div class="gw" id="gantt-wrap"></div>
+  </div>`;
+I['planification']=()=>renderGantt();
+
+function renderGantt(){
+  const ft=document.getElementById('f-pl')?.value||'all';
+  const fy=document.getElementById('f-pyr')?.value||'all';
+  const rows=AUDIT_PLAN.filter(a=>(ft==='all'||a.type===ft)&&(fy==='all'||String(a.annee)===fy));
+  const months=MO.map(function(m,mi){return'<div class="gc'+(mi===8?' today-col':'')+'">'+m+'</div>';}).join('');
+  const hdr=`<div class="gr gw" style="border-bottom:.5px solid var(--br)"><div class="gc" style="text-align:left;padding-left:8px">Audit</div>${months}</div>`;
+  const body=rows.map((a,idx)=>{
+    const start=a.annee===2025?Math.floor(Math.random()*4):0;
+    const dur=4;
+    const cells=MO.map(function(_,m){var cls=m===8?'gm td':'gm';var bar=m>=start&&m<start+dur?'<div class="gb" style="background:'+GC[idx%GC.length]+'"></div>':'';return'<div class="'+cls+'">'+bar+'</div>';}).join('');
+    return`<div class="gr" style="border-bottom:.5px solid var(--br)">
+      <div class="gn2"><span class="badge ${a.type==='Process'?'bpc':'bbu'}" style="font-size:9px;padding:1px 5px">${a.type==='Process'?'P':'BU'}</span>${a.titre.length>16?a.titre.slice(0,15)+'…':a.titre}</div>${cells}</div>`;
+  }).join('');
+  document.getElementById('gantt-wrap').innerHTML=hdr+body;
+}
+
+// ---- MODÈLES ----
+V['modeles']=()=>`
+  <div class="topbar"><div class="tbtitle">Modèles d'audit</div><button class="bp">+ Nouveau modèle</button></div>
+  <div class="content">
+    <div class="tabs"><div class="tab active" onclick="sTT(this,'tp-p')">Process</div><div class="tab" onclick="sTT(this,'tp-b')">BU</div></div>
+    <div id="tp-p" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">${buildTplCards(['Product Development','Cybersecurity & Data','Treasury & Tax','Sales & Services','P2P / Third Party','Governance'],'bpc')}</div>
+    <div id="tp-b" style="display:none;grid-template-columns:repeat(3,1fr);gap:10px">${buildTplCards(['Legal/Compliance','HR','Sales','Procurement','Accounting','IS/IT'],'bbu')}</div>
+  </div>`;
+function sTT(el,id){document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));el.classList.add('active');document.getElementById('tp-p').style.display=id==='tp-p'?'grid':'none';document.getElementById('tp-b').style.display=id==='tp-b'?'grid':'none';}
+
+// ---- PLANS D'ACTION ----
+V['plans-action']=()=>`
+  <div class="topbar"><div class="tbtitle">Suivi des plans d'action</div><button class="bp" onclick="showNewActionModal()">+ Ajouter</button></div>
+  <div class="content">
+    <div class="metrics">
+      <div class="mc"><div class="ml">Total</div><div class="mv">${ACTIONS.length}</div></div>
+      <div class="mc"><div class="ml">En cours</div><div class="mv" style="color:var(--pu)">${ACTIONS.filter(a=>a.status==='En cours').length}</div></div>
+      <div class="mc"><div class="ml">En retard</div><div class="mv" style="color:var(--rd)">${ACTIONS.filter(a=>a.status==='En retard').length}</div></div>
+      <div class="mc"><div class="ml">Issus de findings</div><div class="mv" style="color:var(--gn)">${ACTIONS.filter(a=>a.fromFinding).length}</div></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:1rem">
+      <select id="f-pa-st" onchange="renderActionList()"><option value="all">Tous statuts</option><option>En cours</option><option>En retard</option><option>Non démarré</option><option>Clôturé</option></select>
+    </div>
+    <div id="action-list"></div>
+  </div>`;
+I['plans-action']=()=>renderActionList();
+
+function renderActionList(){
+  const fs=document.getElementById('f-pa-st')?.value||'all';
+  const rows=ACTIONS.filter(a=>fs==='all'||a.status===fs);
+  const fc={'En retard':'var(--rd)','Clôturé':'var(--gn)','Non démarré':'var(--gy)','En cours':'var(--pu)'};
+  document.getElementById('action-list').innerHTML=rows.map(a=>`
+    <div class="card" style="margin-bottom:6px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">
+        <div style="font-size:12px;font-weight:500;flex:1">${a.title}</div>
+        ${badge(a.status)}
+        ${a.fromFinding?'<span class="tag-new">↗ Finding</span>':''}
+      </div>
+      <div style="font-size:11px;color:var(--t2);margin-bottom:4px">
+        Audit : ${a.audit} · Resp. : ${a.resp} · Dept owner : <strong>${a.dept}</strong> · Éch. : ${a.quarter} ${a.year}
+        ${a.findingTitle?'<span style="color:var(--t3)"> · Finding : "'+a.findingTitle+'"</span>':''}
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <div style="flex:1;height:5px;background:var(--bg);border-radius:3px;overflow:hidden"><div style="height:100%;border-radius:3px;background:${fc[a.status]||'var(--pu)'};width:${a.pct}%"></div></div>
+        <span style="font-size:10px;color:var(--t3)">${a.pct}%</span>
+      </div>
+    </div>`).join('')||'<div style="font-size:12px;color:var(--t3)">Aucun plan d\'action.</div>';
+}
+
+function showNewActionModal(){
+  openModal("Nouveau plan d'action",`
+    <div><label>Titre</label><input id="pa-title" placeholder="ex : Revue des accès ERP"/></div>
+    <div><label>Lié à l'audit</label><select id="pa-audit">${AUDIT_PLAN.map(function(a){return'<option>'+a.titre+'</option>';}).join('')}</select></div>
+    <div><label>Responsable</label><select id="pa-resp"><option>Selma H.</option><option>Nisrine E.</option></select></div>
+    <div><label>Département owner</label><input id="pa-dept" placeholder="ex : Finance, IT, RH..."/></div>
+    <div><label>Entité</label><select id="pa-ent"><option>Groupe</option><option>74S</option><option>SBS</option><option>AXW</option></select></div>
+    <div class="g2">
+      <div><label>Année</label><select id="pa-yr"><option>2025</option><option>2026</option><option>2027</option><option>2028</option></select></div>
+      <div><label>Trimestre</label><select id="pa-q"><option>Q1</option><option>Q2</option><option>Q3</option><option>Q4</option></select></div>
+    </div>`,
+    ()=>{
+      const title=document.getElementById('pa-title').value.trim();
+      if(!title){toast('Titre obligatoire');return;}
+      ACTIONS.unshift({id:'ac'+Date.now(),title,audit:document.getElementById('pa-audit').value,resp:document.getElementById('pa-resp').value,dept:document.getElementById('pa-dept').value||'—',ent:document.getElementById('pa-ent').value,year:parseInt(document.getElementById('pa-yr').value),quarter:document.getElementById('pa-q').value,status:'Non démarré',pct:0,fromFinding:false});
+      renderActionList();toast('Plan d\'action créé ✓');
+    });
+}
+
+// ---- HISTORIQUE ----
+V['historique']=()=>`<div class="topbar"><div class="tbtitle">Historique des modifications</div></div>
+  <div class="content"><div class="card" id="hl"></div></div>`;
+I['historique']=()=>{
+  const dc={add:'var(--gn)',edit:'var(--pu)',arch:'var(--am)',del:'var(--rd)'};
+  document.getElementById('hl').innerHTML=HISTORY_LOG.length
+    ?HISTORY_LOG.map(h=>`<div style="display:flex;gap:10px;padding:.625rem 0;border-bottom:.5px solid var(--br)"><div style="width:8px;height:8px;border-radius:50%;background:${dc[h.type]||'var(--pu)'};margin-top:4px;flex-shrink:0"></div><div><div style="font-size:12px">${h.msg}</div><div style="font-size:10px;color:var(--t3);margin-top:2px">${h.user} · ${h.date}</div></div></div>`).join('')
+    :'<div style="font-size:12px;color:var(--t3)">Aucune modification.</div>';
+};
+
+// ---- RÔLES & ACCÈS ----
+V['roles']=()=>`
+  <div class="topbar"><div class="tbtitle">Rôles & Accès</div><button class="bp" onclick="showInviteModal()">+ Inviter</button></div>
+  <div class="content">
+    ${PENDING.length?('<div style="margin-bottom:1rem"><div class="st" style="margin-bottom:.5rem">Demandes en attente ('+PENDING.length+')</div>'+PENDING.map(function(u,pi){return'<div class="card" style="margin-bottom:6px;display:flex;align-items:center;gap:10px"><div style="flex:1"><div style="font-size:12px;font-weight:500">'+u.name+'</div><div style="font-size:11px;color:var(--t2)">'+u.email+'</div></div><button class="bp" style="font-size:11px" onclick="approveUser('+pi+')">Valider</button><button class="bd" style="font-size:11px" onclick="rejectUser('+pi+')">Refuser</button></div>';}).join('')+'</div>'):''}
+    <div class="tw"><table><thead><tr><th>Membre</th><th>Email</th><th>Rôle</th><th>Statut</th><th>Modifier</th></tr></thead><tbody id="utbl"></tbody></table></div>
+    <div class="card" style="margin-top:1rem;font-size:12px;color:var(--t2);line-height:1.8">
+      <strong>Admin / Directeur</strong> — accès complet, validation des étapes, gestion du Plan Audit et des utilisateurs.<br>
+      <strong>Auditrice</strong> — accès à ses audits assignés, remplissage des tâches, contrôles, findings et documents.
+    </div>
+  </div>`;
+I['roles']=()=>renderUsersTbl();
+
+function renderUsersTbl(){
+  const RL={admin:'Admin / Directeur',auditeur:'Auditrice',audite:'Audité'};
+  const RB={admin:'bpc',auditeur:'bdn',audite:'btg'};
+  document.getElementById('utbl').innerHTML=USERS.map((u,i)=>`
+    <tr><td style="font-weight:500">${u.name}</td><td style="color:var(--t2);font-size:11px">${u.email}</td>
+    <td><span class="badge ${RB[u.role]||'bpl'}">${RL[u.role]||u.role}</span></td>
+    <td><span style="font-size:11px;color:var(--gn)">● ${u.status}</span></td>
+    <td><select style="font-size:11px;padding:3px 7px;border:.5px solid var(--bm);border-radius:var(--r);background:var(--bw)" onchange="changeRole(${i},this.value)">
+      <option value="admin" ${u.role==='admin'?'selected':''}>Admin / Directeur</option>
+      <option value="auditeur" ${u.role==='auditeur'?'selected':''}>Auditrice</option>
+      <option value="audite" ${u.role==='audite'?'selected':''}>Audité</option>
+    </select></td></tr>`).join('');
+}
+
+function changeRole(i,r){USERS[i].role=r;renderUsersTbl();toast('Rôle mis à jour');}
+function approveUser(i){const u=PENDING[i];u.status='actif';USERS.push(u);PENDING.splice(i,1);addHist('add',`Accès validé pour ${u.name}`);nav('roles');toast(`Accès accordé à ${u.name} ✓`);}
+function rejectUser(i){const u=PENDING[i];PENDING.splice(i,1);addHist('del',`Demande refusée pour ${u.name}`);nav('roles');toast('Refusé');}
+
+function showInviteModal(){
+  openModal('Inviter un membre',`
+    <div><label>Prénom Nom</label><input id="iv-nm" placeholder="ex : Jean Martin"/></div>
+    <div><label>Email</label><input id="iv-em" placeholder="jean@groupe.com"/></div>
+    <div><label>Mot de passe provisoire</label><input id="iv-pw" type="password" placeholder="••••••••"/></div>
+    <div><label>Rôle</label><select id="iv-rl"><option value="admin">Admin / Directeur</option><option value="auditeur" selected>Auditrice</option><option value="audite">Audité</option></select></div>`,
+    ()=>{
+      const name=document.getElementById('iv-nm').value.trim();
+      const email=document.getElementById('iv-em').value.trim();
+      const pwd=document.getElementById('iv-pw').value;
+      if(!name||!email||!pwd){toast('Champs obligatoires');return;}
+      USERS.push({id:'u'+Date.now(),name,email,pwd,role:document.getElementById('iv-rl').value,status:'actif'});
+      addHist('add',`${name} invité(e)`);renderUsersTbl();toast(`${name} ajouté(e) ✓`);
+    });
+}
+
+
+function buildControlList(ctrls){
+  if(!ctrls||!ctrls.length)return'<div style="font-size:12px;color:var(--t3);padding:.5rem">Aucun controle identifie.</div>';
+  var h='<div class="ch"><span>Controle</span><span>Owner</span><span>Frequence</span><span>Clef ?</span><span>Design</span><span></span></div>';
+  ctrls.forEach(function(ctrl,ci){
+    h+='<div class="cr"><span style="font-weight:500">'+ctrl.name+'</span><span style="color:var(--t2)">'+ctrl.owner+'</span><span style="color:var(--t2)">'+ctrl.freq+'</span>';
+    h+='<span><span class="badge '+(ctrl.clef?'bps':'bpl')+'">'+(ctrl.clef?'Oui':'Non')+'</span></span>';
+    h+='<span><span class="badge '+(ctrl.design==='existing'?'bdn':'btg')+'">'+(ctrl.design==='existing'?'Existing':'Target')+'</span></span>';
+    h+='<button class="bd" style="font-size:10px;padding:2px 6px" onclick="removeControl('+ci+')">X</button></div>';
+  });
+  return h;
+}
+
+function buildTargetList(targets){
+  if(!targets||!targets.length)return'<div style="font-size:12px;color:var(--t3);padding:.5rem">Aucun controle target.</div>';
+  return targets.map(function(ctrl){
+    return '<div class="fr"><div class="fh"><span class="badge btg">Target</span><div class="ft">'+ctrl.name+'</div></div>'
+      +'<div style="font-size:11px;color:var(--rd)">Controle non existant a definir par '+ctrl.owner+'.</div></div>';
+  }).join('');
+}
+
+function buildDocList(docs){
+  if(!docs||!docs.length)return'';
+  return docs.map(function(f){
+    return '<div style="display:flex;align-items:center;gap:7px;font-size:11px;color:var(--t2);background:var(--bg);padding:5px 9px;border-radius:var(--r);margin-bottom:5px">'
+      +'<span style="color:var(--pu)">&#9646;</span>'+f.name+'<span style="margin-left:auto;color:var(--t3)">'+f.size+'</span></div>';
+  }).join('');
+}
+
+function buildAssigneeOpts(assigned,current){
+  return (assigned||[]).map(function(id){
+    return '<option value="'+id+'"'+(current===id?' selected':'')+'>'+((TM[id]&&TM[id].name)||id)+'</option>';
+  }).join('');
+}
+
+function buildTplCards(names,badgeCls){
+  return names.map(function(n){
+    return '<div class="card" style="display:flex;flex-direction:column;gap:6px">'
+      +'<div style="display:flex;justify-content:space-between"><div style="font-size:12px;font-weight:500">'+n+'</div>'
+      +'<span class="badge '+badgeCls+'">'+(badgeCls==='bpc'?'Process':'BU')+'</span></div>'
+      +'<div style="font-size:11px;color:var(--t2)">3 phases · 11 etapes</div>'
+      +'<button class="bs" style="width:100%">Utiliser</button></div>';
+  }).join('');
+}
+
+
+async function deleteDoc(auditId, path, name){
+  if(!confirm('Supprimer "' + name + '" ?')) return;
+  var {error} = await getSB().storage.from('auditflow-docs').remove([path]);
+  if(error){ toast('Erreur suppression : ' + error.message); return; }
+  var d = getAudData(auditId);
+  d.docs = d.docs.filter(function(f){ return f.path !== path; });
+  await saveAuditData(auditId);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+  toast(name + ' supprimé ✓');
+}
+
+window.addEventListener('DOMContentLoaded',initLogin);
+</script>
+</body>
+</html>
