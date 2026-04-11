@@ -87,7 +87,7 @@ function renderPlanAuditTable(){
       h+= `<td><span class="badge ${tb}">${ap.type}</span></td>`;
       h+= `<td style="font-weight:500;font-size:12px">${ap.titre}</td>`;
       h+= `<td>${detail}</td>`;
-      h+= `<td style="font-weight:500;color:var(--purple-dk)">${ap.annee}</td>`;
+      h+= `<td style="font-weight:500;color:var(--purple-dk)">${ap.annee}${ap.dateDebut||ap.dateFin?"<div style='font-size:10px;color:#888'>"+(["Jan","Fév","Mar","Avr","Mai","Jun","Jul","Aoû","Sep","Oct","Nov","Déc"][(parseInt(ap.dateDebut)||1)-1]||"?")+" → "+(["Jan","Fév","Mar","Avr","Mai","Jun","Jul","Aoû","Sep","Oct","Nov","Déc"][(parseInt(ap.dateFin)||1)-1]||"?")+"</div>":""}</td>`;
       h+= `<td><div style="display:flex;gap:3px">${avs||'<span style="font-size:10px;color:var(--text-3)">-</span>'}</div></td>`;
       h+= `<td>${badge(ap.statut||'Planifie')}</td>`;
       h+=adminBtn;
@@ -152,6 +152,14 @@ function auditModalBody(ap){
   h+='<label style="display:flex;align-items:center;gap:5px;font-size:12px">';
   h+='<input type="checkbox" id="a-ne"'+((ap&&ap.auditeurs&&ap.auditeurs.includes('ne'))?' checked':'')+'>  Nisrine E.</label>';
   h+='</div></div>';
+  var dbVal=ap&&ap.dateDebut?ap.dateDebut:'';
+  var dfVal=ap&&ap.dateFin?ap.dateFin:'';
+  var mns=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+  var mOpts=function(sel){return mns.map(function(m,i){var vv=String(i+1);return '<option value="'+vv+'"'+(sel===vv?' selected':'')+'>'+m+'</option>';}).join('');};
+  h+='<div class="f-row"><div style="display:flex;gap:8px">';
+  h+='<div style="flex:1"><label class="f-lbl">Mois début</label><select id="m-deb" class="f-inp"><option value="">— Non défini</option>'+mOpts(dbVal)+'</select></div>';
+  h+='<div style="flex:1"><label class="f-lbl">Mois fin</label><select id="m-fin" class="f-inp"><option value="">— Non défini</option>'+mOpts(dfVal)+'</select></div>';
+  h+='</div></div>';
   return h;
 }
 
@@ -174,7 +182,9 @@ function collectAuditModal(){
   const auditeurs=[];
   if(document.getElementById('a-sh').checked)auditeurs.push('sh');
   if(document.getElementById('a-ne').checked)auditeurs.push('ne');
-  const base={type,titre,annee:parseInt(document.getElementById('m-annee').value),statut:document.getElementById('m-statut').value,auditeurs};
+  const dateDebut=document.getElementById('m-deb')?document.getElementById('m-deb').value:'';
+  const dateFin=document.getElementById('m-fin')?document.getElementById('m-fin').value:'';
+  const base={type,titre,annee:parseInt(document.getElementById('m-annee').value),statut:document.getElementById('m-statut').value,auditeurs,dateDebut,dateFin};
   if(type==='Process'){
     const procEl=document.getElementById('m-proc');
     const procId=procEl?.value;
