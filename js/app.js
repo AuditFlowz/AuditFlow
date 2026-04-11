@@ -11,7 +11,8 @@ async function initLogin(){
     await loadAllData();
     console.log('Supabase connecté — données chargées');
   } catch(e) {
-    console.warn('Supabase non disponible, mode local');
+    console.error('Supabase connection failed:', e);
+    alert('Supabase connection error: ' + e.message);
   }
 }
 
