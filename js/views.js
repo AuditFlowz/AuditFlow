@@ -1038,7 +1038,7 @@ function buildDocList(docs){
       +'<span style="font-size:10px;color:var(--text-3);flex-shrink:0">'+f.size+'</span>'
       +'<button class="bs" style="font-size:10px;padding:2px 7px;flex-shrink:0" onclick="renameDoc('+fi+')">Renommer</button>'
       +'<button class="bs" style="font-size:10px;padding:2px 7px;flex-shrink:0" onclick="replaceDoc('+fi+')">Remplacer</button>'
-      +'<button class="bd" style="font-size:10px;padding:2px 7px;flex-shrink:0" onclick="deleteDoc(CA,''+f.path+'',''+f.name+'')">Supprimer</button>'
+      +'<button class="bd" style="font-size:10px;padding:2px 7px;flex-shrink:0" onclick="deleteDoc(CA,&quot;'+f.path+'&quot;,&quot;'+f.name+'&quot;)">Supprimer</button>'
       +'</div>'
       +(meta ? '<div style="font-size:10px;color:var(--text-3);padding-left:18px">'+meta+'</div>' : '')
       +'</div>';
