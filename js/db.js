@@ -156,7 +156,7 @@ async function deleteDoc(auditId, path, name){
   toast(name + ' supprimé ✓');
 }
 
-async function uploadDoc(auditId, file) {
+async function uploadDoc(auditId, file, stepIndex, userName) {
   var ap = AUDIT_PLAN.find(function(a){return a.id===auditId;});
   var folderName = ap ? ap.titre.replace(/[^a-zA-Z0-9]/g,'_') : auditId;
   var path = folderName + '/' + Date.now() + '_' + file.name;
@@ -176,8 +176,47 @@ async function uploadDoc(auditId, file) {
     ? Math.round(file.size/1024) + ' Ko'
     : (file.size/1024/1024).toFixed(1) + ' Mo';
 
-  var docObj = {name: file.name, size: sizeTxt, url: urlData.publicUrl, path: path};
+  var docObj = {
+    name: file.name,
+    size: sizeTxt,
+    url: urlData.publicUrl,
+    path: path,
+    uploadedBy: userName || 'Inconnu',
+    uploadedAt: new Date().toISOString(),
+    step: stepIndex !== undefined ? stepIndex : null,
+  };
   d.docs.push(docObj);
   await saveAuditData(auditId);
   return docObj;
+}
+
+async function renameDocInDB(auditId, docIndex, newName) {
+  var d = getAudData(auditId);
+  if(!d.docs[docIndex]) return;
+  d.docs[docIndex].name = newName;
+  await saveAuditData(auditId);
+}
+
+async function replaceDocInDB(auditId, docIndex, file, stepIndex, userName) {
+  var d = getAudData(auditId);
+  var oldDoc = d.docs[docIndex];
+  if(!oldDoc) return null;
+  // Delete old file from storage
+  await getSB().storage.from('auditflow-docs').remove([oldDoc.path]);
+  // Upload new file
+  var ap = AUDIT_PLAN.find(function(a){return a.id===auditId;});
+  var folderName = ap ? ap.titre.replace(/[^a-zA-Z0-9]/g,'_') : auditId;
+  var path = folderName + '/' + Date.now() + '_' + file.name;
+  var {data, error} = await getSB().storage.from('auditflow-docs').upload(path, file, {upsert: true});
+  if(error) throw error;
+  var {data: urlData} = getSB().storage.from('auditflow-docs').getPublicUrl(path);
+  var sizeTxt = file.size < 1024*1024 ? Math.round(file.size/1024)+' Ko' : (file.size/1024/1024).toFixed(1)+' Mo';
+  d.docs[docIndex] = {
+    name: file.name, size: sizeTxt, url: urlData.publicUrl, path: path,
+    uploadedBy: userName || 'Inconnu',
+    uploadedAt: new Date().toISOString(),
+    step: stepIndex !== undefined ? stepIndex : oldDoc.step,
+  };
+  await saveAuditData(auditId);
+  return d.docs[docIndex];
 }
