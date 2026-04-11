@@ -16,9 +16,9 @@ const ENT={sbs:'<span class="badge bsbs">SBS</span>',axw:'<span class="badge bax
 let CU=null,CV='dashboard',CA=null,CS=0,CT='roles';
 
 var USERS=[
-  {id:'pm',name:'Philippe M.',email:'philippe.massard@axway.com',role:'admin',status:"actif",pwd:"Audit2025!"},
-  {id:'sh',name:'Selma H.',email:'selma.habib@axway.com',role:'auditeur',status:"actif",pwd:"Audit2025!"},
-  {id:'ne',name:'Nisrine E.',email:'nisrine.el@axway.com',role:'auditeur',status:"actif",pwd:"Audit2025!"},
+  {id:'pm',name:'Philippe M.',email:'pmassard@74Software.com',role:'admin',status:'actif',pwd:'Audit1234!'},
+  {id:'sh',name:'Selma H.',email:'selma.habib@axway.com',role:'auditeur',status:'actif',pwd:'Audit2025!'},
+  {id:'ne',name:'Nisrine E.',email:'nisrine.el@axway.com',role:'auditeur',status:'actif',pwd:'Audit2025!'},
 ];
 let PENDING=[];
 let HISTORY_LOG=[];
