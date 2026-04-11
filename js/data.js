@@ -64,15 +64,24 @@ let AUD_DATA={};
 function getAudData(id){if(!AUD_DATA[id])AUD_DATA[id]={tasks:{},controls:{},findings:[],mgtResp:[],docs:[],notes:''};return AUD_DATA[id];}
 
 function getAudits(){
-  return AUDIT_PLAN.map(ap=>({
-    id:ap.id,
-    name:ap.titre,
-    type:ap.type,
-    ent:ap.type==='BU'?ap.entite:'74S',
-    start:0,dur:ap.annee===2025?6:3,
-    status:ap.statut||'Planifié',
-    step:ap.statut==='Clôturé'?10:ap.statut==='En cours'?2:0,
-    assignedTo:ap.auditeurs||[],
-    planRef:ap.id
-  }));
+  return AUDIT_PLAN.map(ap=>{
+    var s = ap.statut||'Planifié';
+    var base = s.includes('|') ? s.split('|')[0] : s;
+    var step = 0;
+    if(s.includes('|')) step = parseInt(s.split('|')[1]);
+    else if(base==='Clôturé') step = 10;
+    else if(base==='En cours') step = 2;
+
+    return {
+      id:ap.id,
+      name:ap.titre,
+      type:ap.type,
+      ent:ap.type==='BU'?ap.entite:'74S',
+      start:0,dur:ap.annee===2025?6:3,
+      status:s,
+      step:step,
+      assignedTo:ap.auditeurs||[],
+      planRef:ap.id
+    };
+  });
 }

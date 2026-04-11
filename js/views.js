@@ -1,18 +1,30 @@
 const V={},I={};
 
+function calculateAuditProgress(s){
+  if(!s) return 0;
+  if(s === 'Clôturé') return 100;
+  if(s === 'Planifié') return 0;
+  if(s.includes('|')){
+    var idx = parseInt(s.split('|')[1]);
+    return Math.min(100, (idx + 1) * 10);
+  }
+  if(s === 'En cours') return 50;
+  return 0;
+}
+
 V['dashboard']=()=>{
   var CY=2026;
   var yearAudits=AUDIT_PLAN.filter(function(a){return a.annee===CY;});
-  var yClosed=yearAudits.filter(function(a){return a.statut==='Clôturé';});
-  var yInProg=yearAudits.filter(function(a){return a.statut==='En cours';});
-  var yPlanned=yearAudits.filter(function(a){return a.statut==='Planifié';});
+  var yClosed=yearAudits.filter(function(a){return (a.statut||'').startsWith('Clôturé');});
+  var yInProg=yearAudits.filter(function(a){return (a.statut||'').startsWith('En cours');});
+  var yPlanned=yearAudits.filter(function(a){return (a.statut||'').startsWith('Planifié');});
   var closedPct=yearAudits.length?Math.round(yClosed.length/yearAudits.length*100):0;
   var late=ACTIONS.filter(function(a){return a.status==='En retard';}).slice(0,3);
 
   var auditRows=yearAudits.length?yearAudits.map(function(ap){
     var detail=ap.type==='Process'?(ap.domaine+' > '+ap.process):(ap.pays||[]).join(', ');
     var avs=(ap.auditeurs||[]).map(function(id){return avEl(id,18);}).join('');
-    var pct=ap.statut==='Clôturé'?100:ap.statut==='En cours'?50:0;
+    var pct=calculateAuditProgress(ap.statut);
     var tb=ap.type==='Process'?'bpc':'bbu';
     var stat=badge(ap.statut||'Planifié');
     return `<tr style="cursor:pointer" onclick="openAudit(this.getAttribute('data-id'))" data-id="${ap.id}">
@@ -397,6 +409,7 @@ async function openAudit(id){
 V['audit-detail']=()=>{
   const a=getAudits().find(x=>x.id===CA);
   if(!a) return '<div class="content">Audit introuvable.</div>';
+  const pct = Math.min(100, (CS + 1) * 10);
   return `
     <div class="topbar">
       <div style="display:flex;align-items:center;gap:8px">
@@ -415,9 +428,9 @@ V['audit-detail']=()=>{
         </div>
       </div>
       <div class="card" style="display:flex;align-items:center;gap:12px;margin-bottom:1rem">
-        <span style="font-size:11px;color:var(--text-2);white-space:nowrap" id="gp-lbl">Étape ${CS+1}/11</span>
-        <div class="pbar" style="flex:1"><div class="pfill" id="gp-fill" style="width:${Math.round(CS/10*100)}%"></div></div>
-        <span style="font-size:11px;color:var(--text-2)" id="gp-pct">${Math.round(CS/10*100)}%</span>
+        <span style="font-size:11px;color:var(--text-2);white-space:nowrap" id="gp-lbl">Étape ${CS+1}/11 — ${STEPS[CS].s}</span>
+        <div class="pbar" style="flex:1"><div class="pfill" id="gp-fill" style="width:${pct}%"></div></div>
+        <span style="font-size:11px;color:var(--text-2)" id="gp-pct">${pct}%</span>
       </div>
       <div class="card" style="margin-bottom:1rem" id="stepper-card">${renderStepper()}</div>
       <div class="tabs" id="det-tabs">${renderDetTabs()}</div>
@@ -639,14 +652,25 @@ function renderDetContent(){
   return'';
 }
 
-function goStep(i){CS=i;const tabs=getStepTabs();if(!tabs.includes(CT))CT='roles';document.getElementById('stepper-card').innerHTML=renderStepper();document.getElementById('gp-fill').style.width=Math.round(i/10*100)+'%';document.getElementById('gp-pct').textContent=Math.round(i/10*100)+'%';document.getElementById('gp-lbl').textContent=`Étape ${i+1}/11 — ${STEPS[i].s}`;document.getElementById('det-tabs').innerHTML=renderDetTabs();document.getElementById('det-content').innerHTML=renderDetContent();}
+function goStep(i){
+  CS=i;
+  const tabs=getStepTabs();
+  if(!tabs.includes(CT))CT='roles';
+  const pct = Math.min(100, (i + 1) * 10);
+  document.getElementById('stepper-card').innerHTML=renderStepper();
+  document.getElementById('gp-fill').style.width=pct+'%';
+  document.getElementById('gp-pct').textContent=pct+'%';
+  document.getElementById('gp-lbl').textContent=`Étape ${i+1}/11 — ${STEPS[i].s}`;
+  document.getElementById('det-tabs').innerHTML=renderDetTabs();
+  document.getElementById('det-content').innerHTML=renderDetContent();
+}
 function switchDetTab(tab){CT=tab;document.getElementById('det-tabs').innerHTML=renderDetTabs();document.getElementById('det-content').innerHTML=renderDetContent();}
 
 async function validerEtape(){
   var ap=AUDIT_PLAN.find(function(a){return a.id===CA;});
   if(CS<10){
     CS++;
-    if(ap)ap.statut='En cours';
+    if(ap)ap.statut='En cours|'+CS;
     await saveAuditPlan(ap);
     addHist('edit','Étape '+CS+' validée — "'+( ap?ap.titre:'')+ '"');
     goStep(CS);

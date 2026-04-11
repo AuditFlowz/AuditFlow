@@ -118,8 +118,22 @@ function addHist(type,msg){
   addHistoryDB(type,msg,CU?CU.name:'—').catch(function(e){console.warn('History save failed:',e);});
 }
 
-function badge(s){return `<span class="badge ${BMAP[s]||'bpl'}">${s}</span>`}
-function pbar(s){return `<div class="pbar"><div class="pfill" style="width:${PRCT[s]||0}%"></div></div>`}
+function badge(s){
+  var base = s.includes('|') ? s.split('|')[0] : s;
+  return `<span class="badge ${BMAP[base]||'bpl'}">${base}</span>`;
+}
+function pbar(s){
+  var pct = 0;
+  if(typeof s === 'number') pct = s;
+  else if(s.includes('|')){
+    var parts = s.split('|');
+    var idx = parseInt(parts[1]);
+    pct = Math.min(100, (idx + 1) * 10);
+  } else {
+    pct = PRCT[s]||0;
+  }
+  return `<div class="pbar"><div class="pfill" style="width:${pct}%"></div></div>`;
+}
 function avEl(id,sz){const m=TM[id];if(!m)return'';return `<div class="avsm" style="${AVC[id]||''};width:${sz}px;height:${sz}px;font-size:${sz*.4}px">${m.short}</div>`}
 
 window.addEventListener('DOMContentLoaded',initLogin);
