@@ -989,14 +989,9 @@ function buildTargetList(targets){
 function buildDocList(docs){
   if(!docs||!docs.length)return'';
   return docs.map(function(f){
-    var link = f.url ? '<a href="'+f.url+'" target="_blank" rel="noopener" style="color:var(--purple-dk);text-decoration:none;font-weight:500;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+f.name+'</a>'
-      : '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+f.name+'</span>';
-    return '<div style="display:flex;align-items:center;gap:7px;font-size:11px;color:var(--text-2);background:var(--bg);padding:5px 9px;border-radius:var(--radius);margin-bottom:5px">'
-      +'<span style="color:var(--purple)">&#9646;</span>'
-      +link
-      +'<span style="color:var(--text-3);flex-shrink:0">'+f.size+'</span>'
-      +'<button class="bd" style="font-size:10px;padding:2px 6px;flex-shrink:0" onclick="deleteDoc(CA, ''+f.path+'', ''+f.name+'')">&#10005;</button>'
-      +'</div>';
+    return `<div style="display:flex;align-items:center;gap:7px;font-size:11px;color:var(--text-2);background:var(--bg);padding:5px 9px;border-radius:var(--radius);margin-bottom:5px">
+      <span style="color:var(--purple)">&#9646;</span>${f.name}<span style="margin-left:auto;color:var(--text-3)">${f.size}</span>
+      <button class="bd" style="font-size:10px;padding:2px 6px;margin-left:8px" onclick="deleteDoc(CA, '${f.path}', '${f.name}')">X</button></div>`;
   }).join('');
 }
 
