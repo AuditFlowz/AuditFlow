@@ -742,7 +742,7 @@ function pushAllMgtResp(){
     addHist('add',`Plan d'action créé depuis finding "${f.title}"`);
   });
   document.getElementById('det-content').innerHTML=renderDetContent();
-  toast(`${pushed.length} plan(s) d'action créé(s) ✓`);
+  toast(pushed.length+' plan(s) d\'action créé(s) ✓');
 }
 
 async function addFakeDoc(){
@@ -754,15 +754,50 @@ async function addFakeDoc(){
     if(!inp.files.length) return;
     for(var fi=0; fi<inp.files.length; fi++){
       var file = inp.files[fi];
-      toast('Upload en cours : ' + file.name + '...');
+      toast('Upload : '+file.name+'...');
       try {
-        await uploadDoc(CA, file);
+        await uploadDoc(CA, file, CS, CU ? CU.name : 'Inconnu');
         document.getElementById('det-content').innerHTML = renderDetContent();
-        toast(file.name + ' uploadé ✓');
+        toast(file.name+' uploadé ✓');
       } catch(e){
-        console.error('Upload error:', e);
-        toast('Erreur : ' + e.message);
+        toast('Erreur : '+e.message);
+        console.error(e);
       }
+    }
+  };
+  inp.click();
+}
+
+async function renameDoc(docIndex){
+  var d = getAudData(CA);
+  var doc = d.docs[docIndex];
+  if(!doc) return;
+  var newName = prompt('Nouveau nom du fichier :', doc.name);
+  if(!newName || newName.trim()==='' || newName===doc.name) return;
+  try {
+    await renameDocInDB(CA, docIndex, newName.trim());
+    document.getElementById('det-content').innerHTML = renderDetContent();
+    toast('Renommé ✓');
+  } catch(e) {
+    toast('Erreur : '+e.message);
+  }
+}
+
+async function replaceDoc(docIndex){
+  var inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = '.pdf,.xlsx,.xls,.docx,.doc,.pptx,.ppt,.csv,.txt';
+  inp.onchange = async function(){
+    if(!inp.files.length) return;
+    var file = inp.files[0];
+    toast('Remplacement en cours...');
+    try {
+      await replaceDocInDB(CA, docIndex, file, CS, CU ? CU.name : 'Inconnu');
+      document.getElementById('det-content').innerHTML = renderDetContent();
+      toast(file.name+' remplacé ✓');
+    } catch(e) {
+      toast('Erreur : '+e.message);
+      console.error(e);
     }
   };
   inp.click();
@@ -962,7 +997,7 @@ function showInviteModal(){
       const pwd=document.getElementById('iv-pw').value;
       if(!name||!email||!pwd){toast('Champs obligatoires');return;}
       USERS.push({id:'u'+Date.now(),name,email,pwd,role:document.getElementById('iv-rl').value,status:'actif'});
-      addHist('add', `${name} invité(e)`);renderUsersTbl();toast(`${name} ajouté(e) ✓`);
+      addHist('add', name+' invité(e)');renderUsersTbl();toast(name+' ajouté(e) ✓');
     });
 }
 
@@ -988,10 +1023,25 @@ function buildTargetList(targets){
 
 function buildDocList(docs){
   if(!docs||!docs.length)return'';
-  return docs.map(function(f){
-    return `<div style="display:flex;align-items:center;gap:7px;font-size:11px;color:var(--text-2);background:var(--bg);padding:5px 9px;border-radius:var(--radius);margin-bottom:5px">
-      <span style="color:var(--purple)">&#9646;</span>${f.name}<span style="margin-left:auto;color:var(--text-3)">${f.size}</span>
-      <button class="bd" style="font-size:10px;padding:2px 6px;margin-left:8px" onclick="deleteDoc(CA, '${f.path}', '${f.name}')">X</button></div>`;
+  return docs.map(function(f,fi){
+    var nameLink = f.url
+      ? '<a href="'+f.url+'" target="_blank" rel="noopener" style="color:var(--purple-dk);text-decoration:none;font-weight:500">'+f.name+'</a>'
+      : '<span style="font-weight:500">'+f.name+'</span>';
+    var meta = '';
+    if(f.uploadedBy) meta += f.uploadedBy;
+    if(f.uploadedAt) meta += ' · ' + new Date(f.uploadedAt).toLocaleString('fr-FR',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
+    if(f.step !== undefined) meta += ' · Étape '+(f.step+1)+' — '+STEPS[f.step].s;
+    return '<div style="background:var(--bg);border-radius:var(--radius);padding:8px 10px;margin-bottom:6px;border:.5px solid var(--border)">'
+      +'<div style="display:flex;align-items:center;gap:7px;margin-bottom:'+(meta?'4px':'0')+'">'
+      +'<span style="color:var(--purple)">&#9646;</span>'
+      +'<span style="flex:1;font-size:12px">'+nameLink+'</span>'
+      +'<span style="font-size:10px;color:var(--text-3);flex-shrink:0">'+f.size+'</span>'
+      +'<button class="bs" style="font-size:10px;padding:2px 7px;flex-shrink:0" onclick="renameDoc('+fi+')">Renommer</button>'
+      +'<button class="bs" style="font-size:10px;padding:2px 7px;flex-shrink:0" onclick="replaceDoc('+fi+')">Remplacer</button>'
+      +'<button class="bd" style="font-size:10px;padding:2px 7px;flex-shrink:0" onclick="deleteDoc(CA,''+f.path+'',''+f.name+'')">Supprimer</button>'
+      +'</div>'
+      +(meta ? '<div style="font-size:10px;color:var(--text-3);padding-left:18px">'+meta+'</div>' : '')
+      +'</div>';
   }).join('');
 }
 
