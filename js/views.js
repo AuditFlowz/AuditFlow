@@ -880,19 +880,48 @@ V['planification']=()=>`
 I['planification']=()=>renderGantt();
 
 function renderGantt(){
-  const ft=document.getElementById('f-pl')?.value||'all';
-  const fy=document.getElementById('f-pyr')?.value||'all';
-  const rows=AUDIT_PLAN.filter(a=>(ft==='all'||a.type===ft)&&(fy==='all'||String(a.annee)===fy));
-  const months=MO.map(function(m,mi){return'<div class="gc'+(mi===8?' today-col':'')+'">'+m+'</div>';}).join('');
-  const hdr=`<div class="gr gw" style="border-bottom:.5px solid var(--border)"><div class="gc" style="text-align:left;padding-left:8px">Audit</div>${months}</div>`;
-  const body=rows.map((a,idx)=>{
-    const start=a.annee===2025?Math.floor(Math.random()*4):0;
-    const dur=4;
-    const cells=MO.map(function(_,m){var cls=m===8?'gm td':'gm';var bar=m>=start&&m<start+dur?'<div class="gb" style="background:'+GC[idx%GC.length]+'"></div>':'';return'<div class="'+cls+'">'+bar+'</div>';}).join('');
-    return`<div class="gr" style="border-bottom:.5px solid var(--border)">
-      <div class="gn2"><span class="badge ${a.type==='Process'?'bpc':'bbu'}" style="font-size:9px;padding:1px 5px">${a.type==='Process'?'P':'BU'}</span>${a.titre.length>16?a.titre.slice(0,15)+'…':a.titre}</div>${cells}</div>`;
+  var ft=document.getElementById('f-pl')?document.getElementById('f-pl').value:'all';
+  var fy=document.getElementById('f-pyr')?document.getElementById('f-pyr').value:'all';
+  var rows=AUDIT_PLAN.filter(function(a){return(ft==='all'||a.type===ft)&&(fy==='all'||String(a.annee)===fy);});
+  var curMonth=new Date().getMonth();
+  var months=MO.map(function(m,mi){
+    return '<div class="gc'+(mi===curMonth?' today-col':'')+'" style="font-size:11px;text-align:center;padding:4px 0;'+(mi===curMonth?'background:rgba(83,74,183,0.08);font-weight:600':'')+'">'+m+'</div>';
   }).join('');
-  document.getElementById('gantt-wrap').innerHTML=hdr+body;
+  var hdr='<div class="gr gw" style="border-bottom:.5px solid var(--border)">'
+    +'<div class="gc" style="text-align:left;padding-left:8px;font-size:11px;font-weight:500">Audit</div>'+months+'</div>';
+  var body=rows.map(function(a,idx){
+    // Use real dates if available, otherwise show empty bar
+    var start=a.dateDebut?parseInt(a.dateDebut)-1:-1;
+    var end=a.dateFin?parseInt(a.dateFin)-1:-1;
+    var hasDate=start>=0&&end>=0;
+    var cells=MO.map(function(_,m){
+      var isToday=m===curMonth;
+      var inRange=hasDate&&m>=start&&m<=end;
+      var isFirst=hasDate&&m===start;
+      var isLast=hasDate&&m===end;
+      var bar='';
+      if(inRange){
+        var radius=isFirst&&isLast?'4px':isFirst?'4px 0 0 4px':isLast?'0 4px 4px 0':'0';
+        bar='<div class="gb" style="background:'+GC[idx%GC.length]+';border-radius:'+radius+';height:22px;margin:2px 1px;display:flex;align-items:center;justify-content:center">'
+          +(isFirst?'<span style="font-size:9px;color:rgba(0,0,0,0.5);padding-left:4px">'+MO[start]+'</span>':'')
+          +'</div>';
+      }
+      return '<div class="gm'+(isToday?' td':'')+'" style="'+(isToday?'background:rgba(83,74,183,0.05)':'')+'">'
+        +bar+'</div>';
+    }).join('');
+    var badge=a.type==='Process'?'bpc':'bbu';
+    var label=a.type==='Process'?'P':'BU';
+    var title=a.titre.length>18?a.titre.slice(0,17)+'…':a.titre;
+    var noDate=!hasDate?'<span style="font-size:9px;color:#bbb;margin-left:4px">dates non définies</span>':'';
+    return '<div class="gr" style="border-bottom:.5px solid var(--border)">'
+      +'<div class="gn2" style="display:flex;align-items:center;gap:5px">'
+      +'<span class="badge '+badge+'" style="font-size:9px;padding:1px 5px;flex-shrink:0">'+label+'</span>'
+      +'<span style="font-size:11px">'+title+'</span>'
+      +noDate
+      +'</div>'
+      +cells+'</div>';
+  }).join('');
+  document.getElementById('gantt-wrap').innerHTML=hdr+(body||'<div style="padding:2rem;color:#aaa;text-align:center;font-size:12px">Aucun audit pour cette période</div>');
 }
 
 V['modeles']=()=>`
