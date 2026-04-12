@@ -12,10 +12,12 @@ CREATE TABLE IF NOT EXISTS organizations (
 );
 
 -- 2. Création de la table pour lier les utilisateurs aux organisations
+-- NOTE: On référence af_users(id) au lieu de auth.users(id) car l'application
+-- utilise une table d'utilisateurs personnalisée (af_users) pour le login.
 CREATE TABLE IF NOT EXISTS organization_members (
     id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
     organization_id uuid REFERENCES organizations(id) ON DELETE CASCADE,
-    user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
+    user_id text REFERENCES af_users(id) ON DELETE CASCADE,
     role text, -- 'owner', 'admin', 'auditor', 'viewer'
     joined_at timestamptz DEFAULT now(),
     UNIQUE(organization_id, user_id)
@@ -42,7 +44,12 @@ UPDATE af_audit_data SET organization_id = '00000000-0000-0000-0000-000000000001
 UPDATE af_actions SET organization_id = '00000000-0000-0000-0000-000000000001' WHERE organization_id IS NULL;
 UPDATE af_history SET organization_id = '00000000-0000-0000-0000-000000000001' WHERE organization_id IS NULL;
 
--- 6. Passage des colonnes en NOT NULL
+-- 6. Création des liens dans organization_members pour les utilisateurs existants
+INSERT INTO organization_members (organization_id, user_id, role)
+SELECT organization_id, id, 'owner' FROM af_users
+ON CONFLICT (organization_id, user_id) DO NOTHING;
+
+-- 7. Passage des colonnes en NOT NULL
 ALTER TABLE af_audit_plan ALTER COLUMN organization_id SET NOT NULL;
 ALTER TABLE af_processes ALTER COLUMN organization_id SET NOT NULL;
 ALTER TABLE af_users ALTER COLUMN organization_id SET NOT NULL;
@@ -50,14 +57,12 @@ ALTER TABLE af_audit_data ALTER COLUMN organization_id SET NOT NULL;
 ALTER TABLE af_actions ALTER COLUMN organization_id SET NOT NULL;
 ALTER TABLE af_history ALTER COLUMN organization_id SET NOT NULL;
 
--- 7. Migration des membres de l'organisation pour les utilisateurs existants
--- Cette étape est cruciale pour éviter de bloquer l'accès aux utilisateurs après l'activation de la RLS.
-INSERT INTO organization_members (organization_id, user_id, role)
-SELECT organization_id, CAST(id AS uuid), role FROM af_users
-ON CONFLICT (organization_id, user_id) DO NOTHING;
-
 -- 8. Activation de Row Level Security (RLS) et création des politiques
--- Activation RLS
+-- NOTE: Étant donné que nous n'utilisons pas Supabase Auth (auth.uid()), la RLS basée sur SQL
+-- ne fonctionnera pas par défaut. Cependant, nous l'activons au cas où l'application
+-- migrerait vers Supabase Auth à l'avenir. Pour l'instant, l'isolation est gérée
+-- par le filtrage manuel dans db.js.
+
 ALTER TABLE af_audit_plan ENABLE ROW LEVEL SECURITY;
 ALTER TABLE af_processes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE af_users ENABLE ROW LEVEL SECURITY;
@@ -65,7 +70,8 @@ ALTER TABLE af_audit_data ENABLE ROW LEVEL SECURITY;
 ALTER TABLE af_actions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE af_history ENABLE ROW LEVEL SECURITY;
 
--- Politiques RLS (un utilisateur ne voit que les données de son organisation)
+-- Les politiques SQL sont commentées car auth.uid() n'est pas utilisé actuellement.
+/*
 DO $$
 DECLARE
     t text;
@@ -80,3 +86,4 @@ BEGIN
                         WITH CHECK (organization_id IN (SELECT organization_id FROM organization_members WHERE user_id = auth.uid()))', t);
     END LOOP;
 END $$;
+*/
