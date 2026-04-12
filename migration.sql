@@ -21,21 +21,42 @@ CREATE TABLE IF NOT EXISTS organization_members (
     UNIQUE(organization_id, user_id)
 );
 
--- 3. Ajout de la colonne organization_id aux tables existantes
--- Note: Pour les tables existantes, nous autorisons NULL temporairement si elles contiennent déjà des données,
--- ou nous devrions spécifier une organisation par défaut.
--- Pour respecter la consigne "NOT NULL", voici la démarche :
+-- 3. Ajout de la colonne organization_id aux tables existantes (nullable temporairement)
+ALTER TABLE af_audit_plan ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES organizations(id);
+ALTER TABLE af_processes ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES organizations(id);
+ALTER TABLE af_users ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES organizations(id);
+ALTER TABLE af_audit_data ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES organizations(id);
+ALTER TABLE af_actions ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES organizations(id);
+ALTER TABLE af_history ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES organizations(id);
 
-ALTER TABLE af_audit_plan ADD COLUMN organization_id uuid REFERENCES organizations(id) NOT NULL;
-ALTER TABLE af_processes ADD COLUMN organization_id uuid REFERENCES organizations(id) NOT NULL;
-ALTER TABLE af_users ADD COLUMN organization_id uuid REFERENCES organizations(id) NOT NULL;
-ALTER TABLE af_audit_data ADD COLUMN organization_id uuid REFERENCES organizations(id) NOT NULL;
-ALTER TABLE af_actions ADD COLUMN organization_id uuid REFERENCES organizations(id) NOT NULL;
-ALTER TABLE af_history ADD COLUMN organization_id uuid REFERENCES organizations(id) NOT NULL;
+-- 4. Création d'une organisation par défaut pour les données existantes
+INSERT INTO organizations (id, name)
+VALUES ('00000000-0000-0000-0000-000000000001', 'Organisation par défaut - 74SW')
+ON CONFLICT (id) DO NOTHING;
 
--- 4. Activation de Row Level Security (RLS) et création des politiques
--- Ces politiques supposent que l'utilisateur est connecté via Supabase Auth.
+-- 5. Mise à jour des données existantes avec l'organisation par défaut
+UPDATE af_audit_plan SET organization_id = '00000000-0000-0000-0000-000000000001' WHERE organization_id IS NULL;
+UPDATE af_processes SET organization_id = '00000000-0000-0000-0000-000000000001' WHERE organization_id IS NULL;
+UPDATE af_users SET organization_id = '00000000-0000-0000-0000-000000000001' WHERE organization_id IS NULL;
+UPDATE af_audit_data SET organization_id = '00000000-0000-0000-0000-000000000001' WHERE organization_id IS NULL;
+UPDATE af_actions SET organization_id = '00000000-0000-0000-0000-000000000001' WHERE organization_id IS NULL;
+UPDATE af_history SET organization_id = '00000000-0000-0000-0000-000000000001' WHERE organization_id IS NULL;
 
+-- 6. Passage des colonnes en NOT NULL
+ALTER TABLE af_audit_plan ALTER COLUMN organization_id SET NOT NULL;
+ALTER TABLE af_processes ALTER COLUMN organization_id SET NOT NULL;
+ALTER TABLE af_users ALTER COLUMN organization_id SET NOT NULL;
+ALTER TABLE af_audit_data ALTER COLUMN organization_id SET NOT NULL;
+ALTER TABLE af_actions ALTER COLUMN organization_id SET NOT NULL;
+ALTER TABLE af_history ALTER COLUMN organization_id SET NOT NULL;
+
+-- 7. Migration des membres de l'organisation pour les utilisateurs existants
+-- Cette étape est cruciale pour éviter de bloquer l'accès aux utilisateurs après l'activation de la RLS.
+INSERT INTO organization_members (organization_id, user_id, role)
+SELECT organization_id, CAST(id AS uuid), role FROM af_users
+ON CONFLICT (organization_id, user_id) DO NOTHING;
+
+-- 8. Activation de Row Level Security (RLS) et création des politiques
 -- Activation RLS
 ALTER TABLE af_audit_plan ENABLE ROW LEVEL SECURITY;
 ALTER TABLE af_processes ENABLE ROW LEVEL SECURITY;
@@ -45,8 +66,6 @@ ALTER TABLE af_actions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE af_history ENABLE ROW LEVEL SECURITY;
 
 -- Politiques RLS (un utilisateur ne voit que les données de son organisation)
--- On utilise une sous-requête sur organization_members pour vérifier l'appartenance.
-
 DO $$
 DECLARE
     t text;

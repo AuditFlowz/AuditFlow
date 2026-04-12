@@ -9,7 +9,7 @@ var DB = {
 
 async function sbGet(table, filter){
   var q = getSB().from(table).select('*');
-  if(CU && CU.organization_id) q = q.eq('organization_id', CU.organization_id);
+  if(CU && CU.organization_id && table !== 'organizations') q = q.eq('organization_id', CU.organization_id);
   if(filter) q = q.match(filter);
   var {data,error} = await q;
   if(error){ console.error(table, error); return []; }
@@ -17,7 +17,7 @@ async function sbGet(table, filter){
 }
 
 async function sbUpsert(table, row){
-  if(CU && CU.organization_id) row.organization_id = CU.organization_id;
+  if(CU && CU.organization_id && table !== 'organizations') row.organization_id = CU.organization_id;
   var res = await getSB().from(table).upsert(row, {onConflict:'id'});
   if(res.error){
     console.error('Supabase upsert error ['+table+']:', res.error.message);
@@ -29,13 +29,13 @@ async function sbUpsert(table, row){
 
 async function sbDelete(table, id){
   var q = getSB().from(table).delete().eq('id', id);
-  if(CU && CU.organization_id) q = q.eq('organization_id', CU.organization_id);
+  if(CU && CU.organization_id && table !== 'organizations') q = q.eq('organization_id', CU.organization_id);
   var {error} = await q;
   if(error) console.error('delete', table, error);
 }
 
 async function sbInsert(table, row){
-  if(CU && CU.organization_id) row.organization_id = CU.organization_id;
+  if(CU && CU.organization_id && table !== 'organizations') row.organization_id = CU.organization_id;
   var {error} = await getSB().from(table).insert(row);
   if(error) console.error('insert', table, error);
 }
