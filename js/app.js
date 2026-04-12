@@ -60,7 +60,7 @@ async function doLogin(){
   }
 
   errEl.style.display='none';
-  CU={id:user.id, name:user.name, email:user.email, role:user.role, initials:user.initials||'?', status:'actif'};
+  CU={id:user.id, name:user.name, email:user.email, role:user.role, initials:user.initials||'?', status:'actif', organization_id:user.organization_id};
   sessionStorage.setItem('af_user', JSON.stringify(CU));
   await launchApp();
 }
