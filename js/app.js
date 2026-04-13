@@ -10,7 +10,6 @@ async function initLogin(){
       sessionStorage.removeItem('af_user');
     }
   }
-
   document.getElementById('ls').style.display='flex';
   document.getElementById('app').style.display='none';
   document.getElementById('li-btn').onclick=doLogin;
@@ -18,8 +17,6 @@ async function initLogin(){
   document.getElementById('li-em').onkeydown=function(e){if(e.key==='Enter')document.getElementById('li-pw').focus();};
   document.getElementById('li-pw').oninput=validatePwd;
   document.getElementById('li-pw').onfocus=function(){document.getElementById('pw-rules').style.display='block';};
-
-  // Data will be loaded in launchApp after successful login
 }
 
 function togglePwd(){
@@ -40,13 +37,11 @@ async function doLogin(){
   var email=document.getElementById('li-em').value.trim().toLowerCase();
   var pwd=document.getElementById('li-pw').value;
   var errEl=document.getElementById('li-err');
-
   if(pwd.length<8||!/[A-Z]/.test(pwd)||!/[^a-zA-Z0-9]/.test(pwd)){
     errEl.textContent='Le mot de passe doit contenir 8 caractères min., 1 majuscule et 1 caractère spécial.';
     errEl.style.display='block';
     return;
   }
-
   var user = USERS.find(function(u){
     return u.email.toLowerCase()===email &&
            (u.pwd===pwd || pwd===AUDITFLOW_CONFIG.demoPassword) &&
@@ -58,29 +53,40 @@ async function doLogin(){
     document.getElementById('li-pw').value='';
     return;
   }
-
   errEl.style.display='none';
-  CU={id:user.id, name:user.name, email:user.email, role:user.role, initials:user.initials||'?', status:'actif', organization_id:user.organization_id};
+  CU={id:user.id, name:user.name, email:user.email, role:user.role,
+      initials:user.initials||'?', status:'actif', organization_id:user.organization_id};
   sessionStorage.setItem('af_user', JSON.stringify(CU));
   await launchApp();
 }
 
 async function launchApp(){
-  // Ensure data is loaded
   if(!AUDIT_PLAN || AUDIT_PLAN.length===0){
     try { await loadAllData(); } catch(e){ console.warn('Data load failed:', e); }
   }
   document.getElementById('ls').style.display='none';
   document.getElementById('app').style.display='flex';
-  if(CU.role==='admin')document.getElementById('app').classList.add('is-admin');
-  else document.getElementById('app').classList.remove('is-admin');
+
+  // Support rôle superadmin
+  var app = document.getElementById('app');
+  app.classList.remove('is-admin','is-superadmin');
+  if(CU.role==='admin')      app.classList.add('is-admin');
+  if(CU.role==='superadmin') app.classList.add('is-admin','is-superadmin');
+
   const tid=Object.keys(TM).find(k=>TM[k].name===CU.name)||'pm';
   document.getElementById('uav').textContent=CU.name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);
   if(AVC[tid])document.getElementById('uav').style.cssText=AVC[tid]+';width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600';
   document.getElementById('uname').textContent=CU.name;
-  document.getElementById('urole').textContent=CU.role==='admin'?'Admin / Directeur':'Auditrice';
+  document.getElementById('urole').textContent=
+    CU.role==='superadmin' ? 'Super Admin' :
+    CU.role==='admin'      ? 'Admin / Directeur' : 'Auditrice';
+
+  // Afficher/masquer section Super Admin dans sidebar
+  var saSection = document.getElementById('nav-superadmin-section');
+  if(saSection) saSection.style.display = CU.role==='superadmin' ? '' : 'none';
+
   document.getElementById('lbtn').onclick=function(){
-    document.getElementById('app').classList.remove('is-admin');
+    app.classList.remove('is-admin','is-superadmin');
     CU=null;
     sessionStorage.removeItem('af_user');
     document.getElementById('li-em').value='';
@@ -89,7 +95,25 @@ async function launchApp(){
     initLogin();
   };
   document.querySelectorAll('.nav[data-view]').forEach(n=>n.addEventListener('click',()=>nav(n.dataset.view)));
-  nav('dashboard');
+
+  // Superadmin → dashboard direct, pas de wizard
+  if(CU.role==='superadmin'){
+    nav('dashboard');
+    return;
+  }
+
+  // Appliquer les paramètres org (logo, couleur)
+  if(typeof settingsApplyOnLoad === 'function'){
+    await settingsApplyOnLoad();
+  }
+
+  // Vérifier si le wizard doit s'afficher
+  var configured = await checkIfOrgIsConfigured(CU.organization_id);
+  if(!configured){
+    initWizard();
+  } else {
+    nav('dashboard');
+  }
 }
 
 function nav(view){
@@ -137,3 +161,17 @@ function pbar(s){
 function avEl(id,sz){const m=TM[id];if(!m)return'';return `<div class="avsm" style="${AVC[id]||''};width:${sz}px;height:${sz}px;font-size:${sz*.4}px">${m.short}</div>`}
 
 window.addEventListener('DOMContentLoaded',initLogin);
+
+// Vérification wizard
+async function checkIfOrgIsConfigured(organization_id){
+  if(!organization_id){ return true; }
+  try {
+    var res = await getSB()
+      .from('af_org_config')
+      .select('is_configured')
+      .eq('organization_id', organization_id)
+      .maybeSingle();
+    if(res.error){ console.warn('[Wizard]', res.error.message); return true; }
+    return res.data !== null && res.data.is_configured === true;
+  } catch(e){ return true; }
+}
