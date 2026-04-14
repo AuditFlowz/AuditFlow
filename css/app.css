@@ -1,22 +1,7 @@
-/* AuditFlow SaaS - app.css (version modernisée) */
+/* AuditFlow SaaS - app.css - Version Premium 2026 */
 
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
-
-body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  font-size: 14px;
-  background: #f8f7f4;
-  color: #1f1f1f;
-  line-height: 1.5;
-}
-
-/* Variables modernes */
 :root {
-  --primary: #6366f1;        /* Indigo moderne */
+  --primary: #6366f1;
   --primary-dark: #4f46e5;
   --primary-light: #e0e7ff;
   
@@ -27,138 +12,38 @@ body {
   --bg: #f8f7f4;
   --card: #ffffff;
   --border: #e5e3de;
-  --text: #1f1f1f;
+  --text: #111827;
   --text-light: #6b7280;
-  --radius: 12px;
-  --shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+  --radius: 16px;
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
 }
 
-/* Layout principal */
-.app {
-  display: flex;
-  height: 100vh;
-  overflow: hidden;
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: #f8f7f4;
+  color: var(--text);
+  font-size: 14.5px;
 }
 
+/* Sidebar plus élégante */
 .sidebar {
-  width: 240px;
-  min-width: 240px;
   background: #ffffff;
   border-right: 1px solid var(--border);
-  padding: 1rem 0.75rem;
-  display: flex;
-  flex-direction: column;
-  overflow-y: auto;
+  box-shadow: 2px 0 10px rgba(0,0,0,0.03);
 }
 
-.main {
-  flex: 1;
-  overflow-y: auto;
-  background: var(--bg);
+.logo {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  color: var(--primary);
 }
 
-.topbar {
-  background: #ffffff;
-  border-bottom: 1px solid var(--border);
-  padding: 1rem 1.5rem;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  position: sticky;
-  top: 0;
-  z-index: 10;
-}
-
-/* Cartes améliorées */
-.card {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 1.25rem;
-  box-shadow: var(--shadow);
-}
-
-.metrics {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 16px;
-  margin-bottom: 2rem;
-}
-
-.mc {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 1.25rem;
-  box-shadow: var(--shadow);
-}
-
-/* Boutons plus modernes */
-.bp {
-  background: var(--primary);
-  color: white;
-  border: none;
-  padding: 10px 18px;
-  border-radius: 8px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.bp:hover {
-  background: var(--primary-dark);
-  transform: translateY(-1px);
-}
-
-.bs {
-  background: white;
-  border: 1px solid var(--border);
-  color: var(--text);
-  padding: 9px 16px;
-  border-radius: 8px;
-  cursor: pointer;
-}
-
-/* Tableaux plus propres */
-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-thead th {
-  background: #f8f7f4;
-  padding: 12px 14px;
-  text-align: left;
-  font-weight: 600;
-  font-size: 12px;
-  color: var(--text-light);
-  border-bottom: 2px solid var(--border);
-}
-
-tbody td {
-  padding: 14px;
-  border-bottom: 1px solid var(--border);
-  font-size: 13.5px;
-}
-
-tbody tr:hover td {
-  background: #f8f7f4;
-}
-
-/* Badges améliorés */
-.badge {
-  padding: 4px 10px;
-  border-radius: 9999px;
-  font-size: 12px;
-  font-weight: 500;
-}
-
-/* Amélioration sidebar */
 .nav {
-  padding: 10px 14px;
-  border-radius: 8px;
-  margin-bottom: 4px;
-  font-size: 13.5px;
+  padding: 12px 16px;
+  margin: 4px 8px;
+  border-radius: 12px;
+  font-size: 14px;
   transition: all 0.2s;
 }
 
@@ -172,21 +57,99 @@ tbody tr:hover td {
   font-weight: 600;
 }
 
-/* Toast plus beau */
-.toast {
-  position: fixed;
-  bottom: 24px;
-  right: 24px;
-  background: #1f2937;
-  color: white;
-  padding: 14px 20px;
-  border-radius: 10px;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.15);
-  font-size: 14px;
-  z-index: 9999;
-  animation: slideUp 0.3s ease;
+/* Topbar */
+.topbar {
+  background: #ffffff;
+  border-bottom: 1px solid var(--border);
+  padding: 1.25rem 1.75rem;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.04);
 }
 
-/* Autres améliorations mineures */
-h2 { font-size: 1.35rem; font-weight: 600; letter-spacing: -0.4px; }
-p { color: var(--text-light); }
+/* Cartes modernes */
+.card, .mc {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  box-shadow: var(--shadow);
+  transition: transform 0.2s;
+}
+
+.card:hover, .mc:hover {
+  transform: translateY(-2px);
+}
+
+/* Métriques */
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 18px;
+}
+
+.mc .mv {
+  font-size: 28px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+/* Tableau amélioré */
+.tw {
+  background: var(--card);
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+
+table thead th {
+  background: #f8f7f4;
+  padding: 14px 16px;
+  font-weight: 600;
+  color: var(--text-light);
+  font-size: 12.5px;
+}
+
+tbody td {
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Boutons */
+.bp {
+  background: var(--primary);
+  color: white;
+  border: none;
+  padding: 11px 20px;
+  border-radius: 10px;
+  font-weight: 600;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25);
+}
+
+.bp:hover {
+  background: var(--primary-dark);
+  transform: translateY(-1px);
+}
+
+/* Badges */
+.badge {
+  padding: 5px 11px;
+  border-radius: 9999px;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+/* Toast plus beau */
+.toast {
+  background: #1f2937;
+  color: white;
+  padding: 16px 22px;
+  border-radius: 12px;
+  box-shadow: 0 15px 35px rgba(0,0,0,0.15);
+  font-size: 14.5px;
+}
+
+/* Amélioration générale */
+h2, .tbtitle {
+  font-size: 1.45rem;
+  font-weight: 700;
+  letter-spacing: -0.4px;
+}
