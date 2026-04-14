@@ -3,7 +3,7 @@ body{font-family:-apple-system,"Segoe UI",system-ui,sans-serif;font-size:14px;ba
 :root{--purple:#534AB7;--purple-lt:#EEEDFE;--purple-dk:#3C3489;--teal:#1D9E75;--teal-lt:#E1F5EE;--blue:#378ADD;--blue-lt:#E6F1FB;--amber:#854F0B;--amber-lt:#FAEEDA;--red:#A32D2D;--red-lt:#FCEBEB;--green:#3B6D11;--green-lt:#EAF3DE;--gray:#5F5E5A;--gray-lt:#F1EFE8;--bg:#F5F4F0;--white:#FFF;--bg-card:#EDEDEA;--border:rgba(0,0,0,.10);--border-md:rgba(0,0,0,.18);--text:#1A1A18;--text-2:#5F5E5A;--text-3:#9C9A92;--radius:8px;--radius-lg:12px}
 .login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg)}
 .login-card{background:var(--white);border:.5px solid var(--border);border-radius:var(--radius-lg);padding:2.5rem 2rem;width:380px;text-align:center}
-.login-logo{display:flex;align-items:center;justify-content:center;gap:8px;font-size:18px;font-weight:600;margin-bottom:1.5rem}
+.login-logo{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;font-size:18px;font-weight:600;margin-bottom:1.5rem}.login-logo img{width:72px;height:72px;object-fit:contain;border-radius:12px}
 .logo-dot{width:9px;height:9px;border-radius:50%;background:var(--purple);flex-shrink:0}
 .login-title{font-size:20px;font-weight:600;margin-bottom:.5rem}
 .login-sub{font-size:13px;color:var(--text-2);margin-bottom:1.25rem}

@@ -19,13 +19,7 @@ async function initLogin(){
   document.getElementById('li-pw').oninput=validatePwd;
   document.getElementById('li-pw').onfocus=function(){document.getElementById('pw-rules').style.display='block';};
 
-  try {
-    await loadAllData();
-    console.log('Supabase connecté — données chargées');
-  } catch(e) {
-    console.error('Supabase connection failed:', e);
-    alert('Supabase connection error: ' + e.message);
-  }
+  // Data will be loaded in launchApp after successful login
 }
 
 function togglePwd(){
@@ -68,10 +62,18 @@ async function doLogin(){
   errEl.style.display='none';
   CU={id:user.id, name:user.name, email:user.email, role:user.role, initials:user.initials||'?', status:'actif'};
   sessionStorage.setItem('af_user', JSON.stringify(CU));
-  launchApp();
+  await launchApp();
 }
 
-function launchApp(){
+async function launchApp(){
+  // Always load data from Supabase to sync state
+  try {
+    await loadAllData();
+    console.log('Data synchronized from Supabase');
+  } catch(e) {
+    console.warn('Data load failed, using local/cached data:', e);
+  }
+
   document.getElementById('ls').style.display='none';
   document.getElementById('app').style.display='flex';
   if(CU.role==='admin')document.getElementById('app').classList.add('is-admin');
