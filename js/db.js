@@ -54,7 +54,9 @@ async function loadAllData(){
     };
   });
   DB.processes = (await sbGet('af_processes')).map(function(r){
-    return {id:r.id,dom:r.dom,proc:r.proc,risk:r.risk,archived:r.archived,
+    return {id:r.id,dom:r.dom,proc:r.proc,risk:r.risk,
+      riskLevel:r.risk_level||'faible',
+      archived:r.archived,
       y25:r.y25,y26:r.y26,y27:r.y27,y28:r.y28};
   });
   DB.actions   = (await sbGet('af_actions')).map(function(r){
