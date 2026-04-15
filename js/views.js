@@ -1672,7 +1672,7 @@ V['audit-detail']=()=>{
 };
 I['audit-detail']=()=>{};
 
-function getStepTabs(){if(CS===4)return['roles','tasks','controls','docs','notes'];if(CS===5)return['roles','tasks','controls-exec','risk-matrix','findings-exec','docs','notes'];if(CS===6)return['roles','tasks','findings','maturity','docs','notes'];if(CS===8)return['roles','tasks','mgt-resp','docs','notes'];return['roles','tasks','docs','notes'];}
+function getStepTabs(){if(CS===4)return['roles','tasks','controls','risk-matrix','docs','notes'];if(CS===5)return['roles','tasks','controls-exec','findings-exec','docs','notes'];if(CS===6)return['roles','tasks','findings','maturity','docs','notes'];if(CS===8)return['roles','tasks','mgt-resp','docs','notes'];return['roles','tasks','docs','notes'];}
 const TLBL={'roles':'Rôles','tasks':'Tâches','controls':'Contrôles','controls-exec':'Contrôles & Tests','risk-matrix':'Matrice Risques','findings-exec':'Findings (tests)','findings':'Findings','maturity':'Overall Maturity','mgt-resp':'Mgt Response','docs':'Documents','notes':'Notes'};
 function renderDetTabs(){return getStepTabs().map(t=>`<div class="tab ${CT===t?'active':''}" onclick="switchDetTab('${t}')">${TLBL[t]}</div>`).join('');}
 function renderStepper(){
