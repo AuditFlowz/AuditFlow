@@ -862,15 +862,13 @@ V['plans-bu']=()=>`
     <button class="bp" onclick="nav('plan-audit')">Gérer le plan audit →</button>
   </div>
   <div class="content">
-    <!-- Légende carte -->
     <div style="display:flex;gap:16px;align-items:center;margin-bottom:.75rem;font-size:12px;">
-      <span style="display:flex;align-items:center;gap:5px;"><span style="width:12px;height:12px;border-radius:50%;background:#5DCAA5;display:inline-block;"></span>Déjà audité</span>
-      <span style="display:flex;align-items:center;gap:5px;"><span style="width:12px;height:12px;border-radius:50%;background:#378ADD;display:inline-block;"></span>Audit futur planifié</span>
-      <span style="display:flex;align-items:center;gap:5px;"><span style="width:12px;height:12px;border-radius:50%;background:#A32D2D;display:inline-block;"></span>Aucun audit prévu</span>
+      <span style="display:flex;align-items:center;gap:5px;"><span style="width:10px;height:10px;border-radius:50%;background:#5DCAA5;display:inline-block;"></span>Déjà audité (clôturé)</span>
+      <span style="display:flex;align-items:center;gap:5px;"><span style="width:10px;height:10px;border-radius:50%;background:#378ADD;display:inline-block;"></span>Audit futur planifié</span>
+      <span style="display:flex;align-items:center;gap:5px;"><span style="width:10px;height:10px;border-radius:50%;background:#E2DDD5;display:inline-block;border:1px solid #ccc;"></span>Aucun audit prévu</span>
     </div>
-    <!-- Carte SVG world map -->
-    <div class="card" style="padding:.75rem;margin-bottom:1rem;overflow:hidden;">
-      <canvas id="world-map-canvas" width="900" height="420" style="width:100%;height:auto;border-radius:var(--radius);"></canvas>
+    <div class="card" style="padding:.75rem;margin-bottom:1rem;overflow:hidden;background:#D6EAF5;">
+      <div id="world-map-svg" style="width:100%;"></div>
     </div>
     <div style="display:flex;gap:8px;margin-bottom:1rem">
       <select id="f-bu-ent" onchange="renderBUTable()"><option value="all">Toutes entités</option></select>
@@ -889,8 +887,8 @@ I['plans-bu']=()=>{
 };
 
 function renderWorldMap(){
-  var canvas=document.getElementById('world-map-canvas');
-  if(!canvas) return;
+  var container=document.getElementById('world-map-svg');
+  if(!container) return;
 
   // Collecter pays audités / planifiés
   var buAudits=AUDIT_PLAN.filter(function(a){return a.type==='BU';});
@@ -905,127 +903,160 @@ function renderWorldMap(){
     });
   });
 
-  function getColor(names){
-    for(var i=0;i<names.length;i++){
-      var n=names[i].toLowerCase();
-      if(auditedSet.has(n)) return {fill:'#5DCAA5',stroke:'#2D9A75'};
-      if(plannedSet.has(n)) return {fill:'#378ADD',stroke:'#1A5FAD'};
-    }
-    return {fill:'#E2DDD5',stroke:'#C8C2B8'};
+  // Table de correspondance nom → ISO A2 pour les pays du plan BU
+  var nameToIso={
+    'maroc':'MA','morocco':'MA',
+    'tunisie':'TN','tunisia':'TN',
+    'algérie':'DZ','algeria':'DZ',
+    'cameroun':'CM','cameroon':'CM',
+    'liban':'LB','lebanon':'LB',
+    'uk':'GB','united kingdom':'GB','royaume-uni':'GB',
+    'france':'FR',
+    'germany':'DE','allemagne':'DE',
+    'romania':'RO','roumanie':'RO',
+    'bulgaria':'BG','bulgarie':'BG',
+    'spain':'ES','espagne':'ES',
+    'italy':'IT','italie':'IT',
+    'usa':'US','united states':'US','états-unis':'US',
+    'india':'IN','inde':'IN',
+    'australia':'AU','australie':'AU',
+    'singapore':'SG','singapour':'SG',
+    'uae':'AE','émirats arabes unis':'AE',
+    'saudi arabia':'SA','arabie saoudite':'SA',
+    'china':'CN','chine':'CN',
+    'japan':'JP','japon':'JP',
+    'brazil':'BR','brésil':'BR',
+    'nigeria':'NG','nigéria':'NG',
+    'south africa':'ZA','afrique du sud':'ZA',
+    'kenya':'KE',
+    'senegal':'SN','sénégal':'SN',
+    'belgium':'BE','belgique':'BE',
+    'netherlands':'NL','pays-bas':'NL',
+    'poland':'PL','pologne':'PL',
+    'turkey':'TR','turquie':'TR',
+    'egypt':'EG','égypte':'EG',
+    'mexico':'MX','mexique':'MX',
+    'argentina':'AR','argentine':'AR',
+    'colombia':'CO','colombie':'CO',
+    'ivory coast':'CI',"côte d'ivoire":'CI',
+  };
+
+  // Construire les sets ISO
+  var auditedISO=new Set();
+  var plannedISO=new Set();
+  auditedSet.forEach(function(n){if(nameToIso[n])auditedISO.add(nameToIso[n]);});
+  plannedSet.forEach(function(n){if(nameToIso[n])plannedISO.add(nameToIso[n]);});
+
+  function getCountryColor(iso){
+    if(auditedISO.has(iso)) return '#5DCAA5';
+    if(plannedISO.has(iso)) return '#378ADD';
+    return '#E2DDD5';
+  }
+  function getCountryStroke(iso){
+    if(auditedISO.has(iso)) return '#2D9A75';
+    if(plannedISO.has(iso)) return '#1A5FAD';
+    return '#C8C2B8';
   }
 
-  // Projection simple lon/lat -> px (Mercator approximée, canvas 900x420)
-  function px(lon,lat){
-    var x=((lon+180)/360)*900;
-    // Mercator
-    var latR=lat*Math.PI/180;
-    var y=(180-((Math.log(Math.tan(Math.PI/4+latR/2))*180/Math.PI)+180))/360*420;
-    return [Math.round(x),Math.round(y)];
+  // Charger TopoJSON depuis CDN et afficher avec D3
+  if(!window._d3Loaded){
+    var s1=document.createElement('script');
+    s1.src='https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js';
+    s1.onload=function(){
+      var s2=document.createElement('script');
+      s2.src='https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js';
+      s2.onload=function(){
+        window._d3Loaded=true;
+        _drawD3Map(container,getCountryColor,getCountryStroke);
+      };
+      document.head.appendChild(s2);
+    };
+    document.head.appendChild(s1);
+  } else {
+    _drawD3Map(container,getCountryColor,getCountryStroke);
   }
+}
 
-  // Dessiner un polygone pays
-  var ctx=canvas.getContext('2d');
-  ctx.clearRect(0,0,900,420);
+function _drawD3Map(container,getColor,getStroke){
+  container.innerHTML='';
+  var W=container.offsetWidth||900;
+  var H=Math.round(W*0.45);
 
-  // Fond océan
-  ctx.fillStyle='#D6EAF5';
-  ctx.fillRect(0,0,900,420);
+  var svg=d3.select(container)
+    .append('svg')
+    .attr('width','100%')
+    .attr('height',H)
+    .style('display','block');
 
-  // Pays avec leurs polygones (coordonnées lon/lat approximées)
-  var countries=[
-    {names:['france','fr'],pts:[[-5,51],[8,51],[8,43],[-2,43],[-5,47]]},
-    {names:['uk','united kingdom','royaume-uni'],pts:[[-6,58],[2,58],[2,51],[-6,51]]},
-    {names:['germany','allemagne'],pts:[[6,55],[15,55],[15,47],[6,47]]},
-    {names:['spain','espagne'],pts:[[-9,44],[3,44],[3,36],[-9,36]]},
-    {names:['italy','italie'],pts:[[7,44],[16,44],[16,38],[12,38],[12,37],[15,37],[15,40],[7,44]]},
-    {names:['portugal'],pts:[[-9,42],[-6,42],[-6,37],[-9,37]]},
-    {names:['belgium','belgique'],pts:[[3,51],[6,51],[6,49],[3,49]]},
-    {names:['netherlands','pays-bas'],pts:[[4,53],[7,53],[7,51],[4,51]]},
-    {names:['switzerland','suisse'],pts:[[6,48],[10,48],[10,46],[6,46]]},
-    {names:['poland','pologne'],pts:[[14,55],[24,55],[24,49],[14,49]]},
-    {names:['romania','roumanie'],pts:[[22,48],[30,48],[30,44],[22,44]]},
-    {names:['bulgaria','bulgarie'],pts:[[22,44],[29,44],[29,41],[22,41]]},
-    {names:['ukraine'],pts:[[22,52],[40,52],[40,44],[22,44]]},
-    {names:['russia','russie'],pts:[[30,72],[180,72],[180,50],[30,50]]},
-    {names:['norway','norvège'],pts:[[5,72],[30,72],[30,57],[5,57]]},
-    {names:['sweden','suède'],pts:[[11,69],[24,69],[24,55],[11,55]]},
-    {names:['finland','finlande'],pts:[[20,70],[32,70],[32,60],[20,60]]},
-    {names:['turkey','turquie'],pts:[[26,42],[45,42],[45,36],[26,36]]},
-    {names:['maroc','morocco'],pts:[[-6,36],[0,36],[0,28],[-6,28],[-14,28],[-14,35]]},
-    {names:['tunisie','tunisia'],pts:[[8,38],[12,38],[12,30],[8,30]]},
-    {names:['algérie','algeria'],pts:[[0,38],[9,38],[9,30],[0,30],[-6,30],[-6,38]]},
-    {names:['liban','lebanon'],pts:[[35,34],[37,34],[37,33],[35,33]]},
-    {names:['cameroun','cameroon'],pts:[[8,13],[16,13],[16,2],[8,2]]},
-    {names:['nigeria','nigéria'],pts:[[3,14],[15,14],[15,4],[3,4]]},
-    {names:['egypt','egypte'],pts:[[25,32],[37,32],[37,22],[25,22]]},
-    {names:['senegal'],pts:[[-17,16],[-12,16],[-12,12],[-17,12]]},
-    {names:['ivory coast','côte d\'ivoire'],pts:[[-8,10],[-3,10],[-3,5],[-8,5]]},
-    {names:['south africa','afrique du sud'],pts:[[16,-22],[33,-22],[33,-35],[16,-35]]},
-    {names:['kenya'],pts:[[34,5],[42,5],[42,-4],[34,-4]]},
-    {names:['uae','émirats arabes unis','emirates'],pts:[[51,26],[56,26],[56,23],[51,23]]},
-    {names:['saudi arabia','arabie saoudite'],pts:[[37,32],[55,32],[55,16],[37,16]]},
-    {names:['india','inde'],pts:[[68,36],[88,36],[88,8],[68,8]]},
-    {names:['china','chine'],pts:[[76,53],[135,53],[135,20],[76,20]]},
-    {names:['japan','japon'],pts:[[130,45],[145,45],[145,31],[130,31]]},
-    {names:['singapore','singapour'],pts:[[103,1.5],[104,1.5],[104,1],[103,1]]},
-    {names:['australia','australie'],pts:[[114,-15],[154,-15],[154,-39],[114,-39]]},
-    {names:['new zealand','nouvelle-zélande'],pts:[[166,-34],[178,-34],[178,-47],[166,-47]]},
-    {names:['usa','états-unis','united states'],pts:[[-125,50],[-67,50],[-67,25],[-125,25]]},
-    {names:['canada'],pts:[[-140,72],[-52,72],[-52,43],[-140,43]]},
-    {names:['mexico','mexique'],pts:[[-118,32],[-87,32],[-87,14],[-118,14]]},
-    {names:['brazil','brésil'],pts:[[-74,-5],[-35,-5],[-35,-34],[-74,-34]]},
-    {names:['argentina','argentine'],pts:[[-74,-22],[-53,-22],[-53,-56],[-74,-56]]},
-    {names:['colombia','colombie'],pts:[[-79,13],[-67,13],[-67,-4],[-79,-4]]},
-    {names:['chile','chili'],pts:[[-76,-16],[-66,-16],[-66,-56],[-76,-56]]},
-    {names:['venezuela'],pts:[[-73,12],[-60,12],[-60,0],[-73,0]]},
-    {names:['peru','pérou'],pts:[[-82,-2],[-68,-2],[-68,-18],[-82,-18]]},
-  ];
+  var projection=d3.geoNaturalEarth1()
+    .scale(W/6.2)
+    .translate([W/2, H/2]);
 
-  // Dessiner les pays
-  countries.forEach(function(country){
-    var col=getColor(country.names);
-    ctx.beginPath();
-    var pts=country.pts;
-    var first=px(pts[0][0],pts[0][1]);
-    ctx.moveTo(first[0],first[1]);
-    for(var i=1;i<pts.length;i++){
-      var p=px(pts[i][0],pts[i][1]);
-      ctx.lineTo(p[0],p[1]);
-    }
-    ctx.closePath();
-    ctx.fillStyle=col.fill;
-    ctx.fill();
-    ctx.strokeStyle=col.stroke;
-    ctx.lineWidth=0.7;
-    ctx.stroke();
+  var path=d3.geoPath().projection(projection);
 
-    // Étiquette si pays audité/planifié
-    var isNotable=auditedSet.has(country.names[0])||plannedSet.has(country.names[0]);
-    if(!isNotable){
-      for(var j=0;j<country.names.length;j++){
-        if(auditedSet.has(country.names[j])||plannedSet.has(country.names[j])){isNotable=true;break;}
-      }
-    }
-    if(isNotable){
-      // Centroïde
-      var cx=0,cy=0;
-      country.pts.forEach(function(p){var pp=px(p[0],p[1]);cx+=pp[0];cy+=pp[1];});
-      cx=Math.round(cx/country.pts.length);
-      cy=Math.round(cy/country.pts.length);
-      // Nom affiché = première entrée capitalisée
-      var label=country.names[0].charAt(0).toUpperCase()+country.names[0].slice(1);
-      ctx.font='bold 9px -apple-system,sans-serif';
-      var tw=ctx.measureText(label).width;
-      ctx.fillStyle='rgba(0,0,0,.65)';
-      ctx.fillText(label,cx-tw/2,cy+4);
-    }
-  });
+  // Charger world-atlas
+  if(window._worldTopo){
+    _renderMap(svg,path,getColor,getStroke,window._worldTopo);
+  } else {
+    d3.json('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json').then(function(world){
+      window._worldTopo=world;
+      _renderMap(svg,path,getColor,getStroke,world);
+    }).catch(function(e){
+      container.innerHTML='<div style="padding:1rem;color:var(--text-2);font-size:12px;">Carte non disponible (connexion requise)</div>';
+    });
+  }
+}
 
-  // Légende
-  ctx.font='11px -apple-system,sans-serif';
-  ctx.fillStyle='#5F5E5A';
-  ctx.textAlign='left';
-  ctx.fillText('Carte indicative — basée sur les pays du plan BU',8,414);
+// Table ISO numérique → ISO A2
+var _isoNumToA2={
+  4:'AF',8:'AL',12:'DZ',24:'AO',32:'AR',36:'AU',40:'AT',50:'BD',56:'BE',64:'BT',
+  68:'BO',76:'BR',100:'BG',116:'KH',120:'CM',124:'CA',152:'CL',156:'CN',170:'CO',
+  180:'CD',188:'CR',191:'HR',192:'CU',196:'CY',208:'DK',214:'DO',218:'EC',818:'EG',
+  222:'SV',231:'ET',246:'FI',250:'FR',266:'GA',276:'DE',288:'GH',320:'GT',324:'GN',
+  332:'HT',340:'HN',348:'HU',356:'IN',360:'ID',364:'IR',368:'IQ',372:'IE',376:'IL',
+  380:'IT',388:'JM',392:'JP',400:'JO',398:'KZ',404:'KE',410:'KR',408:'KP',
+  414:'KW',418:'LA',422:'LB',430:'LR',434:'LY',484:'MX',504:'MA',508:'MZ',
+  516:'NA',524:'NP',528:'NL',540:'NC',558:'NI',566:'NG',578:'NO',586:'PK',
+  591:'PA',598:'PG',604:'PE',608:'PH',616:'PL',620:'PT',630:'PR',634:'QA',
+  642:'RO',643:'RU',682:'SA',686:'SN',694:'SL',706:'SO',710:'ZA',724:'ES',
+  144:'LK',729:'SD',752:'SE',756:'CH',760:'SY',764:'TH',768:'TG',780:'TT',
+  788:'TN',792:'TR',800:'UG',804:'UA',784:'AE',826:'GB',840:'US',858:'UY',
+  862:'VE',704:'VN',887:'YE',716:'ZW',900:'PS'
+};
+
+function _renderMap(svg,path,getColor,getStroke,world){
+  var countries=topojson.feature(world,world.objects.countries);
+  var borders=topojson.mesh(world,world.objects.countries,function(a,b){return a!==b;});
+
+  // Fond pays
+  svg.selectAll('path.country')
+    .data(countries.features)
+    .enter()
+    .append('path')
+    .attr('class','country')
+    .attr('d',path)
+    .attr('fill',function(d){
+      var iso=_isoNumToA2[parseInt(d.id)]||'';
+      return getColor(iso);
+    })
+    .attr('stroke',function(d){
+      var iso=_isoNumToA2[parseInt(d.id)]||'';
+      return getStroke(iso);
+    })
+    .attr('stroke-width',0.4)
+    .append('title')
+    .text(function(d){
+      var iso=_isoNumToA2[parseInt(d.id)]||'';
+      return iso;
+    });
+
+  // Frontières
+  svg.append('path')
+    .datum(borders)
+    .attr('fill','none')
+    .attr('stroke','#b8b2a8')
+    .attr('stroke-width',0.3)
+    .attr('d',path);
 }
 
 function renderBUTable(){
