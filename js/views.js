@@ -891,135 +891,141 @@ I['plans-bu']=()=>{
 function renderWorldMap(){
   var canvas=document.getElementById('world-map-canvas');
   if(!canvas) return;
-  var ctx=canvas.getContext('2d');
-  var W=900,H=420;
-  ctx.clearRect(0,0,W,H);
 
-  // Fond océan
-  ctx.fillStyle='#e8f4f8';
-  ctx.fillRect(0,0,W,H);
-
-  // Collecter pays audités / planifiés depuis AUDIT_PLAN
+  // Collecter pays audités / planifiés
   var buAudits=AUDIT_PLAN.filter(function(a){return a.type==='BU';});
-  var auditedCountries=new Set();
-  var plannedCountries=new Set();
+  var auditedSet=new Set();
+  var plannedSet=new Set();
   buAudits.forEach(function(a){
     var pays=(a.pays||[]).map(function(p){return p.toLowerCase().trim();});
-    var isPast=a.annee<=new Date().getFullYear()&&(a.statut||'').startsWith('Clôturé');
-    var isFuture=!isPast;
+    var clotured=(a.statut||'').toLowerCase().includes('clôturé')||(a.statut||'').toLowerCase().includes('cloture');
     pays.forEach(function(p){
-      if(isPast) auditedCountries.add(p);
-      else plannedCountries.add(p);
+      if(clotured) auditedSet.add(p);
+      else plannedSet.add(p);
     });
   });
 
-  // Données géographiques simplifiées (coordonnées lon/lat → canvas)
-  function proj(lon,lat){
-    var x=((lon+180)/360)*W;
-    var y=((90-lat)/180)*H;
-    return [x,y];
+  function getColor(names){
+    for(var i=0;i<names.length;i++){
+      var n=names[i].toLowerCase();
+      if(auditedSet.has(n)) return {fill:'#5DCAA5',stroke:'#2D9A75'};
+      if(plannedSet.has(n)) return {fill:'#378ADD',stroke:'#1A5FAD'};
+    }
+    return {fill:'#E2DDD5',stroke:'#C8C2B8'};
   }
 
-  function getColor(name){
-    var n=name.toLowerCase();
-    if(auditedCountries.has(n)) return '#5DCAA5';
-    if(plannedCountries.has(n)) return '#378ADD';
-    return '#D1D5DB';
+  // Projection simple lon/lat -> px (Mercator approximée, canvas 900x420)
+  function px(lon,lat){
+    var x=((lon+180)/360)*900;
+    // Mercator
+    var latR=lat*Math.PI/180;
+    var y=(180-((Math.log(Math.tan(Math.PI/4+latR/2))*180/Math.PI)+180))/360*420;
+    return [Math.round(x),Math.round(y)];
   }
 
-  // Dessiner les régions connues comme blocs rectangulaires étiquetés
-  // (approche simplifiée — pas de GeoJSON pour rester en vanilla JS)
-  var regions=[
-    {name:'France',      lon:2,   lat:46,  w:4,  h:5},
-    {name:'UK',          lon:-3,  lat:54,  w:3,  h:5},
-    {name:'Germany',     lon:10,  lat:51,  w:4,  h:5},
-    {name:'Belgium',     lon:4,   lat:50,  w:2,  h:2},
-    {name:'Spain',       lon:-3,  lat:40,  w:7,  h:6},
-    {name:'Italy',       lon:12,  lat:43,  w:3,  h:8},
-    {name:'Romania',     lon:25,  lat:45,  w:4,  h:4},
-    {name:'Poland',      lon:20,  lat:52,  w:5,  h:5},
-    {name:'Netherlands', lon:5,   lat:52,  w:2,  h:2},
-    {name:'Maroc',       lon:-5,  lat:32,  w:6,  h:6},
-    {name:'Morocco',     lon:-5,  lat:32,  w:6,  h:6},
-    {name:'Tunisie',     lon:9,   lat:34,  w:3,  h:4},
-    {name:'Tunisia',     lon:9,   lat:34,  w:3,  h:4},
-    {name:'Algérie',     lon:3,   lat:28,  w:10, h:10},
-    {name:'Algeria',     lon:3,   lat:28,  w:10, h:10},
-    {name:'Cameroun',    lon:12,  lat:5,   w:5,  h:6},
-    {name:'Cameroon',    lon:12,  lat:5,   w:5,  h:6},
-    {name:'Liban',       lon:35,  lat:33,  w:2,  h:2},
-    {name:'Lebanon',     lon:35,  lat:33,  w:2,  h:2},
-    {name:'UAE',         lon:54,  lat:24,  w:3,  h:2},
-    {name:'Saudi Arabia',lon:45,  lat:24,  w:10, h:8},
-    {name:'India',       lon:78,  lat:22,  w:12, h:14},
-    {name:'China',       lon:104, lat:35,  w:20, h:18},
-    {name:'USA',         lon:-98, lat:38,  w:30, h:18},
-    {name:'Brazil',      lon:-52, lat:-10, w:22, h:22},
-    {name:'Mexico',      lon:-102,lat:24,  w:10, h:10},
-    {name:'Australia',   lon:134, lat:-25, w:25, h:18},
-    {name:'Japan',       lon:138, lat:36,  w:5,  h:8},
-    {name:'Singapore',   lon:104, lat:1,   w:1,  h:1},
-    {name:'Bulgaria',    lon:25,  lat:43,  w:3,  h:3},
+  // Dessiner un polygone pays
+  var ctx=canvas.getContext('2d');
+  ctx.clearRect(0,0,900,420);
+
+  // Fond océan
+  ctx.fillStyle='#D6EAF5';
+  ctx.fillRect(0,0,900,420);
+
+  // Pays avec leurs polygones (coordonnées lon/lat approximées)
+  var countries=[
+    {names:['france','fr'],pts:[[-5,51],[8,51],[8,43],[-2,43],[-5,47]]},
+    {names:['uk','united kingdom','royaume-uni'],pts:[[-6,58],[2,58],[2,51],[-6,51]]},
+    {names:['germany','allemagne'],pts:[[6,55],[15,55],[15,47],[6,47]]},
+    {names:['spain','espagne'],pts:[[-9,44],[3,44],[3,36],[-9,36]]},
+    {names:['italy','italie'],pts:[[7,44],[16,44],[16,38],[12,38],[12,37],[15,37],[15,40],[7,44]]},
+    {names:['portugal'],pts:[[-9,42],[-6,42],[-6,37],[-9,37]]},
+    {names:['belgium','belgique'],pts:[[3,51],[6,51],[6,49],[3,49]]},
+    {names:['netherlands','pays-bas'],pts:[[4,53],[7,53],[7,51],[4,51]]},
+    {names:['switzerland','suisse'],pts:[[6,48],[10,48],[10,46],[6,46]]},
+    {names:['poland','pologne'],pts:[[14,55],[24,55],[24,49],[14,49]]},
+    {names:['romania','roumanie'],pts:[[22,48],[30,48],[30,44],[22,44]]},
+    {names:['bulgaria','bulgarie'],pts:[[22,44],[29,44],[29,41],[22,41]]},
+    {names:['ukraine'],pts:[[22,52],[40,52],[40,44],[22,44]]},
+    {names:['russia','russie'],pts:[[30,72],[180,72],[180,50],[30,50]]},
+    {names:['norway','norvège'],pts:[[5,72],[30,72],[30,57],[5,57]]},
+    {names:['sweden','suède'],pts:[[11,69],[24,69],[24,55],[11,55]]},
+    {names:['finland','finlande'],pts:[[20,70],[32,70],[32,60],[20,60]]},
+    {names:['turkey','turquie'],pts:[[26,42],[45,42],[45,36],[26,36]]},
+    {names:['maroc','morocco'],pts:[[-6,36],[0,36],[0,28],[-6,28],[-14,28],[-14,35]]},
+    {names:['tunisie','tunisia'],pts:[[8,38],[12,38],[12,30],[8,30]]},
+    {names:['algérie','algeria'],pts:[[0,38],[9,38],[9,30],[0,30],[-6,30],[-6,38]]},
+    {names:['liban','lebanon'],pts:[[35,34],[37,34],[37,33],[35,33]]},
+    {names:['cameroun','cameroon'],pts:[[8,13],[16,13],[16,2],[8,2]]},
+    {names:['nigeria','nigéria'],pts:[[3,14],[15,14],[15,4],[3,4]]},
+    {names:['egypt','egypte'],pts:[[25,32],[37,32],[37,22],[25,22]]},
+    {names:['senegal'],pts:[[-17,16],[-12,16],[-12,12],[-17,12]]},
+    {names:['ivory coast','côte d\'ivoire'],pts:[[-8,10],[-3,10],[-3,5],[-8,5]]},
+    {names:['south africa','afrique du sud'],pts:[[16,-22],[33,-22],[33,-35],[16,-35]]},
+    {names:['kenya'],pts:[[34,5],[42,5],[42,-4],[34,-4]]},
+    {names:['uae','émirats arabes unis','emirates'],pts:[[51,26],[56,26],[56,23],[51,23]]},
+    {names:['saudi arabia','arabie saoudite'],pts:[[37,32],[55,32],[55,16],[37,16]]},
+    {names:['india','inde'],pts:[[68,36],[88,36],[88,8],[68,8]]},
+    {names:['china','chine'],pts:[[76,53],[135,53],[135,20],[76,20]]},
+    {names:['japan','japon'],pts:[[130,45],[145,45],[145,31],[130,31]]},
+    {names:['singapore','singapour'],pts:[[103,1.5],[104,1.5],[104,1],[103,1]]},
+    {names:['australia','australie'],pts:[[114,-15],[154,-15],[154,-39],[114,-39]]},
+    {names:['new zealand','nouvelle-zélande'],pts:[[166,-34],[178,-34],[178,-47],[166,-47]]},
+    {names:['usa','états-unis','united states'],pts:[[-125,50],[-67,50],[-67,25],[-125,25]]},
+    {names:['canada'],pts:[[-140,72],[-52,72],[-52,43],[-140,43]]},
+    {names:['mexico','mexique'],pts:[[-118,32],[-87,32],[-87,14],[-118,14]]},
+    {names:['brazil','brésil'],pts:[[-74,-5],[-35,-5],[-35,-34],[-74,-34]]},
+    {names:['argentina','argentine'],pts:[[-74,-22],[-53,-22],[-53,-56],[-74,-56]]},
+    {names:['colombia','colombie'],pts:[[-79,13],[-67,13],[-67,-4],[-79,-4]]},
+    {names:['chile','chili'],pts:[[-76,-16],[-66,-16],[-66,-56],[-76,-56]]},
+    {names:['venezuela'],pts:[[-73,12],[-60,12],[-60,0],[-73,0]]},
+    {names:['peru','pérou'],pts:[[-82,-2],[-68,-2],[-68,-18],[-82,-18]]},
   ];
 
-  // Fond continents simplifiés
-  var continents=[
-    // Europe
-    {path:[[350,80],[500,80],[520,180],[470,200],[430,190],[380,200],[340,170],[330,120]]},
-    // Afrique
-    {path:[[380,200],[470,200],[490,280],[460,380],[400,390],[360,300],[350,240]]},
-    // Amérique du Nord
-    {path:[[40,60],[220,60],[240,200],[200,230],[120,220],[50,180]]},
-    // Amérique du Sud
-    {path:[[130,230],[210,230],[230,380],[170,410],[120,360],[110,280]]},
-    // Asie
-    {path:[[500,60],[800,60],[820,200],[750,240],[600,250],[520,200]]},
-    // Océanie
-    {path:[[660,280],[780,280],[790,370],[680,380],[650,320]]},
-  ];
-
-  continents.forEach(function(c){
+  // Dessiner les pays
+  countries.forEach(function(country){
+    var col=getColor(country.names);
     ctx.beginPath();
-    ctx.moveTo(c.path[0][0],c.path[0][1]);
-    for(var i=1;i<c.path.length;i++) ctx.lineTo(c.path[i][0],c.path[i][1]);
+    var pts=country.pts;
+    var first=px(pts[0][0],pts[0][1]);
+    ctx.moveTo(first[0],first[1]);
+    for(var i=1;i<pts.length;i++){
+      var p=px(pts[i][0],pts[i][1]);
+      ctx.lineTo(p[0],p[1]);
+    }
     ctx.closePath();
-    ctx.fillStyle='#f0f0ec';
+    ctx.fillStyle=col.fill;
     ctx.fill();
-    ctx.strokeStyle='#d0cec8';
-    ctx.lineWidth=0.5;
+    ctx.strokeStyle=col.stroke;
+    ctx.lineWidth=0.7;
     ctx.stroke();
-  });
 
-  // Dessiner chaque région/pays avec sa couleur
-  regions.forEach(function(r){
-    var p1=proj(r.lon,r.lat);
-    var p2=proj(r.lon+r.w,r.lat-r.h);
-    var color=getColor(r.name);
-    var isNotable=color!=='#D1D5DB';
-    ctx.fillStyle=color;
-    ctx.beginPath();
-    ctx.roundRect(p1[0],p1[1],p2[0]-p1[0],p2[1]-p1[1],2);
-    ctx.fill();
+    // Étiquette si pays audité/planifié
+    var isNotable=auditedSet.has(country.names[0])||plannedSet.has(country.names[0]);
+    if(!isNotable){
+      for(var j=0;j<country.names.length;j++){
+        if(auditedSet.has(country.names[j])||plannedSet.has(country.names[j])){isNotable=true;break;}
+      }
+    }
     if(isNotable){
-      ctx.strokeStyle='rgba(0,0,0,0.2)';
-      ctx.lineWidth=1;
-      ctx.stroke();
-      // Étiquette pays
-      ctx.fillStyle='rgba(0,0,0,0.7)';
+      // Centroïde
+      var cx=0,cy=0;
+      country.pts.forEach(function(p){var pp=px(p[0],p[1]);cx+=pp[0];cy+=pp[1];});
+      cx=Math.round(cx/country.pts.length);
+      cy=Math.round(cy/country.pts.length);
+      // Nom affiché = première entrée capitalisée
+      var label=country.names[0].charAt(0).toUpperCase()+country.names[0].slice(1);
       ctx.font='bold 9px -apple-system,sans-serif';
-      ctx.textAlign='center';
-      ctx.textBaseline='middle';
-      var cx2=(p1[0]+p2[0])/2;
-      var cy2=(p1[1]+p2[1])/2;
-      ctx.fillText(r.name.length>8?r.name.slice(0,7)+'…':r.name,cx2,cy2);
+      var tw=ctx.measureText(label).width;
+      ctx.fillStyle='rgba(0,0,0,.65)';
+      ctx.fillText(label,cx-tw/2,cy+4);
     }
   });
 
-  // Titre
-  ctx.fillStyle='#5F5E5A';
+  // Légende
   ctx.font='11px -apple-system,sans-serif';
+  ctx.fillStyle='#5F5E5A';
   ctx.textAlign='left';
-  ctx.fillText('Carte indicative — basée sur les pays du plan BU',8,H-8);
+  ctx.fillText('Carte indicative — basée sur les pays du plan BU',8,414);
 }
 
 function renderBUTable(){
