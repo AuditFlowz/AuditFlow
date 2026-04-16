@@ -1,5 +1,14 @@
 const AUDITFLOW_CONFIG = {
-  supabaseUrl: 'https://rdukdwwicctgywyaxlgw.supabase.co',
-  supabaseKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJkdWtkd3dpY2N0Z3l3eWF4bGd3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU4MjU4MjYsImV4cCI6MjA5MTQwMTgyNn0.TeGSNPW6231i1qs_ceP8o_1qaENIURDvJfdPWmZoHvI',
+  // Microsoft Graph / SharePoint
+  clientId:    'ba6dcaee-c8d6-4181-9c30-6ea770928455',
+  tenantId:    '300f59df-78e6-436f-9b27-b64973e34f7d',
+  siteUrl:     'https://axwaysoftware.sharepoint.com/sites/AuditInterne27',
+  siteId:      null,   // rempli automatiquement au premier appel Graph
+  driveId:     null,   // rempli automatiquement au premier appel Graph
+
+  // Fallback login local (invités externes sans compte Axway)
   demoPassword: 'Audit1234!',
+
+  // URL Azure Static Web App
+  appUrl: 'https://white-moss-0f615d11e.7.azurestaticapps.net',
 };
