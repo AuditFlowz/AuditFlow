@@ -41,18 +41,6 @@
       "allowedRoles": ["anonymous"]
     },
     {
-      "route": "/.auth/login/github",
-      "statusCode": 404
-    },
-    {
-      "route": "/.auth/login/twitter",
-      "statusCode": 404
-    },
-    {
-      "route": "/.auth/login/google",
-      "statusCode": 404
-    },
-    {
       "route": "/.auth/*",
       "allowedRoles": ["anonymous"]
     },
@@ -66,7 +54,7 @@
     },
     {
       "route": "/*",
-      "allowedRoles": ["anonymous"]
+      "allowedRoles": ["anonymous", "authenticated", "user"]
     }
   ]
 }
