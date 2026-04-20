@@ -27,7 +27,7 @@
     "identityProviders": {
       "azureActiveDirectory": {
         "registration": {
-          "openIdIssuer": "https://login.microsoftonline.com/common/v2.0",
+          "openIdIssuer": "https://login.microsoftonline.com/300f59df-78e6-436f-9b27-b64973e34f7d/v2.0",
           "clientIdSettingName": "AAD_CLIENT_ID",
           "clientSecretSettingName": "AAD_CLIENT_SECRET"
         }
@@ -68,11 +68,5 @@
       "route": "/*",
       "allowedRoles": ["anonymous"]
     }
-  ],
-  "responseOverrides": {
-    "401": {
-      "redirect": "/login",
-      "statusCode": 302
-    }
-  }
+  ]
 }
