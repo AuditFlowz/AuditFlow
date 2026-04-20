@@ -45,16 +45,8 @@
       "allowedRoles": ["anonymous"]
     },
     {
-      "route": "/css/*",
-      "allowedRoles": ["anonymous"]
-    },
-    {
-      "route": "/js/*",
-      "allowedRoles": ["anonymous"]
-    },
-    {
       "route": "/*",
-      "allowedRoles": ["anonymous", "authenticated", "user"]
+      "allowedRoles": ["anonymous"]
     }
   ]
 }
