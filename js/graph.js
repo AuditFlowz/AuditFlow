@@ -45,6 +45,8 @@ async function getMsalApp() {
   return _msalApp;
 }
 
+var _graphTokenPromise = null;
+
 async function getGraphToken() {
   // Récupérer depuis sessionStorage si dispo
   if (!_graphToken) {
@@ -60,6 +62,17 @@ async function getGraphToken() {
   }
 
   if (_graphToken && _graphToken.exp > Date.now() + 60000) return _graphToken.token;
+
+  // Verrou : si une popup est déjà en cours, attendre sa résolution
+  if (_graphTokenPromise) return _graphTokenPromise;
+
+  _graphTokenPromise = _doGetGraphToken().finally(function() {
+    _graphTokenPromise = null;
+  });
+  return _graphTokenPromise;
+}
+
+async function _doGetGraphToken() {
 
   try {
     var msalApp = await getMsalApp();
@@ -110,6 +123,7 @@ async function getGraphToken() {
 
   } catch(e) {
     console.warn('[Graph] Token error:', e.message);
+    _graphTokenPromise = null;
     return null;
   }
 }
