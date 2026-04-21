@@ -46,6 +46,19 @@ async function getMsalApp() {
 }
 
 async function getGraphToken() {
+  // Récupérer depuis sessionStorage si dispo
+  if (!_graphToken) {
+    try {
+      var stored = sessionStorage.getItem('af_graph_token');
+      if (stored) {
+        var parsed = JSON.parse(stored);
+        if (parsed && parsed.exp > Date.now() + 60000) {
+          _graphToken = parsed;
+        }
+      }
+    } catch(e) {}
+  }
+
   if (_graphToken && _graphToken.exp > Date.now() + 60000) return _graphToken.token;
 
   try {
@@ -67,11 +80,11 @@ async function getGraphToken() {
             scopes: ['Sites.ReadWrite.All', 'Files.ReadWrite', 'User.Read'],
           });
           account = loginResp.account;
-          // Token déjà disponible dans la réponse popup
           _graphToken = {
             token: loginResp.accessToken,
             exp: loginResp.expiresOn ? loginResp.expiresOn.getTime() : Date.now() + 3500000,
           };
+          sessionStorage.setItem('af_graph_token', JSON.stringify(_graphToken));
           console.log('[MSAL] Token Graph via popup ✓');
           return _graphToken.token;
         }
@@ -91,6 +104,7 @@ async function getGraphToken() {
       token: tokenResp.accessToken,
       exp: tokenResp.expiresOn ? tokenResp.expiresOn.getTime() : Date.now() + 3500000,
     };
+    sessionStorage.setItem('af_graph_token', JSON.stringify(_graphToken));
     console.log('[MSAL] Token Graph acquis silencieusement ✓');
     return _graphToken.token;
 
@@ -596,11 +610,14 @@ async function revokeUser(userId) {
   await spDelete('AF_Users', userId);
   USERS = USERS.filter(function(u){ return u.id !== userId; });
 }
-// Initialiser MSAL au chargement de la page
+
+// ── Initialiser MSAL au chargement de la page ────────────────
 document.addEventListener('DOMContentLoaded', async function() {
   try {
     await getMsalApp();
     console.log('[MSAL] App initialisée au chargement ✓');
+    // Pré-charger le token dès le départ
+    await getGraphToken();
   } catch(e) {
     console.warn('[MSAL] Init error:', e.message);
   }
