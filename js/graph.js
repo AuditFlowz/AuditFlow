@@ -15,31 +15,78 @@ var DB = {
   history:   [],
 };
 
-// ── Token Microsoft Graph ────────────────────────────────────
+// ── Token Microsoft Graph via MSAL ───────────────────────────
 var _graphToken = null;
+var _msalApp = null;
+
+async function getMsalApp() {
+  if (_msalApp) return _msalApp;
+  if (!window.msal) {
+    console.warn('[Graph] MSAL not loaded');
+    return null;
+  }
+  _msalApp = new window.msal.PublicClientApplication({
+    auth: {
+      clientId: AUDITFLOW_CONFIG.clientId,
+      authority: 'https://login.microsoftonline.com/' + AUDITFLOW_CONFIG.tenantId,
+      redirectUri: AUDITFLOW_CONFIG.appUrl + '/',
+    },
+    cache: {
+      cacheLocation: 'sessionStorage',
+      storeAuthStateInCookie: false,
+    }
+  });
+  await _msalApp.initialize();
+  try {
+    await _msalApp.handleRedirectPromise();
+  } catch(e) {
+    console.warn('[MSAL] handleRedirectPromise:', e.message);
+  }
+  return _msalApp;
+}
 
 async function getGraphToken() {
   if (_graphToken && _graphToken.exp > Date.now() + 60000) return _graphToken.token;
-  // Récupérer le token depuis /.auth/me (Azure SWA injecte le token AAD)
+
   try {
-    var res = await fetch('/.auth/me');
-    if (!res.ok) throw new Error('/.auth/me not available');
-    var data = await res.json();
-    var cp = data && data.clientPrincipal;
-    if (cp && cp.accessToken) {
-      _graphToken = { token: cp.accessToken, exp: Date.now() + 3500000 };
-      return _graphToken.token;
-    }
-    // Fallback : token depuis sessionStorage (login SSO manuel)
-    var stored = sessionStorage.getItem('af_graph_token');
-    if (stored) {
-      var parsed = JSON.parse(stored);
-      if (parsed.exp > Date.now()) {
-        _graphToken = parsed;
-        return _graphToken.token;
+    var msalApp = await getMsalApp();
+    if (!msalApp) throw new Error('MSAL not available');
+
+    var accounts = msalApp.getAllAccounts();
+    var account = accounts[0];
+
+    if (!account) {
+      // Tenter SSO silencieux avec hint depuis /.auth/me
+      try {
+        var res = await fetch('/.auth/me');
+        var data = await res.json();
+        var email = data && data.clientPrincipal && data.clientPrincipal.userDetails;
+        if (email) {
+          var loginResp = await msalApp.ssoSilent({
+            loginHint: email,
+            scopes: ['Sites.ReadWrite.All', 'Files.ReadWrite', 'User.Read'],
+          });
+          account = loginResp.account;
+        }
+      } catch(e) {
+        console.warn('[MSAL] SSO silent failed:', e.message);
       }
     }
-    throw new Error('No Graph token available');
+
+    if (!account) throw new Error('No MSAL account found');
+
+    var tokenResp = await msalApp.acquireTokenSilent({
+      account: account,
+      scopes: ['Sites.ReadWrite.All', 'Files.ReadWrite', 'User.Read'],
+    });
+
+    _graphToken = {
+      token: tokenResp.accessToken,
+      exp: tokenResp.expiresOn ? tokenResp.expiresOn.getTime() : Date.now() + 3500000,
+    };
+    console.log('[MSAL] Token Graph acquis ✓');
+    return _graphToken.token;
+
   } catch(e) {
     console.warn('[Graph] Token error:', e.message);
     return null;
@@ -68,7 +115,6 @@ async function graphCall(method, url, body) {
 // ── Récupérer l'ID du site SharePoint ───────────────────────
 async function getSiteId() {
   if (AUDITFLOW_CONFIG.siteId) return AUDITFLOW_CONFIG.siteId;
-  // Extraire hostname et path depuis siteUrl
   var u = new URL(AUDITFLOW_CONFIG.siteUrl);
   var hostname = u.hostname;
   var sitePath = u.pathname.replace(/^\//, '');
@@ -96,7 +142,6 @@ async function getListId(listName) {
     _listIds[listName] = data.id;
     return data.id;
   } catch(e) {
-    // Liste n'existe pas encore — la créer
     console.log('[Graph] Création liste:', listName);
     await createList(siteId, listName);
     var data2 = await graphCall('GET', '/sites/' + siteId + '/lists/' + encodeURIComponent(listName));
@@ -241,7 +286,6 @@ async function spDelete(listName, afId) {
 // ════════════════════════════════════════════════════════════
 async function loadAllData() {
   try {
-    // Charger en parallèle
     var [usersRaw, planRaw, procRaw, actRaw, histRaw] = await Promise.all([
       listItems('AF_Users'),
       listItems('AF_AuditPlan'),
@@ -250,7 +294,6 @@ async function loadAllData() {
       listItems('AF_History'),
     ]);
 
-    // Mapper les champs SharePoint → format AuditFlow
     DB.users = usersRaw.map(function(r){ var f=r.fields; return {
       id: f.af_id, name: f.name||f.Title, email: f.email,
       role: f.role||'auditeur', initials: f.initials||'',
@@ -305,7 +348,6 @@ async function loadAllData() {
 
   } catch(e) {
     console.warn('[SP] loadAllData error:', e.message);
-    // Fallback : garder les données statiques de data.js
   }
 }
 
@@ -433,7 +475,6 @@ async function uploadDoc(auditId, file, stepIndex, userName) {
   var folderName = ap ? ap.titre.replace(/[^a-zA-Z0-9 _-]/g, '_') : auditId;
   var driveId = await getDriveId();
 
-  // Créer le dossier AuditFlow/<folderName> si nécessaire
   var uploadPath = '/drives/' + driveId + '/root:/AuditFlow/' + folderName + '/' + file.name + ':/content';
 
   var token = await getGraphToken();
@@ -498,14 +539,12 @@ async function replaceDocInDB(auditId, docIndex, file, stepIndex, userName) {
   var d = getAudData(auditId);
   var oldDoc = d.docs[docIndex];
   if (!oldDoc) return null;
-  // Supprimer l'ancien fichier
   if (oldDoc.itemId) {
     try {
       var driveId = await getDriveId();
       await graphCall('DELETE', '/drives/' + driveId + '/items/' + oldDoc.itemId);
     } catch(e) {}
   }
-  // Uploader le nouveau
   d.docs.splice(docIndex, 1);
   var newDoc = await uploadDoc(auditId, file, stepIndex, userName);
   return newDoc;
@@ -522,7 +561,6 @@ function tryParse(str, fallback) {
 //  GESTION DES UTILISATEURS / ACCÈS
 // ══════════════════════════════════════════════════════════════
 
-// Charger les users autorisés depuis AF_Users (SharePoint)
 async function loadAuthorizedUsers() {
   try {
     var items = await listItems('AF_Users');
@@ -534,11 +572,10 @@ async function loadAuthorizedUsers() {
     };});
   } catch(e) {
     console.warn('[SP] loadAuthorizedUsers error:', e.message);
-    return USERS; // fallback données statiques
+    return USERS;
   }
 }
 
-// Inviter un utilisateur (ajouter dans AF_Users)
 async function inviteUser(email, name, role) {
   var id = 'usr_' + Date.now();
   var initials = name.split(' ').map(function(w){return w[0];}).join('').toUpperCase().slice(0,2);
@@ -548,7 +585,6 @@ async function inviteUser(email, name, role) {
   return user;
 }
 
-// Révoquer un utilisateur
 async function revokeUser(userId) {
   await spDelete('AF_Users', userId);
   USERS = USERS.filter(function(u){ return u.id !== userId; });
