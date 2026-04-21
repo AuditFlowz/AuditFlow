@@ -616,8 +616,7 @@ document.addEventListener('DOMContentLoaded', async function() {
   try {
     await getMsalApp();
     console.log('[MSAL] App initialisée au chargement ✓');
-    // Pré-charger le token dès le départ
-    await getGraphToken();
+    // Token obtenu dans launchApp() après auth utilisateur (popup requiert action user)
   } catch(e) {
     console.warn('[MSAL] Init error:', e.message);
   }
