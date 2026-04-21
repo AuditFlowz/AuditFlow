@@ -1,1 +1,41 @@
-{"navigationFallback":{"rewrite":"/index.html","exclude":["/css/*","/js/*","*.js","*.css","*.json","*.png","*.svg","*.ico","/.auth/*"]},"globalHeaders":{"Cache-Control":"no-cache, no-store, must-revalidate","X-Content-Type-Options":"nosniff"},"mimeTypes":{".js":"application/javascript",".css":"text/css",".json":"application/json",".svg":"image/svg+xml"},"routes":[{"route":"/login","rewrite":"/.auth/login/aad","allowedRoles":["anonymous"]},{"route":"/.auth/*","allowedRoles":["anonymous"]},{"route":"/*","allowedRoles":["anonymous"]}]}
+{
+  "navigationFallback": {
+    "rewrite": "/index.html",
+    "exclude": [
+      "/css/*",
+      "/js/*",
+      "*.js",
+      "*.css",
+      "*.json",
+      "*.png",
+      "*.svg",
+      "*.ico",
+      "/.auth/*"
+    ]
+  },
+  "globalHeaders": {
+    "Cache-Control": "no-cache, no-store, must-revalidate",
+    "X-Content-Type-Options": "nosniff"
+  },
+  "mimeTypes": {
+    ".js": "application/javascript",
+    ".css": "text/css",
+    ".json": "application/json",
+    ".svg": "image/svg+xml"
+  },
+  "routes": [
+    {
+      "route": "/login",
+      "rewrite": "/.auth/login/aad",
+      "allowedRoles": ["anonymous"]
+    },
+    {
+      "route": "/.auth/*",
+      "allowedRoles": ["anonymous"]
+    },
+    {
+      "route": "/*",
+      "allowedRoles": ["anonymous"]
+    }
+  ]
+}
