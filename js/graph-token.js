@@ -9,7 +9,7 @@ var _graphToken = null;
 async function initMSAL() {
   if (_msalApp) return _msalApp;
 
-  _msalApp = new msal.PublicClientApplication({
+  _msalApp = new window.msal.PublicClientApplication({
     auth: {
       clientId: AUDITFLOW_CONFIG.clientId,
       authority: 'https://login.microsoftonline.com/' + AUDITFLOW_CONFIG.tenantId,
