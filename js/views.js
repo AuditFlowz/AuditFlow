@@ -1396,7 +1396,7 @@ V['plans-bu']=()=>`
       <span style="display:flex;align-items:center;gap:5px;"><span style="width:10px;height:10px;border-radius:50%;background:#378ADD;display:inline-block;"></span>Audit futur planifié</span>
       <span style="display:flex;align-items:center;gap:5px;"><span style="width:10px;height:10px;border-radius:50%;background:#E2DDD5;display:inline-block;border:1px solid #ccc;"></span>Aucun audit prévu</span>
     </div>
-    <div class="card" style="padding:.75rem;margin-bottom:1rem;overflow:hidden;background:#D6EAF5;">
+    <div class="card" style="padding:.75rem;margin-bottom:1rem;overflow:hidden;background:#D6EAF5;max-width:700px;margin-left:auto;margin-right:auto">
       <div id="world-map-svg" style="width:100%;"></div>
     </div>
     <div style="display:flex;gap:8px;margin-bottom:1rem">
