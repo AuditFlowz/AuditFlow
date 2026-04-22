@@ -147,8 +147,22 @@ function renderRiskMatrix(){
   if(!d.riskLinks)d.riskLinks={};  // {riskId: [controlId, ...]}
   if(!d.auditRisks)d.auditRisks=[]; // risques spécifiques à cet audit
 
-  // Risques du processus associé (prédéfinis)
-  var procRisks=ap&&ap.processId?getProcRisks(ap.processId):[];
+  // Risques des processus associés (prédéfinis) — gère multi-processus
+  var pids = (Array.isArray(ap&&ap.processIds) && ap.processIds.length)
+    ? ap.processIds
+    : (ap && ap.processId ? [ap.processId] : []);
+  var procRisks = [];
+  pids.forEach(function(pid){
+    var procObj = PROCESSES.find(function(p){return p.id===pid;});
+    var procName = procObj ? procObj.proc : '';
+    (getProcRisks(pid)||[]).forEach(function(r){
+      // Préfixer le nom du risque par le processus source (utile en cross-process)
+      procRisks.push(Object.assign({}, r, {
+        _procName: procName,
+        title: (pids.length>1 && procName) ? ('['+procName+'] '+r.title) : r.title,
+      }));
+    });
+  });
 
   // Fusionner risques prédéfinis + risques audit
   var allRisks=[...procRisks,...(d.auditRisks||[])];
@@ -190,7 +204,7 @@ function renderRiskMatrix(){
 
   if(!allRisks.length){
     html+='<div style="font-size:12px;color:var(--text-3);padding:.5rem">';
-    html+='Aucun risque défini.'+(ap&&ap.processId?' Ajoutez des risques dans <strong>Audit Universe</strong> sur ce processus, ou ajoutez un risque ad hoc ci-dessus.':' Ajoutez des risques ad hoc ou associez un processus à cet audit.');
+    html+='Aucun risque défini.'+(pids.length?' Ajoutez des risques dans <strong>Audit Universe</strong> sur les processus de cet audit, ou ajoutez un risque ad hoc ci-dessus.':' Ajoutez des risques ad hoc ou associez un processus à cet audit.');
     html+='</div>';
     html+='</div>';
     return html;
@@ -1001,9 +1015,25 @@ function renderPlanAuditTable(){
   } else {
     rows.forEach(function(ap){
       var idx=AUDIT_PLAN.indexOf(ap);
-      var detail=ap.type==='Process'
-        ?'<span style="font-size:11px"><strong>'+ap.domaine+'</strong> › '+ap.process+'</span>'
-        :'<span style="font-size:11px"><strong>'+(ap.entite||'')+'</strong> · '+(ap.region||'')+' · '+(ap.pays||[]).join(', ')+'</span>';
+      var detail;
+      if (ap.type==='Process') {
+        // Support multi-processus
+        var pids = (Array.isArray(ap.processIds) && ap.processIds.length)
+          ? ap.processIds
+          : (ap.processId ? [ap.processId] : []);
+        if (pids.length > 1) {
+          // Plusieurs processus : afficher le domaine + liste compacte
+          var procNames = pids.map(function(pid){
+            var p = PROCESSES.find(function(x){return x.id===pid;});
+            return p ? p.proc : pid;
+          });
+          detail = '<span style="font-size:11px"><strong>'+(ap.domaine||'Multi')+'</strong> › <span style="color:var(--purple-dk)">'+pids.length+' processus</span><div style="font-size:10px;color:var(--text-3);margin-top:2px">'+procNames.join(' · ')+'</div></span>';
+        } else {
+          detail = '<span style="font-size:11px"><strong>'+(ap.domaine||'')+'</strong> › '+(ap.process||'')+'</span>';
+        }
+      } else {
+        detail = '<span style="font-size:11px"><strong>'+(ap.entite||'')+'</strong> · '+(ap.region||'')+' · '+(ap.pays||[]).join(', ')+'</span>';
+      }
       var avs=(ap.auditeurs||[]).map(function(id){return avEl(id,20);}).join('');
       var tb=ap.type==='Process'?'bpc':'bbu';
       var mns=['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'];
@@ -1025,18 +1055,50 @@ function renderPlanAuditTable(){
   document.getElementById('pa-tbl').innerHTML=h+'</tbody>';
 }
 
-// ── Modal audit (inchangé) ────────────────────────────────────
+// ── Modal audit (multi-processus) ─────────────────────────────
 function auditModalBody(ap){
-  var doms=[...new Set(PROCESSES.map(function(p){return p.dom;}))];
+  var doms=[...new Set(PROCESSES.map(function(p){return p.dom;}))].sort(function(a,b){
+    return (a||'').localeCompare(b||'', 'fr', {sensitivity:'base'});
+  });
   var type=(ap&&ap.type)||'Process';
-  var domOpts=doms.map(function(d){return'<option'+(ap&&ap.domaine===d?' selected':'')+'>'+d+'</option>';}).join('');
-  var currentDom=(ap&&ap.domaine)||doms[0];
-  var procOpts=PROCESSES.filter(function(p){return p.dom===currentDom;}).map(function(p){
-    return'<option value="'+p.id+'"'+(ap&&ap.processId===p.id?' selected':'')+'>'+p.proc+'</option>';
-  }).join('');
+  // Récupérer les processIds actuels (ou [processId] pour compat)
+  var currentPids = (ap && Array.isArray(ap.processIds) && ap.processIds.length)
+    ? ap.processIds
+    : (ap && ap.processId ? [ap.processId] : []);
+
+  // Liste des checkboxes groupées par domaine
+  var procListHtml = '';
+  if (doms.length) {
+    procListHtml = doms.map(function(dom){
+      var procsInDom = PROCESSES.filter(function(p){return p.dom===dom && !p.archived;})
+        .sort(function(a,b){return (a.proc||'').localeCompare(b.proc||'', 'fr', {sensitivity:'base'});});
+      if (!procsInDom.length) return '';
+      var items = procsInDom.map(function(p){
+        var checked = currentPids.indexOf(p.id)>=0 ? ' checked' : '';
+        return '<label style="display:flex;align-items:center;gap:6px;padding:3px 0;font-size:12px;cursor:pointer">'
+          + '<input type="checkbox" class="m-proc-cb" value="'+p.id+'"'+checked+'>'
+          + '<span>'+p.proc+'</span>'
+          + '</label>';
+      }).join('');
+      return '<div style="margin-bottom:8px">'
+        + '<div style="font-size:10px;font-weight:600;color:var(--purple-dk);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px;padding-bottom:2px;border-bottom:.5px solid var(--border)">'+dom+'</div>'
+        + items
+        + '</div>';
+    }).join('');
+  } else {
+    procListHtml = '<div style="font-size:11px;color:var(--text-3);padding:.5rem">Aucun processus défini. Créez-en d\'abord dans Audit Universe.</div>';
+  }
+
   var h='';
   h+='<div><label>Type d\'audit</label><select id="m-type" onchange="toggleAuditTypeFields(this.value)"><option value="Process"'+(type==='Process'?' selected':'')+'>Process Audit</option><option value="BU"'+(type==='BU'?' selected':'')+'>BU Audit</option></select></div>';
-  h+='<div id="m-proc-fields" style="'+(type==='BU'?'display:none':'')+'"><div><label>Domaine</label><select id="m-dom" onchange="updateProcessList()">'+domOpts+'</select></div><div><label>Processus</label><select id="m-proc">'+procOpts+'</select></div></div>';
+  h+='<div id="m-proc-fields" style="'+(type==='BU'?'display:none':'')+'">';
+  h+='<div><label>Processus couverts <span style="color:var(--red)">*</span></label>';
+  h+='<div style="font-size:10px;color:var(--text-3);margin-bottom:5px">Cochez un ou plusieurs processus (multi-domaines autorisés)</div>';
+  h+='<div id="m-proc-list" style="max-height:220px;overflow-y:auto;border:.5px solid var(--border);border-radius:var(--radius);padding:8px 10px;background:var(--bg-card)">'
+    + procListHtml
+    + '</div>';
+  h+='<div id="m-proc-count" style="font-size:11px;color:var(--purple);margin-top:5px;font-weight:500"></div>';
+  h+='</div></div>';
   h+='<div id="m-bu-fields" style="'+(type!=='BU'?'display:none':'')+'"><div><label>Entité</label><select id="m-ent">';
   var entNames=GROUP_STRUCTURE.map(function(e){return e.name;});
   if(!entNames.length) entNames=['SBS','AXW','Groupe'];
@@ -1055,9 +1117,19 @@ function auditModalBody(ap){
   h+='</select></div><div><label>Statut</label><select id="m-statut">';
   ['Planifié','En cours','Clôturé'].forEach(function(s){h+='<option'+(ap&&ap.statut===s?' selected':'')+'>'+s+'</option>';});
   h+='</select></div></div>';
-  h+='<div><label>Auditeurs assignés</label><div style="display:flex;gap:12px;margin-top:4px">';
-  h+='<label style="display:flex;align-items:center;gap:5px;font-size:12px"><input type="checkbox" id="a-sh"'+((ap&&ap.auditeurs&&ap.auditeurs.includes('sh'))?' checked':'')+'>  Selma H.</label>';
-  h+='<label style="display:flex;align-items:center;gap:5px;font-size:12px"><input type="checkbox" id="a-ne"'+((ap&&ap.auditeurs&&ap.auditeurs.includes('ne'))?' checked':'')+'>  Nisrine E.</label>';
+  // Auditeurs : checkbox dynamique depuis USERS (rôle auditeur ou admin)
+  h+='<div><label>Auditeurs assignés</label><div style="display:flex;gap:12px;margin-top:4px;flex-wrap:wrap">';
+  var availAuditors = (USERS||[]).filter(function(u){return u.status==='actif' && (u.role==='auditeur' || u.role==='admin');});
+  if (!availAuditors.length) {
+    // Fallback legacy
+    h+='<label style="display:flex;align-items:center;gap:5px;font-size:12px"><input type="checkbox" class="m-auditor" value="sh"'+((ap&&ap.auditeurs&&ap.auditeurs.includes('sh'))?' checked':'')+'>  Selma H.</label>';
+    h+='<label style="display:flex;align-items:center;gap:5px;font-size:12px"><input type="checkbox" class="m-auditor" value="ne"'+((ap&&ap.auditeurs&&ap.auditeurs.includes('ne'))?' checked':'')+'>  Nisrine E.</label>';
+  } else {
+    availAuditors.forEach(function(u){
+      var checked = (ap && ap.auditeurs && ap.auditeurs.includes(u.id)) ? ' checked' : '';
+      h+='<label style="display:flex;align-items:center;gap:5px;font-size:12px"><input type="checkbox" class="m-auditor" value="'+u.id+'"'+checked+'> '+u.name+'</label>';
+    });
+  }
   h+='</div></div>';
   var mns=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
   var mOpts=function(sel){return mns.map(function(m,i){var vv=String(i+1);return'<option value="'+vv+'"'+(sel===vv?' selected':'')+'>'+m+'</option>';}).join('');};
@@ -1072,27 +1144,62 @@ function toggleAuditTypeFields(val){
   document.getElementById('m-proc-fields').style.display=val==='BU'?'none':'';
   document.getElementById('m-bu-fields').style.display=val==='BU'?'':'none';
 }
-function updateProcessList(){
-  var dom=document.getElementById('m-dom')&&document.getElementById('m-dom').value;
-  var sel=document.getElementById('m-proc');
-  if(!sel||!dom)return;
-  sel.innerHTML=PROCESSES.filter(function(p){return p.dom===dom;}).map(function(p){return'<option value="'+p.id+'">'+p.proc+'</option>';}).join('');
+
+// Mettre à jour le compteur de processus sélectionnés (appelé sur change)
+function updateProcCount(){
+  var cbs = document.querySelectorAll('.m-proc-cb:checked');
+  var el = document.getElementById('m-proc-count');
+  if (el) {
+    if (cbs.length === 0) {
+      el.style.color = 'var(--red)';
+      el.textContent = '⚠ Sélectionnez au moins 1 processus';
+    } else {
+      el.style.color = 'var(--purple)';
+      el.textContent = cbs.length + ' processus sélectionné' + (cbs.length>1?'s':'');
+    }
+  }
 }
+
+// Fonction de compatibilité (ancien code)
+function updateProcessList(){
+  // Plus nécessaire : la liste est statique et multi-domaines
+  updateProcCount();
+}
+
 function collectAuditModal(){
   var type=document.getElementById('m-type').value;
   var titre=document.getElementById('m-titre').value.trim();
   if(!titre){toast('Titre obligatoire');return null;}
+  // Collecter les auditeurs (nouvelle version avec .m-auditor)
   var auditeurs=[];
-  if(document.getElementById('a-sh').checked)auditeurs.push('sh');
-  if(document.getElementById('a-ne').checked)auditeurs.push('ne');
+  var auditorCbs = document.querySelectorAll('.m-auditor:checked');
+  if (auditorCbs.length) {
+    auditorCbs.forEach(function(cb){ auditeurs.push(cb.value); });
+  } else {
+    // Fallback legacy
+    if (document.getElementById('a-sh') && document.getElementById('a-sh').checked) auditeurs.push('sh');
+    if (document.getElementById('a-ne') && document.getElementById('a-ne').checked) auditeurs.push('ne');
+  }
   var dateDebut=document.getElementById('m-deb')?document.getElementById('m-deb').value:'';
   var dateFin=document.getElementById('m-fin')?document.getElementById('m-fin').value:'';
   var base={type,titre,annee:parseInt(document.getElementById('m-annee').value),statut:document.getElementById('m-statut').value,auditeurs,dateDebut,dateFin};
   if(type==='Process'){
-    var procEl=document.getElementById('m-proc');
-    var procId=procEl&&procEl.value;
-    var procObj=PROCESSES.find(function(p){return p.id===procId;});
-    return Object.assign({},base,{domaine:document.getElementById('m-dom').value,process:procObj&&procObj.proc||'',processId:procId});
+    // Collecter les processus cochés
+    var cbs = document.querySelectorAll('.m-proc-cb:checked');
+    if (!cbs.length) { toast('Sélectionnez au moins 1 processus'); return null; }
+    var processIds = Array.from(cbs).map(function(cb){return cb.value;});
+    // Construire le libellé synthétique (liste des noms, joints par virgule)
+    var procObjs = processIds.map(function(pid){return PROCESSES.find(function(p){return p.id===pid;});}).filter(Boolean);
+    var procNames = procObjs.map(function(p){return p.proc;}).join(', ');
+    // Domaine : si cross-domaines, on met "Multi-domaines", sinon le domaine unique
+    var uniqueDoms = [...new Set(procObjs.map(function(p){return p.dom;}))];
+    var domaine = uniqueDoms.length === 1 ? uniqueDoms[0] : uniqueDoms.join(', ');
+    return Object.assign({}, base, {
+      domaine: domaine,
+      process: procNames,
+      processId: processIds[0],        // compat ancien champ (premier process)
+      processIds: processIds,          // nouveau tableau complet
+    });
   } else {
     return Object.assign({},base,{entite:document.getElementById('m-ent').value,region:document.getElementById('m-reg').value,pays:document.getElementById('m-pays').value.split(',').map(function(s){return s.trim();}).filter(Boolean)});
   }
@@ -1106,6 +1213,7 @@ function showAddAuditModal(){
     addHist('add','Audit "'+data.titre+'" ajouté au plan');
     renderPlanAuditTable();toast('Audit créé ✓');
   });
+  attachProcCheckboxListeners();
 }
 function showEditAuditModal(idx){
   var ap=AUDIT_PLAN[idx];
@@ -1116,6 +1224,19 @@ function showEditAuditModal(idx){
     addHist('edit','Audit "'+data.titre+'" modifié');
     renderPlanAuditTable();toast('Audit mis à jour ✓');
   });
+  attachProcCheckboxListeners();
+}
+
+// Attache les listeners sur les checkboxes de processus après ouverture de la modal
+// et met à jour le compteur initial
+function attachProcCheckboxListeners() {
+  setTimeout(function(){
+    var cbs = document.querySelectorAll('.m-proc-cb');
+    cbs.forEach(function(cb){
+      cb.addEventListener('change', updateProcCount);
+    });
+    updateProcCount(); // Affichage initial
+  }, 50);
 }
 async function deleteAudit(idx){
   var ap=AUDIT_PLAN[idx];
@@ -1145,11 +1266,25 @@ function renderPlanProcessTable(){
     return (a||'').localeCompare(b||'', 'fr', {sensitivity:'base'});
   });
   var procAudits=AUDIT_PLAN.filter(function(a){return a.type==='Process';});
-  var auditedIds=new Set(AUDIT_PLAN.filter(function(a){return a.type==='Process';}).map(function(a){return a.processId;}));
-  var coveragePct=PROCESSES.filter(function(p){return!p.archived;}).length
-    ?Math.round(auditedIds.size/PROCESSES.filter(function(p){return!p.archived;}).length*100):0;
+
+  // Helper : retourner tous les processIds d'un audit (support old et new format)
+  var getApProcIds = function(ap){
+    if (Array.isArray(ap.processIds) && ap.processIds.length) return ap.processIds;
+    if (ap.processId) return [ap.processId];
+    return [];
+  };
+
+  // Set de tous les processIds couverts par au moins un audit
+  var auditedIds = new Set();
+  procAudits.forEach(function(a){
+    getApProcIds(a).forEach(function(pid){ auditedIds.add(pid); });
+  });
+
+  var activeProcesses = PROCESSES.filter(function(p){return!p.archived;});
+  var coveragePct = activeProcesses.length
+    ? Math.round(auditedIds.size/activeProcesses.length*100) : 0;
   var coveredCount = auditedIds.size;
-  var totalCount = PROCESSES.filter(function(p){return!p.archived;}).length;
+  var totalCount = activeProcesses.length;
 
   // Barre de couverture globale en haut
   var coverageBar =
@@ -1174,15 +1309,23 @@ function renderPlanProcessTable(){
   doms.forEach(function(dom){
     var rows=PROCESSES.filter(function(p){return p.dom===dom&&!p.archived;});
     if(!rows.length)return;
-    // Trier les processus dans chaque domaine
     rows.sort(function(a,b){
       return (a.proc||'').localeCompare(b.proc||'', 'fr', {sensitivity:'base'});
     });
     h+='<tr class="sr"><td colspan="7">'+dom+'</td></tr>';
     rows.forEach(function(p){
       var yc=function(y){
-        var m=procAudits.find(function(a){return a.processId===p.id&&a.annee===y;});
-        return m?'<div style="display:flex;flex-direction:column;gap:2px"><span style="font-size:10px;font-weight:500;color:var(--purple-dk)">'+m.titre+'</span><div style="display:flex;gap:3px">'+((m.auditeurs||[]).map(function(id){return avEl(id,16);}).join(''))+'</div></div>':'<span style="color:var(--text-3)">—</span>';
+        // Trouver tous les audits de l'année qui couvrent ce processus
+        var matches = procAudits.filter(function(a){
+          return a.annee===y && getApProcIds(a).indexOf(p.id) >= 0;
+        });
+        if (!matches.length) return '<span style="color:var(--text-3)">—</span>';
+        return matches.map(function(m){
+          return '<div style="display:flex;flex-direction:column;gap:2px;margin-bottom:2px">'
+            + '<span style="font-size:10px;font-weight:500;color:var(--purple-dk)">'+m.titre+'</span>'
+            + '<div style="display:flex;gap:3px">'+((m.auditeurs||[]).map(function(id){return avEl(id,16);}).join(''))+'</div>'
+            + '</div>';
+        }).join('');
       };
       var covered=auditedIds.has(p.id);
       var covBadge=covered
@@ -1200,11 +1343,9 @@ function renderPlanProcessTable(){
   // Injecter la barre de couverture avant le tableau
   var container = document.getElementById('pp-tbl2');
   if (container) {
-    var wrapper = container.parentNode; // le .tw
-    // Retirer l'ancienne barre si présente
+    var wrapper = container.parentNode;
     var old = document.getElementById('pp-coverage-bar');
     if (old) old.remove();
-    // Créer un div pour la barre et l'insérer avant le wrapper du tableau
     var div = document.createElement('div');
     div.id = 'pp-coverage-bar';
     div.innerHTML = coverageBar;
