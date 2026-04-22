@@ -8,8 +8,48 @@ const STEPS=[
 // Étapes "clés" qui nécessitent un workflow de revue (finalisation + revue par admin)
 // Les autres étapes gardent le fonctionnement simple (juste "Valider l'étape")
 const KEY_STEPS = [2, 4, 5, 6, 8]; // Kick Off, Testing Strategy, Testings, Report, Mgt Responses
-const PRCT={'Préparation':10,'Exécution':50,'Revue':80,'Clôturé':100,'Planifié':0,'Restitution':90};
-const BMAP={'Préparation':'bp2','Exécution':'be','Revue':'br2','Clôturé':'bdn','Planifié':'bpl','Restitution':'br2','En retard':'blt','En cours':'be','Non démarré':'bpl'};
+
+// Catégories par défaut pour les missions "Other" (non-audit)
+// Les utilisateurs peuvent en ajouter de nouvelles à la volée dans le formulaire
+var OTHER_CATEGORIES_DEFAULT = [
+  'Sapin 2 - Cartographie',
+  'URD - Facteurs de risques',
+  'Comité d\'audit',
+  'Formation / Conférence',
+  'Revue du plan d\'audit',
+  'Autre',
+];
+
+// Couleurs par catégorie (pour les badges et le Gantt)
+// Si une catégorie n'est pas listée, couleur par défaut "orange"
+var OTHER_CATEGORY_COLORS = {
+  'Sapin 2 - Cartographie':     {bg:'#FEF3C7', color:'#854F0B', gantt:'#F59E0B'},
+  'URD - Facteurs de risques':  {bg:'#DBEAFE', color:'#1E40AF', gantt:'#3B82F6'},
+  'Comité d\'audit':             {bg:'#E0E7FF', color:'#3730A3', gantt:'#6366F1'},
+  'Formation / Conférence':     {bg:'#F3E8FF', color:'#6B21A8', gantt:'#A855F7'},
+  'Revue du plan d\'audit':      {bg:'#CFFAFE', color:'#155E75', gantt:'#06B6D4'},
+  'Autre':                       {bg:'#F3F4F6', color:'#374151', gantt:'#6B7280'},
+};
+
+// Obtenir toutes les catégories connues (défaut + celles utilisées dans AUDIT_PLAN)
+function getAllOtherCategories() {
+  var set = new Set(OTHER_CATEGORIES_DEFAULT);
+  if (typeof AUDIT_PLAN !== 'undefined') {
+    AUDIT_PLAN.forEach(function(a){
+      if (a.type==='Other' && a.categorie) set.add(a.categorie);
+    });
+  }
+  return Array.from(set).sort(function(a,b){
+    return a.localeCompare(b, 'fr', {sensitivity:'base'});
+  });
+}
+
+// Obtenir les couleurs d'une catégorie (avec fallback)
+function getOtherCategoryColors(cat) {
+  return OTHER_CATEGORY_COLORS[cat] || {bg:'#FED7AA', color:'#9A3412', gantt:'#F97316'};
+}
+const PRCT={'Préparation':10,'Exécution':50,'Revue':80,'Clôturé':100,'Fait':100,'Planifié':0,'Restitution':90};
+const BMAP={'Préparation':'bp2','Exécution':'be','Revue':'br2','Clôturé':'bdn','Fait':'bdn','Planifié':'bpl','Restitution':'br2','En retard':'blt','En cours':'be','Non démarré':'bpl'};
 const GC=['#AFA9EC','#85B7EB','#5DCAA5','#EF9F27','#F0997B','#97C459','#AFA9EC','#85B7EB','#5DCAA5','#EF9F27'];
 var AVC={pm:'background:#CECBF6;color:#3C3489',sh:'background:#9FE1CB;color:#085041',ne:'background:#B5D4F4;color:#0C447C'};
 var TM={pm:{name:'Philippe M.',short:'PM',role:'admin',title:'Directeur Audit Interne'},sh:{name:'Selma H.',short:'SH',role:'auditeur',title:'Auditrice'},ne:{name:'Nisrine E.',short:'NE',role:'auditeur',title:'Auditrice'}};
