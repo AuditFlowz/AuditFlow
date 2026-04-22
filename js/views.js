@@ -631,7 +631,9 @@ V['plan-process']=()=>`
 I['plan-process']=()=>renderProcTable();
 
 function renderProcTable(){
-  var doms=[...new Set(PROCESSES.map(function(p){return p.dom;}))];
+  var doms=[...new Set(PROCESSES.map(function(p){return p.dom;}))].sort(function(a,b){
+    return (a||'').localeCompare(b||'', 'fr', {sensitivity:'base'});
+  });
   var h='<thead><tr>'
     +'<th style="width:160px">Domaine</th>'
     +'<th>Processus</th>'
@@ -645,6 +647,10 @@ function renderProcTable(){
     doms.forEach(function(dom){
       var rows=PROCESSES.filter(function(p){return p.dom===dom&&!p.archived;});
       if(!rows.length) return;
+      // Trier les processus A-Z
+      rows.sort(function(a,b){
+        return (a.proc||'').localeCompare(b.proc||'', 'fr', {sensitivity:'base'});
+      });
       // Ligne de section domaine
       var domIdx=PROCESSES.findIndex(function(p){return p.dom===dom;});
       h+='<tr class="sr">';
@@ -1135,15 +1141,43 @@ V['plans-process']=()=>`
 I['plans-process']=()=>renderPlanProcessTable();
 
 function renderPlanProcessTable(){
-  var doms=[...new Set(PROCESSES.map(function(p){return p.dom;}))];
+  var doms=[...new Set(PROCESSES.map(function(p){return p.dom;}))].sort(function(a,b){
+    return (a||'').localeCompare(b||'', 'fr', {sensitivity:'base'});
+  });
   var procAudits=AUDIT_PLAN.filter(function(a){return a.type==='Process';});
   var auditedIds=new Set(AUDIT_PLAN.filter(function(a){return a.type==='Process';}).map(function(a){return a.processId;}));
   var coveragePct=PROCESSES.filter(function(p){return!p.archived;}).length
     ?Math.round(auditedIds.size/PROCESSES.filter(function(p){return!p.archived;}).length*100):0;
+  var coveredCount = auditedIds.size;
+  var totalCount = PROCESSES.filter(function(p){return!p.archived;}).length;
+
+  // Barre de couverture globale en haut
+  var coverageBar =
+    '<div class="card" style="padding:12px 16px;margin-bottom:1rem;background:linear-gradient(90deg,var(--purple-lt),var(--white));border-left:4px solid var(--purple)">'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">'
+      + '<div>'
+        + '<div style="font-size:11px;color:var(--text-3);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">Couverture globale du plan</div>'
+        + '<div style="font-size:18px;font-weight:600;color:var(--purple-dk)">'+coveredCount+'/'+totalCount+' processus audités</div>'
+      + '</div>'
+      + '<div style="flex:1;min-width:200px;max-width:400px">'
+        + '<div style="display:flex;align-items:center;gap:10px">'
+          + '<div style="flex:1;height:10px;background:var(--border);border-radius:5px;overflow:hidden">'
+            + '<div style="width:'+coveragePct+'%;height:100%;background:var(--purple);border-radius:5px;transition:width .3s"></div>'
+          + '</div>'
+          + '<div style="font-size:20px;font-weight:700;color:var(--purple-dk);min-width:55px;text-align:right">'+coveragePct+'%</div>'
+        + '</div>'
+      + '</div>'
+    + '</div>'
+    + '</div>';
+
   var h='<thead><tr><th>Domaine</th><th>Processus</th><th>Risque</th><th>Couverture</th><th>2025</th><th>2026</th><th>2027</th><th>2028</th></tr></thead><tbody>';
   doms.forEach(function(dom){
     var rows=PROCESSES.filter(function(p){return p.dom===dom&&!p.archived;});
     if(!rows.length)return;
+    // Trier les processus dans chaque domaine
+    rows.sort(function(a,b){
+      return (a.proc||'').localeCompare(b.proc||'', 'fr', {sensitivity:'base'});
+    });
     h+='<tr class="sr"><td colspan="7">'+dom+'</td></tr>';
     rows.forEach(function(p){
       var yc=function(y){
@@ -1163,12 +1197,19 @@ function renderPlanProcessTable(){
         +'</tr>';
     });
   });
-  // Ligne résumé couverture
-  h+='<tr style="background:var(--purple-lt);font-weight:600;">'
-    +'<td colspan="3" style="font-size:11px;color:var(--purple-dk);padding:8px 10px;">Couverture globale</td>'
-    +'<td style="font-size:11px;color:var(--purple-dk);">'+auditedIds.size+'/'+PROCESSES.filter(function(p){return!p.archived;}).length+' ('+coveragePct+'%)</td>'
-    +'<td colspan="4"></td>'
-    +'</tr>';
+  // Injecter la barre de couverture avant le tableau
+  var container = document.getElementById('pp-tbl2');
+  if (container) {
+    var wrapper = container.parentNode; // le .tw
+    // Retirer l'ancienne barre si présente
+    var old = document.getElementById('pp-coverage-bar');
+    if (old) old.remove();
+    // Créer un div pour la barre et l'insérer avant le wrapper du tableau
+    var div = document.createElement('div');
+    div.id = 'pp-coverage-bar';
+    div.innerHTML = coverageBar;
+    wrapper.parentNode.insertBefore(div.firstChild, wrapper);
+  }
   document.getElementById('pp-tbl2').innerHTML=h+'</tbody>';
 }
 
