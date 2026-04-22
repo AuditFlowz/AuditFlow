@@ -1617,7 +1617,7 @@ V['audit-detail']=()=>{
   return `
     <div class="topbar">
       <div style="display:flex;align-items:center;gap:8px">
-        <button class="bs" onclick="nav('mes-audits')">← Retour</button>
+        <button class="bs" onclick="nav('dashboard')">← Retour</button>
         <div class="tbtitle">${a.name}</div>
       </div>
       <div style="display:flex;gap:7px">
