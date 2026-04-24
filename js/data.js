@@ -9,6 +9,33 @@ const STEPS=[
 // Les autres étapes gardent le fonctionnement simple (juste "Valider l'étape")
 const KEY_STEPS = [2, 4, 5, 6, 8]; // Kick Off, Testing Strategy, Testings, Report, Mgt Responses
 
+// ══════════════════════════════════════════════════════════════
+//  RISK UNIVERSE : hiérarchie des risques du Groupe
+//  Format: [{id, level:'group'|'operational', parentId, title, description,
+//           probability:'Rare'|'Unlikely'|'Possible'|'Certain',
+//           impact:'Minor'|'Limited'|'Major'|'Severe',
+//           impactTypes:['Réputation','Financier','Legal','Operations']}]
+// ══════════════════════════════════════════════════════════════
+var RISK_UNIVERSE = [];
+
+// Valeurs autorisées
+var RISK_PROBABILITIES = ['Rare', 'Unlikely', 'Possible', 'Certain'];
+var RISK_IMPACTS = ['Minor', 'Limited', 'Major', 'Severe'];
+var RISK_IMPACT_TYPES = ['Réputation', 'Financier', 'Legal', 'Operations'];
+
+// Couleurs par niveau d'impact (pour l'affichage)
+var RISK_IMPACT_COLORS = {
+  'Minor':   {bg:'#D1FAE5', color:'#065F46'},  // vert
+  'Limited': {bg:'#FEF3C7', color:'#854F0B'},  // jaune
+  'Major':   {bg:'#FED7AA', color:'#9A3412'},  // orange
+  'Severe':  {bg:'#FECACA', color:'#991B1B'},  // rouge
+};
+
+// ══════════════════════════════════════════════════════════════
+//  PRODUCT LINES : [{id, name, society:'SBS'|'AXW', countries:[], description}]
+// ══════════════════════════════════════════════════════════════
+var PRODUCT_LINES = [];
+
 // Catégories par défaut pour les missions "Other" (non-audit)
 // Les utilisateurs peuvent en ajouter de nouvelles à la volée dans le formulaire
 var OTHER_CATEGORIES_DEFAULT = [
