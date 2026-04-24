@@ -868,19 +868,22 @@ function showEditProcModal(idx){
 //  GROUP STRUCTURE BY COUNTRY (ex Plan BU)
 // ══════════════════════════════════════════════════════════════
 
-// Structure en mémoire : tableau d'entités avec régions et pays
-// Format : [{id, name, regions:[{id, name, countries:[string]}]}]
-var GROUP_STRUCTURE=[];
+// ══════════════════════════════════════════════════════════════
+//  GROUP STRUCTURE (nouvelle version - Région > Pays > Sociétés)
+//  Structure: [{id, region, country, companies:[{id, society, employees, productLineIds:[], domains}]}]
+// ══════════════════════════════════════════════════════════════
+
+var GROUP_STRUCTURE=[]; // nouvelle structure (array de pays)
 
 V['plan-bu']=()=>`
   <div class="topbar">
-    <div class="tbtitle">Group Structure By Country</div>
+    <div class="tbtitle">Group Structure</div>
     <div style="display:flex;gap:7px">
-      <button class="bp ao" onclick="gsAddEntity()">+ Entité</button>
+      <button class="bp ao" onclick="gsAddCountry()">+ Pays</button>
     </div>
   </div>
   <div class="content">
-    <div id="gs-root" style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;"></div>
+    <div id="gs-root"></div>
   </div>`;
 
 I['plan-bu']=async function(){
@@ -888,152 +891,317 @@ I['plan-bu']=async function(){
   gsRender();
 };
 
-// Charger depuis Supabase (table af_group_structure)
+// Charger depuis SharePoint
 async function gsLoad(){
   try {
-    var stored=sessionStorage.getItem('af_group_structure');
-    if(stored) GROUP_STRUCTURE=JSON.parse(stored);
-  } catch(e){ console.warn('[GS] load:',e.message); }
+    if (typeof listItems !== 'function') {
+      // Fallback sessionStorage (si MSAL/SharePoint indisponible)
+      var stored=sessionStorage.getItem('af_group_structure_v2');
+      GROUP_STRUCTURE = stored ? JSON.parse(stored) : [];
+      return;
+    }
+    var items = await listItems('AF_Structure');
+    GROUP_STRUCTURE = items.map(function(r){
+      var f = r.fields;
+      return {
+        id: f.af_id,
+        region: f.region || '',
+        country: f.country || '',
+        companies: tryParse(f.companies_json, []),
+      };
+    });
+    console.log('[GS] Loaded', GROUP_STRUCTURE.length, 'countries');
+  } catch(e){
+    console.warn('[GS] load error (fallback sessionStorage):', e.message);
+    try {
+      var st=sessionStorage.getItem('af_group_structure_v2');
+      GROUP_STRUCTURE = st ? JSON.parse(st) : [];
+    } catch(e2){ GROUP_STRUCTURE = []; }
+  }
 }
 
-// Sauvegarder une ligne dans af_group_structure
-async function gsSave(type,id,name,parentId,countries){
-  sessionStorage.setItem('af_group_structure',JSON.stringify(GROUP_STRUCTURE));
+// Sauvegarder un pays
+async function gsSaveCountry(entry){
+  // Toujours backup en sessionStorage
+  try { sessionStorage.setItem('af_group_structure_v2', JSON.stringify(GROUP_STRUCTURE)); } catch(e){}
+  try {
+    await spUpsert('AF_Structure', entry.id, {
+      region: entry.region || '',
+      country: entry.country || '',
+      companies_json: JSON.stringify(entry.companies||[]),
+      Title: entry.country,
+    });
+  } catch(e){ console.warn('[GS] save error:', e.message); }
 }
 
-async function gsDelete(id){
-  sessionStorage.setItem('af_group_structure',JSON.stringify(GROUP_STRUCTURE));
+// Supprimer un pays
+async function gsDeleteCountry(entryId){
+  try { await spDelete('AF_Structure', entryId); } catch(e){ console.warn('[GS] delete:', e.message); }
+  GROUP_STRUCTURE = GROUP_STRUCTURE.filter(function(e){return e.id!==entryId;});
+  try { sessionStorage.setItem('af_group_structure_v2', JSON.stringify(GROUP_STRUCTURE)); } catch(e){}
 }
 
-// Rendu de la structure en colonnes
+// Rendu
 function gsRender(){
   var root=document.getElementById('gs-root');
   if(!root)return;
 
   if(!GROUP_STRUCTURE.length){
-    root.innerHTML='<div style="font-size:13px;color:var(--text-3);padding:1rem;">Aucune entité. Cliquez sur "+ Entité" pour commencer.</div>';
+    root.innerHTML='<div style="font-size:13px;color:var(--text-3);padding:1rem;text-align:center">Aucun pays défini. Cliquez sur "+ Pays" pour commencer.</div>';
     return;
   }
 
-  root.innerHTML=GROUP_STRUCTURE.map(function(ent){
-    var regionsHtml=ent.regions.map(function(reg){
-      var countriesHtml=reg.countries.length
-        ?reg.countries.map(function(c){
-          return '<div style="display:flex;align-items:center;justify-content:space-between;padding:4px 8px;background:var(--bg);border-radius:4px;font-size:11px;margin-bottom:3px;">'
-            +'<span>'+c+'</span>'
-            +(CU&&CU.role==='admin'?'<button onclick="gsRemoveCountry(\''+ent.id+'\',\''+reg.id+'\',\''+_escQ(c)+'\')" style="background:none;border:none;cursor:pointer;color:var(--text-3);font-size:12px;padding:0 2px;" title="Supprimer">×</button>':'')
-            +'</div>';
+  // Grouper par région
+  var byRegion = {};
+  GROUP_STRUCTURE.forEach(function(entry){
+    var reg = entry.region || '— Sans région —';
+    if (!byRegion[reg]) byRegion[reg] = [];
+    byRegion[reg].push(entry);
+  });
+  var regions = Object.keys(byRegion).sort(function(a,b){return a.localeCompare(b,'fr',{sensitivity:'base'});});
+
+  var html = '';
+  regions.forEach(function(region){
+    var countries = byRegion[region].sort(function(a,b){
+      return (a.country||'').localeCompare(b.country||'','fr',{sensitivity:'base'});
+    });
+    html += '<div style="margin-bottom:1.5rem">';
+    html += '<div style="font-size:11px;font-weight:700;color:var(--purple-dk);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.5rem;padding-bottom:4px;border-bottom:1px solid var(--border)">'+region+' ('+countries.length+' pays)</div>';
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px">';
+    countries.forEach(function(entry){
+      var companiesHtml = entry.companies && entry.companies.length
+        ? entry.companies.map(function(co){
+            var plNames = (co.productLineIds||[]).map(function(plId){
+              var pl = (PRODUCT_LINES||[]).find(function(p){return p.id===plId;});
+              return pl ? pl.name : plId;
+            });
+            var plHtml = plNames.length
+              ? plNames.map(function(n){return '<span class="badge bpl" style="font-size:9px;padding:2px 6px">'+n+'</span>';}).join(' ')
+              : '<span style="font-size:10px;color:var(--text-3);font-style:italic">Aucune PL</span>';
+            var socColor = co.society === 'SBS' ? '#9FE1CB' : co.society === 'AXW' ? '#B5D4F4' : '#CECBF6';
+            var socTxt = co.society === 'SBS' ? '#085041' : co.society === 'AXW' ? '#0C447C' : '#3C3489';
+            return '<div style="background:var(--bg);border-radius:6px;padding:8px 10px;margin-bottom:6px">'
+              + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">'
+                + '<span class="badge" style="background:'+socColor+';color:'+socTxt+';font-weight:600;font-size:10px">'+(co.society||'?')+'</span>'
+                + '<div style="display:flex;gap:4px">'
+                  + (CU&&CU.role==='admin'?'<button class="bs" style="font-size:10px;padding:2px 6px" onclick="gsEditCompany(\''+entry.id+'\',\''+co.id+'\')">Éditer</button>':'')
+                  + (CU&&CU.role==='admin'?'<button class="bd" style="font-size:10px;padding:2px 6px" onclick="gsRemoveCompany(\''+entry.id+'\',\''+co.id+'\')">×</button>':'')
+                + '</div>'
+              + '</div>'
+              + '<div style="font-size:11px;color:var(--text-2);margin-bottom:3px"><strong>Salariés :</strong> '+(co.employees||'—')+'</div>'
+              + '<div style="font-size:10px;margin-bottom:4px"><strong style="color:var(--text-2)">Product Lines :</strong> '+plHtml+'</div>'
+              + (co.domains?'<div style="font-size:10px;color:var(--text-2)"><strong>Domaines :</strong> '+co.domains+'</div>':'')
+              + '</div>';
+          }).join('')
+        : '<div style="font-size:11px;color:var(--text-3);text-align:center;padding:8px 0;font-style:italic">Aucune société</div>';
+
+      html += '<div class="card" style="padding:12px 14px">'
+        + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;padding-bottom:8px;border-bottom:.5px solid var(--border)">'
+          + '<div style="font-size:14px;font-weight:600">'+entry.country+'</div>'
+          + '<div style="display:flex;gap:4px">'
+            + (CU&&CU.role==='admin'?'<button class="bs" style="font-size:10px;padding:2px 6px" onclick="gsAddCompany(\''+entry.id+'\')">+ Société</button>':'')
+            + (CU&&CU.role==='admin'?'<button class="bs" style="font-size:10px;padding:2px 6px" onclick="gsEditCountry(\''+entry.id+'\')">Éditer</button>':'')
+            + (CU&&CU.role==='admin'?'<button class="bd" style="font-size:10px;padding:2px 6px" onclick="gsDeleteCountryAsk(\''+entry.id+'\')">×</button>':'')
+          + '</div>'
+        + '</div>'
+        + companiesHtml
+        + '</div>';
+    });
+    html += '</div></div>';
+  });
+  root.innerHTML = html;
+}
+
+// ── Actions CRUD ─────────────────────────────────────────────
+function gsAddCountry(){
+  var regionOpts = getKnownRegions().map(function(r){return '<option value="'+r+'">'+r+'</option>';}).join('');
+  openModal('Ajouter un pays',
+    '<div><label>Pays <span style="color:var(--red)">*</span></label><input id="gs-country" placeholder="ex : France, Maroc, Singapour..."/></div>'
+    + '<div><label>Région <span style="color:var(--red)">*</span></label>'
+    + '<select id="gs-region">'+regionOpts+'<option value="__new__">+ Nouvelle région...</option></select>'
+    + '<input id="gs-region-new" placeholder="Nom de la nouvelle région" style="display:none;margin-top:5px"/>'
+    + '</div>',
+    async function(){
+      var country=document.getElementById('gs-country').value.trim();
+      if(!country){toast('Pays obligatoire');return;}
+      var regEl = document.getElementById('gs-region');
+      var regNewEl = document.getElementById('gs-region-new');
+      var region = regEl.value;
+      if (region === '__new__') {
+        region = (regNewEl.value||'').trim();
+        if (!region) { toast('Région obligatoire'); return; }
+      }
+      // Vérifier doublon
+      if (GROUP_STRUCTURE.find(function(e){return (e.country||'').toLowerCase()===country.toLowerCase() && (e.region||'')===region;})) {
+        toast('Ce pays/région existe déjà');
+        return;
+      }
+      var id='cty_'+Date.now();
+      var entry={id:id, region:region, country:country, companies:[]};
+      GROUP_STRUCTURE.push(entry);
+      await gsSaveCountry(entry);
+      addHist('add','Pays "'+country+'" ('+region+') ajouté');
+      gsRender();
+      toast('Pays ajouté ✓');
+    });
+  // Listener pour le champ "nouvelle région"
+  setTimeout(function(){
+    var s=document.getElementById('gs-region');
+    var inp=document.getElementById('gs-region-new');
+    if (s && inp) s.addEventListener('change', function(){ inp.style.display = s.value==='__new__'?'block':'none'; });
+  }, 50);
+}
+
+function gsEditCountry(entryId){
+  var entry = GROUP_STRUCTURE.find(function(e){return e.id===entryId;});
+  if (!entry) return;
+  var regionOpts = getKnownRegions().map(function(r){return '<option value="'+r+'"'+(r===entry.region?' selected':'')+'>'+r+'</option>';}).join('');
+  openModal('Éditer le pays',
+    '<div><label>Pays <span style="color:var(--red)">*</span></label><input id="gs-country" value="'+(entry.country||'')+'"/></div>'
+    + '<div><label>Région <span style="color:var(--red)">*</span></label>'
+    + '<select id="gs-region">'+regionOpts+'<option value="__new__">+ Nouvelle région...</option></select>'
+    + '<input id="gs-region-new" placeholder="Nom de la nouvelle région" style="display:none;margin-top:5px"/>'
+    + '</div>',
+    async function(){
+      var country=document.getElementById('gs-country').value.trim();
+      if(!country){toast('Pays obligatoire');return;}
+      var regEl = document.getElementById('gs-region');
+      var regNewEl = document.getElementById('gs-region-new');
+      var region = regEl.value;
+      if (region === '__new__') {
+        region = (regNewEl.value||'').trim();
+        if (!region) { toast('Région obligatoire'); return; }
+      }
+      entry.country = country;
+      entry.region = region;
+      await gsSaveCountry(entry);
+      addHist('edit','Pays "'+country+'" modifié');
+      gsRender();
+      toast('Pays modifié ✓');
+    });
+  setTimeout(function(){
+    var s=document.getElementById('gs-region');
+    var inp=document.getElementById('gs-region-new');
+    if (s && inp) s.addEventListener('change', function(){ inp.style.display = s.value==='__new__'?'block':'none'; });
+  }, 50);
+}
+
+async function gsDeleteCountryAsk(entryId){
+  var entry = GROUP_STRUCTURE.find(function(e){return e.id===entryId;});
+  if (!entry) return;
+  if(!confirm('Supprimer "'+entry.country+'" ('+entry.region+') et toutes ses sociétés ?'))return;
+  await gsDeleteCountry(entryId);
+  addHist('del','Pays "'+entry.country+'" supprimé');
+  gsRender();
+  toast('Pays supprimé ✓');
+}
+
+function gsAddCompany(entryId){
+  gsCompanyModal(entryId, null);
+}
+
+function gsEditCompany(entryId, companyId){
+  var entry = GROUP_STRUCTURE.find(function(e){return e.id===entryId;});
+  if (!entry) return;
+  var co = (entry.companies||[]).find(function(c){return c.id===companyId;});
+  if (!co) return;
+  gsCompanyModal(entryId, co);
+}
+
+function gsCompanyModal(entryId, existingCo) {
+  var entry = GROUP_STRUCTURE.find(function(e){return e.id===entryId;});
+  if (!entry) return;
+  var currentPLs = (existingCo && existingCo.productLineIds) || [];
+
+  // Liste des PL disponibles (filtrées par société si existante)
+  var pls = PRODUCT_LINES || [];
+  var plSection = '';
+  if (pls.length) {
+    plSection = '<div><label>Product Lines</label>'
+      + '<div style="font-size:10px;color:var(--text-3);margin-bottom:5px">Cochez les PL présentes dans ce pays pour cette société</div>'
+      + '<div class="cb-list" style="display:flex;flex-direction:column;gap:3px;max-height:180px;overflow-y:auto;border:.5px solid var(--border);border-radius:var(--radius);padding:8px 10px;background:var(--bg-card)">'
+      + pls.map(function(pl){
+          var checked = currentPLs.indexOf(pl.id)>=0 ? ' checked' : '';
+          return '<label data-society="'+(pl.society||'')+'"><input type="checkbox" class="gs-pl-cb" value="'+pl.id+'"'+checked+'><span>'+pl.name+' <span style="color:var(--text-3);font-size:10px">('+(pl.society||'')+')</span></span></label>';
         }).join('')
-        :'<div style="font-size:11px;color:var(--text-3);padding:4px 8px;">Aucun pays</div>';
-
-      return '<div style="background:var(--bg);border-radius:var(--radius);padding:8px 10px;margin-bottom:8px;border:.5px solid var(--border);">'
-        +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">'
-        +'<span style="font-size:12px;font-weight:500;color:var(--purple-dk)">'+reg.name+'</span>'
-        +'<div style="display:flex;gap:4px;">'
-        +(CU&&CU.role==='admin'
-          ?'<button class="bs" style="font-size:10px;padding:2px 6px;" onclick="gsAddCountry(\''+ent.id+'\',\''+reg.id+'\')">+ Pays</button>'
-          +'<button class="bd" style="font-size:10px;padding:2px 6px;" onclick="gsDeleteRegion(\''+ent.id+'\',\''+reg.id+'\')">×</button>'
-          :'')
-        +'</div></div>'
-        +countriesHtml
-        +'</div>';
-    }).join('');
-
-    return '<div class="card" style="min-width:240px;max-width:300px;flex:1;">'
-      +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;padding-bottom:8px;border-bottom:.5px solid var(--border);">'
-      +'<div style="font-size:13px;font-weight:600;">'+ent.name+'</div>'
-      +'<div style="display:flex;gap:4px;">'
-      +(CU&&CU.role==='admin'
-        ?'<button class="bs" style="font-size:10px;padding:2px 6px;" onclick="gsAddRegion(\''+ent.id+'\')">+ Région</button>'
-        +'<button class="bd" style="font-size:10px;padding:2px 6px;" onclick="gsDeleteEntity(\''+ent.id+'\')">×</button>'
-        :'')
-      +'</div></div>'
-      +regionsHtml
-      +'</div>';
-  }).join('');
-}
-
-// Actions CRUD
-function gsAddEntity(){
-  openModal('Nouvelle entité',
-    '<div><label>Nom de l\'entité <span style="color:var(--red)">*</span></label><input id="gs-ent-name" placeholder="ex : SBS, AXW, Groupe..."/></div>',
-    async function(){
-      var name=document.getElementById('gs-ent-name').value.trim();
-      if(!name){toast('Nom obligatoire');return;}
-      var id=uuidv4();
-      GROUP_STRUCTURE.push({id:id,name:name,regions:[]});
-      await gsSave('entity',id,name,null,[]);
-      addHist('add','Entité "'+name+'" créée');
-      gsRender();
-      toast('Entité "'+name+'" créée ✓');
-    });
-}
-
-async function gsDeleteEntity(entId){
-  var ent=GROUP_STRUCTURE.find(function(e){return e.id===entId;});
-  if(!confirm('Supprimer l\'entité "'+ent.name+'" et toutes ses régions / pays ?'))return;
-  // Supprimer les régions d'abord
-  for(var i=0;i<ent.regions.length;i++){
-    await gsDelete(ent.regions[i].id);
+      + '</div></div>';
+  } else {
+    plSection = '<div style="font-size:11px;color:var(--text-3);padding:8px;background:var(--bg);border-radius:6px">ℹ️ Aucune Product Line définie. Créez-en dans l\'onglet Product Lines pour pouvoir les associer ici.</div>';
   }
-  await gsDelete(entId);
-  GROUP_STRUCTURE=GROUP_STRUCTURE.filter(function(e){return e.id!==entId;});
-  addHist('del','Entité "'+ent.name+'" supprimée');
+
+  var body = '<div><label>Société <span style="color:var(--red)">*</span></label>'
+    + '<select id="gs-co-society">'
+      + '<option value="SBS"'+(existingCo && existingCo.society==='SBS'?' selected':'')+'>SBS</option>'
+      + '<option value="AXW"'+(existingCo && existingCo.society==='AXW'?' selected':'')+'>AXW</option>'
+      + '<option value="Groupe"'+(existingCo && existingCo.society==='Groupe'?' selected':'')+'>Groupe</option>'
+    + '</select></div>'
+    + '<div><label>Nombre de salariés</label><input id="gs-co-emp" type="number" min="0" value="'+((existingCo && existingCo.employees)||'')+'" placeholder="ex : 150"/></div>'
+    + plSection
+    + '<div><label>Domaines couverts</label><textarea id="gs-co-domains" style="width:100%;min-height:50px" placeholder="ex : Distribution, Deployment, Support (texte libre)">'+((existingCo && existingCo.domains)||'')+'</textarea></div>';
+
+  openModal(existingCo ? 'Éditer société' : 'Ajouter une société dans '+entry.country, body, async function(){
+    var society = document.getElementById('gs-co-society').value;
+    var employees = parseInt(document.getElementById('gs-co-emp').value) || 0;
+    var domains = document.getElementById('gs-co-domains').value.trim();
+    var plIds = [];
+    document.querySelectorAll('.gs-pl-cb:checked').forEach(function(cb){ plIds.push(cb.value); });
+
+    if (existingCo) {
+      existingCo.society = society;
+      existingCo.employees = employees;
+      existingCo.productLineIds = plIds;
+      existingCo.domains = domains;
+    } else {
+      var newCo = {
+        id: 'co_'+Date.now(),
+        society: society,
+        employees: employees,
+        productLineIds: plIds,
+        domains: domains,
+      };
+      if (!entry.companies) entry.companies = [];
+      entry.companies.push(newCo);
+    }
+    await gsSaveCountry(entry);
+    addHist(existingCo?'edit':'add', 'Société '+society+' '+(existingCo?'modifiée':'ajoutée')+' ('+entry.country+')');
+    gsRender();
+    toast('Société '+(existingCo?'modifiée':'ajoutée')+' ✓');
+  });
+}
+
+async function gsRemoveCompany(entryId, companyId){
+  var entry = GROUP_STRUCTURE.find(function(e){return e.id===entryId;});
+  if (!entry) return;
+  var co = (entry.companies||[]).find(function(c){return c.id===companyId;});
+  if (!co) return;
+  if (!confirm('Supprimer la société '+co.society+' de '+entry.country+' ?')) return;
+  entry.companies = entry.companies.filter(function(c){return c.id!==companyId;});
+  await gsSaveCountry(entry);
+  addHist('del', 'Société '+co.society+' retirée de '+entry.country);
   gsRender();
-  toast('Supprimé ✓');
+  toast('Société supprimée ✓');
 }
 
-function gsAddRegion(entId){
-  openModal('Nouvelle région',
-    '<div><label>Nom de la région <span style="color:var(--red)">*</span></label><input id="gs-reg-name" placeholder="ex : Europe, AMEE, APAC..."/></div>',
-    async function(){
-      var name=document.getElementById('gs-reg-name').value.trim();
-      if(!name){toast('Nom obligatoire');return;}
-      var ent=GROUP_STRUCTURE.find(function(e){return e.id===entId;});
-      var id=uuidv4();
-      ent.regions.push({id:id,name:name,parent_id:entId,countries:[]});
-      await gsSave('region',id,name,entId,[]);
-      addHist('add','Région "'+name+'" ajoutée à "'+ent.name+'"');
-      gsRender();
-      toast('Région créée ✓');
-    });
+// Helpers
+function getKnownRegions(){
+  var regs = [...new Set(GROUP_STRUCTURE.map(function(e){return e.region;}).filter(Boolean))];
+  // Ajouter les régions standards si absentes
+  var std = ['Europe', 'AMEE', 'APAC', 'North America', 'Latin America'];
+  std.forEach(function(r){ if (regs.indexOf(r)<0) regs.push(r); });
+  return regs.sort(function(a,b){return a.localeCompare(b,'fr',{sensitivity:'base'});});
 }
 
-async function gsDeleteRegion(entId,regId){
-  var ent=GROUP_STRUCTURE.find(function(e){return e.id===entId;});
-  var reg=ent&&ent.regions.find(function(r){return r.id===regId;});
-  if(!confirm('Supprimer la région "'+reg.name+'" et ses pays ?'))return;
-  ent.regions=ent.regions.filter(function(r){return r.id!==regId;});
-  await gsDelete(regId);
-  gsRender();
-  toast('Région supprimée ✓');
+// Fournir la liste plate des pays pour les autres vues (ex: formulaire audit BU)
+function getAllCountriesFromGS(){
+  var set = new Set();
+  GROUP_STRUCTURE.forEach(function(e){ if (e.country) set.add(e.country); });
+  return Array.from(set).sort(function(a,b){return a.localeCompare(b,'fr',{sensitivity:'base'});});
 }
 
-function gsAddCountry(entId,regId){
-  openModal('Ajouter des pays',
-    '<div><label>Pays (séparés par des virgules) <span style="color:var(--red)">*</span></label>'
-    +'<input id="gs-countries" placeholder="ex : France, Belgique, Maroc"/></div>',
-    async function(){
-      var val=document.getElementById('gs-countries').value.trim();
-      if(!val){toast('Au moins un pays');return;}
-      var newCountries=val.split(',').map(function(c){return c.trim();}).filter(Boolean);
-      var ent=GROUP_STRUCTURE.find(function(e){return e.id===entId;});
-      var reg=ent&&ent.regions.find(function(r){return r.id===regId;});
-      reg.countries=[...new Set([...reg.countries,...newCountries])];
-      await gsSave('region',reg.id,reg.name,entId,reg.countries);
-      addHist('add',newCountries.join(', ')+' ajouté(s) à "'+reg.name+'"');
-      gsRender();
-      toast(newCountries.length+' pays ajouté(s) ✓');
-    });
-}
-
-async function gsRemoveCountry(entId,regId,country){
-  var ent=GROUP_STRUCTURE.find(function(e){return e.id===entId;});
-  var reg=ent&&ent.regions.find(function(r){return r.id===regId;});
-  reg.countries=reg.countries.filter(function(c){return c!==country;});
-  await gsSave('region',reg.id,reg.name,entId,reg.countries);
-  gsRender();
-  toast(country+' retiré ✓');
+// Trouver la région d'un pays
+function getRegionForCountry(country){
+  var e = GROUP_STRUCTURE.find(function(entry){return (entry.country||'').toLowerCase()===(country||'').toLowerCase();});
+  return e ? e.region : '';
 }
 
 // ══════════════════════════════════════════════════════════════
