@@ -645,27 +645,26 @@ V['dashboard']=()=>{
   // ── CAPSULE 1 : Process Audits par domaine ──
   html += '<div class="card" style="padding:1rem;">';
   html += '<div style="font-size:13px;font-weight:600;margin-bottom:.5rem;">Process Audits '+_dbYear+' ('+pTotal+')</div>';
-  html += '<div style="display:flex;align-items:center;gap:.75rem;">';
-  html += '<canvas id="db-donut" width="90" height="90" style="flex-shrink:0;"></canvas>';
-  html += '<div style="display:flex;flex-direction:column;gap:2px;flex:1;min-width:0;">';
+  html += '<div style="display:flex;flex-direction:column;align-items:center;gap:.75rem;">';
+  html += '<canvas id="db-donut" width="130" height="130" style="flex-shrink:0;"></canvas>';
+  html += '<div style="display:flex;flex-direction:column;gap:3px;width:100%;">';
   // Construire les items à partir de domCount, palette de couleurs
   var domPalette = ['#AFA9EC','#85B7EB','#5DCAA5','#EF9F27','#F0997B','#97C459','#C7B7E5','#8AC6F7','#F4B183','#A0D0A4'];
   var domEntries = Object.keys(domCount).sort(function(a,b){return (a||'').localeCompare(b||'','fr',{sensitivity:'base'});});
   var chartItems = [];
   if (domEntries.length === 0) {
-    html += '<div style="font-size:11px;color:var(--text-3);font-style:italic">Aucun process audit cette année</div>';
+    html += '<div style="font-size:11px;color:var(--text-3);font-style:italic;text-align:center">Aucun process audit cette année</div>';
   } else {
     domEntries.forEach(function(dom, i){
       chartItems.push({label: dom, val: domCount[dom], color: domPalette[i % domPalette.length]});
     });
     chartItems.forEach(function(ci){
       var pct2=pTotal?Math.round(ci.val/pTotal*100):0;
-      // Tronquer le nom de domaine si trop long
-      var lblShort = ci.label.length>22 ? ci.label.slice(0,20)+'…' : ci.label;
-      html+='<div style="display:flex;align-items:center;gap:4px;line-height:1.2;">'
-        +'<div style="width:6px;height:6px;border-radius:50%;background:'+ci.color+';flex-shrink:0;"></div>'
-        +'<span style="color:var(--text-2);font-size:9px;" title="'+ci.label+'">'+lblShort+'</span>'
-        +'<span style="font-weight:600;margin-left:auto;font-size:9px;white-space:nowrap;">'+ci.val+' <span style="font-weight:400;color:var(--text-3);">('+pct2+'%)</span></span>'
+      var lblShort = ci.label.length>30 ? ci.label.slice(0,28)+'…' : ci.label;
+      html+='<div style="display:flex;align-items:center;gap:6px;line-height:1.3;">'
+        +'<div style="width:8px;height:8px;border-radius:50%;background:'+ci.color+';flex-shrink:0;"></div>'
+        +'<span style="color:var(--text-2);font-size:10px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+ci.label+'">'+lblShort+'</span>'
+        +'<span style="font-weight:600;font-size:10px;white-space:nowrap;">'+ci.val+' <span style="font-weight:400;color:var(--text-3);">('+pct2+'%)</span></span>'
         +'</div>';
     });
   }
@@ -787,7 +786,7 @@ I['dashboard']=function(){
       return {val:domCount[d], color:palette[i % palette.length]};
     });
     var ctx=canvas.getContext('2d');
-    var W=90, cx=W/2, cy=W/2, r=42, inner=26;
+    var W=130, cx=W/2, cy=W/2, r=60, inner=38;
     var start=-Math.PI/2;
     ctx.clearRect(0,0,W,W);
     if (totalForDonut === 0) {
@@ -801,12 +800,12 @@ I['dashboard']=function(){
       ctx.fillStyle='#fff';
       ctx.fill();
       ctx.fillStyle='#9C9A92';
-      ctx.font='600 14px -apple-system,system-ui,sans-serif';
+      ctx.font='600 22px -apple-system,system-ui,sans-serif';
       ctx.textAlign='center';
       ctx.textBaseline='middle';
-      ctx.fillText('0',cx,cy-3);
-      ctx.font='9px -apple-system,system-ui,sans-serif';
-      ctx.fillText('audits',cx,cy+9);
+      ctx.fillText('0',cx,cy-7);
+      ctx.font='10px -apple-system,system-ui,sans-serif';
+      ctx.fillText('audits',cx,cy+11);
       return;
     }
     segments.forEach(function(s){
@@ -827,13 +826,13 @@ I['dashboard']=function(){
     ctx.fill();
     // Texte central
     ctx.fillStyle='#1A1A18';
-    ctx.font='600 15px -apple-system,system-ui,sans-serif';
+    ctx.font='600 22px -apple-system,system-ui,sans-serif';
     ctx.textAlign='center';
     ctx.textBaseline='middle';
-    ctx.fillText(pTot, cx, cy-5);
-    ctx.font='9px -apple-system,system-ui,sans-serif';
+    ctx.fillText(pTot, cx, cy-7);
+    ctx.font='10px -apple-system,system-ui,sans-serif';
     ctx.fillStyle='#9C9A92';
-    ctx.fillText('audits', cx, cy+8);
+    ctx.fillText('audits', cx, cy+11);
   },60);
 
   // Dessiner le 2e donut "Missions par type" par statut
@@ -2827,33 +2826,76 @@ V['roles']=()=>`
   </div>`;
 I['roles']=()=>renderUsersTbl();
 
-// Regroupe les utilisateurs par nom (fusionne les alias @74software.com et @axway.com)
+// Regroupe les utilisateurs par identité réelle :
+// 1. D'abord par "préfixe email" (partie avant @) — capture les alias @74software.com et @axway.com
+// 2. Sinon par nom (insensible à la casse)
 function groupUsersByName(){
-  var byName = {};
+  var byKey = {}; // clé = préfixe email ou nom
+
+  function getKey(u) {
+    var email = (u.email||'').toLowerCase().trim();
+    if (email && email.indexOf('@')>0) {
+      return 'em:' + email.split('@')[0]; // ex: "em:pmassard"
+    }
+    return 'nm:' + (u.name||'').trim().toLowerCase();
+  }
+
+  // Choisit le meilleur nom à afficher : le plus complet (le plus long et avec espace)
+  function bestName(a, b) {
+    if (!a) return b;
+    if (!b) return a;
+    var aLen = (a||'').trim().length;
+    var bLen = (b||'').trim().length;
+    var aHasSpace = (a||'').indexOf(' ')>=0;
+    var bHasSpace = (b||'').indexOf(' ')>=0;
+    // Préférer celui avec un espace (= prénom + nom)
+    if (aHasSpace && !bHasSpace) return a;
+    if (bHasSpace && !aHasSpace) return b;
+    // Sinon, le plus long
+    if (bLen > aLen) return b;
+    return a;
+  }
+
+  // Capitalise un nom (première lettre de chaque mot)
+  function capitalize(s) {
+    if (!s) return s;
+    return s.split(' ').map(function(w){
+      if (!w) return w;
+      return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+    }).join(' ');
+  }
+
   (USERS||[]).forEach(function(u){
-    var key = (u.name||'').trim().toLowerCase();
-    if (!byName[key]) {
-      byName[key] = {
+    var key = getKey(u);
+    if (!byKey[key]) {
+      byKey[key] = {
         name: u.name,
         email74: '',
         emailAxway: '',
         emailOther: '',
         role: u.role || 'auditeur',
         status: u.status || 'actif',
-        userIds: [], // tous les af_id liés à cette personne
+        userIds: [],
       };
     }
-    var entry = byName[key];
+    var entry = byKey[key];
     entry.userIds.push(u.id);
+    // Choisir le meilleur nom à afficher
+    entry.name = bestName(entry.name, u.name);
     var email = (u.email||'').toLowerCase();
     if (email.indexOf('@74software.com')>=0) entry.email74 = u.email;
     else if (email.indexOf('@axway.com')>=0) entry.emailAxway = u.email;
     else if (email) entry.emailOther = u.email;
-    // Si conflit de rôle entre alias, on garde admin > auditeur > viewer
     var rolePrio = {admin:3, auditeur:2, viewer:1, audite:1};
     if ((rolePrio[u.role]||0) > (rolePrio[entry.role]||0)) entry.role = u.role;
   });
-  return Object.values(byName).sort(function(a,b){return (a.name||'').localeCompare(b.name||'','fr',{sensitivity:'base'});});
+
+  // Capitaliser proprement le nom affiché
+  Object.values(byKey).forEach(function(entry){
+    entry.name = capitalize(entry.name);
+  });
+
+  return Object.values(byKey).sort(function(a,b){return (a.name||'').localeCompare(b.name||'','fr',{sensitivity:'base'});});
 }
 
 function renderUsersTbl(){
