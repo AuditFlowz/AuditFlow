@@ -1,13 +1,30 @@
 const MO=['Jan','Fév','Mar','Avr','Mai','Juin','Juil','Août','Sep','Oct','Nov','Déc'];
 const STEPS=[
   {s:'Scope & Preparation',ph:1},{s:'Work Program',ph:1},{s:'Audit Kick Off',ph:1},
-  {s:'Interviews / Process Review',ph:2},{s:'Flowcharts/Testing Strategy',ph:2},{s:'Testings',ph:2},
+  {s:'Interview / Flowcharts',ph:2},{s:'WCGW / Contrôles / Test Strategy',ph:2},{s:'Testings',ph:2},
   {s:'Report',ph:3},{s:'Report Restitution',ph:3},{s:'Management Responses',ph:3},
   {s:'Exec. Committee Report',ph:3}
 ];
 // Étapes "clés" qui nécessitent un workflow de revue (finalisation + revue par admin)
 // Les autres étapes gardent le fonctionnement simple (juste "Valider l'étape")
-const KEY_STEPS = [2, 4, 5, 6, 8]; // Kick Off, Testing Strategy, Testings, Report, Mgt Responses
+const KEY_STEPS = [2, 4, 5, 6, 8]; // Kick Off, Test Strategy, Testings, Report, Mgt Responses
+
+// ══════════════════════════════════════════════════════════════
+//  DOCUMENTS ATTENDUS PAR ÉTAPE (référentiel global - en dur)
+//  CS = step index (0-based)
+// ══════════════════════════════════════════════════════════════
+const EXPECTED_DOCS_BY_STEP = {
+  0: ['Audit Plan', 'Audit Charter'],
+  1: ['Work Program', 'Audit Notice'],
+  2: ['Mémo de Kick-Off', 'Présentation de cadrage', 'Liste des participants'],
+  3: ['Comptes-rendus d\'interview', 'Flowcharts du process', 'Liste des participants'],
+  4: ['Risk & Control Matrix (RCM)', 'Test Strategy', 'Sample selection'],
+  5: ['Test results', 'Working papers'],
+  6: ['Rapport d\'audit (draft)', 'Rapport d\'audit (final)'],
+  7: ['Compte-rendu de restitution', 'Présentation de restitution'],
+  8: ['Tableau des Management Responses'],
+  9: ['Closing memo', 'Présentation Comité d\'audit'],
+};
 
 // ══════════════════════════════════════════════════════════════
 //  RISK UNIVERSE : hiérarchie des risques du Groupe
