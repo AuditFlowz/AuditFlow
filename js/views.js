@@ -1604,11 +1604,8 @@ function auditModalBody(ap){
 
   h+='<div id="m-bu-fields" style="'+(type!=='BU'?'display:none':'')+'">';
   h+='<div><label>Région</label><select id="m-reg">';
-  var allRegs=[];
-  GROUP_STRUCTURE.forEach(function(e){e.regions.forEach(function(r){allRegs.push(r.name);});});
-  if(!allRegs.length) allRegs=['Europe','AMEE','North America','APAC'];
-  // Dédupliquer
-  allRegs = [...new Set(allRegs)];
+  var allRegs = (typeof getKnownRegions === 'function') ? getKnownRegions() : [];
+  if (!allRegs.length) allRegs = ['Europe','AMEE','North America','APAC'];
   allRegs.forEach(function(r){h+='<option'+(ap&&ap.region===r?' selected':'')+'>'+r+'</option>';});
   h+='</select></div>';
   h+='<div><label>Pays (séparés par des virgules)</label><input id="m-pays" placeholder="ex : Maroc, Tunisie" value="'+((ap&&ap.pays||[]).join(', '))+'"/></div></div>';
