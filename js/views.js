@@ -2689,7 +2689,7 @@ async function ruSaveRisk(risk) {
     await spUpsert('AF_RiskUniverse', risk.id, {
       level: risk.level,
       parent_id: risk.parentId || '',
-      title: risk.title,
+      risk_title: risk.title,
       description: risk.description || '',
       probability: risk.probability || '',
       impact: risk.impact || '',
@@ -2893,7 +2893,7 @@ async function plDeleteProductLine(plId){
 async function plSavePL(pl) {
   try {
     await spUpsert('AF_ProductLines', pl.id, {
-      name: pl.name,
+      pl_name: pl.name,
       society: pl.society || '',
       countries_json: JSON.stringify(pl.countries||[]),
       description: pl.description || '',
