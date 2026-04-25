@@ -597,7 +597,10 @@ V['dashboard']=()=>{
   });
 
   // Construction HTML des 3 capsules
-  html += '<div style="display:grid;grid-template-columns:repeat(4, minmax(0, 1fr));gap:.875rem;">';
+  // ══════════════════════════════════════════════════════════════
+  //  LAYOUT : Capsule "Missions" à gauche, 3 capsules à droite
+  // ══════════════════════════════════════════════════════════════
+  html += '<div style="display:grid;grid-template-columns:1fr 3fr;gap:.875rem;margin-bottom:1rem;">';
 
   // ── CAPSULE 0 : Missions par type + donut statut ──
   html += '<div class="card" style="padding:1rem;display:flex;flex-direction:column">';
@@ -636,8 +639,9 @@ V['dashboard']=()=>{
   });
   html += '</div></div></div>';
 
-  // ── CAPSULE 1 : Process + BU Audits (donut) ──
-  html += '<div class="card" style="padding:1rem;">';
+  // ── BLOC DROIT : 3 capsules ──
+  html += '<div style="display:grid;grid-template-columns:repeat(3, minmax(0, 1fr));gap:.875rem;">';
+
   // ── CAPSULE 1 : Process Audits par domaine ──
   html += '<div class="card" style="padding:1rem;">';
   html += '<div style="font-size:13px;font-weight:600;margin-bottom:.5rem;">Process Audits '+_dbYear+' ('+pTotal+')</div>';
@@ -709,7 +713,8 @@ V['dashboard']=()=>{
   }
   html += '</div>';
 
-  html += '</div>'; // fin grid 3 capsules
+  html += '</div>'; // fin bloc droit (3 capsules)
+  html += '</div>'; // fin layout 1fr 3fr
 
   // Tableau des audits
   html+='<div>';
