@@ -310,9 +310,16 @@ async function nav(view) {
 }
 
 // ── Helpers globaux ──────────────────────────────────────────
-function openModal(title, body, onOk) {
+function openModal(title, body, onOk, opts) {
+  opts = opts || {};
   document.getElementById('mtitle').textContent = title;
   document.getElementById('mbody').innerHTML = body;
+  // Toggle wide class
+  var modalContainer = document.querySelector('#modal .md');
+  if (modalContainer) {
+    if (opts.wide) modalContainer.classList.add('md-wide');
+    else modalContainer.classList.remove('md-wide');
+  }
   document.getElementById('modal').classList.add('show');
   document.getElementById('mok').onclick = async function() {
     await onOk();
