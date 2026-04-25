@@ -392,6 +392,12 @@ async function loadAllData() {
       y25:tryParse(f.y25_json,null), y26:tryParse(f.y26_json,null),
       y27:tryParse(f.y27_json,null), y28:tryParse(f.y28_json,null),
     };});
+    // DEBUG : afficher le nombre de process qui ont des riskRefs
+    var withRefs = DB.processes.filter(function(p){return p.riskRefs && p.riskRefs.length;});
+    console.log('[SP] Processes avec riskRefs:', withRefs.length, '/', DB.processes.length);
+    if (withRefs.length) {
+      withRefs.forEach(function(p){console.log('  •', p.proc, '→', p.riskRefs.length, 'risque(s):', p.riskRefs);});
+    }
 
     DB.actions = actRaw.map(function(r){ var f=r.fields; return {
       id:f.af_id, title:f.title||f.Title, audit:f.audit, resp:f.resp, dept:f.dept, ent:f.ent,
