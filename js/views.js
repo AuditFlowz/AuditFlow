@@ -3801,31 +3801,92 @@ function renderTestsSection() {
 }
 function renderFindingsSection() {
   var d = getAudData(CA);
+  if (!d.findings) d.findings = [];
   var step5c = d.controls[4]||[];
-  var step6c = step5c.filter(function(x){return x.clef && x.design==='existing' && x.finalized && x.result==='fail';});
-  var failF = step6c.filter(function(c){return c.finding;});
-  var targetF = step5c.filter(function(c){return c.design==='target';});
-  var manualF = d.findings||[];
+  // Contrôles "à traiter" = fail (test finalisé fail) ou target
+  var failedCtrls = step5c.filter(function(c){return c.clef && c.design==='existing' && c.finalized && c.result==='fail';});
+  var targetCtrls = step5c.filter(function(c){return c.design==='target';});
+  var problematicCtrls = failedCtrls.concat(targetCtrls);
+
+  // Helper : récupérer un contrôle par son ID
+  function getCtrl(id) {
+    return step5c.find(function(c){return c.id === id;});
+  }
+  // Contrôles déjà liés à au moins un finding
+  var linkedCtrlIds = new Set();
+  d.findings.forEach(function(f){
+    (f.controlIds||[]).forEach(function(id){linkedCtrlIds.add(id);});
+  });
+  // Contrôles problématiques pas encore liés
+  var unlinkedProblems = problematicCtrls.filter(function(c){return c.id && !linkedCtrlIds.has(c.id);});
+
   var html = '<div class="card" style="margin-bottom:.75rem">';
-  html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">';
-  html += '<div style="font-size:12px;font-weight:600;color:var(--text-2)">Findings</div>';
+  html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">';
+  html += '<div style="font-size:12px;font-weight:600;color:var(--text-2)">Findings <span style="font-size:10px;font-weight:400;color:var(--text-3)">('+d.findings.length+')</span></div>';
   html += '<button class="bs" style="font-size:11px;padding:3px 9px" onclick="showAddFindingModal()">+ Ajouter un finding</button>';
   html += '</div>';
-  if (failF.length) {
-    html += '<div style="font-size:11px;font-weight:500;color:var(--text-2);margin-bottom:.5rem">Contrôles - Fail</div>';
-    failF.forEach(function(c){html += '<div class="fr"><div class="fh"><span class="badge bfl">Fail</span><div class="ft">'+c.name+'</div></div><div style="font-size:11px;color:var(--text-2)">'+c.finding+'</div></div>';});
+  html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:10px;font-style:italic">Chaque finding peut regrouper plusieurs déficiences (contrôles fail, contrôles target). Articulez votre constat puis liez les contrôles concernés.</div>';
+
+  // Section "Contrôles à traiter" non encore liés
+  if (unlinkedProblems.length) {
+    html += '<div style="background:#FFF7ED;border:.5px solid #FED7AA;border-radius:6px;padding:10px;margin-bottom:12px">';
+    html += '<div style="font-size:11px;font-weight:600;color:#854F0B;margin-bottom:6px">⚠ Contrôles à traiter dans un finding ('+unlinkedProblems.length+')</div>';
+    html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:6px;font-style:italic">Ces contrôles fail ou target ne sont rattachés à aucun finding. Créez ou éditez un finding pour les inclure.</div>';
+    unlinkedProblems.forEach(function(c){
+      var ctrlCode = c.code || c.id;
+      var typeLabel = c.design === 'target'
+        ? '<span class="badge" style="background:#FAEEDA;color:#854F0B;font-size:9px">🎯 Target</span>'
+        : '<span class="badge bfl" style="font-size:9px">❌ Fail</span>';
+      html += '<div style="background:#fff;border:.5px solid var(--border);border-radius:4px;padding:5px 8px;margin-bottom:3px;display:flex;align-items:center;gap:8px">';
+      html += typeLabel;
+      html += '<div style="flex:1;font-size:11px"><span style="color:var(--text-3);font-size:10px;margin-right:5px">'+ctrlCode+'</span>'+c.name+'</div>';
+      html += '</div>';
+    });
+    html += '</div>';
   }
-  if (targetF.length) {
-    html += '<div style="font-size:11px;font-weight:500;color:var(--text-2);margin:.75rem 0 .5rem">Contrôles non existants (Target)</div>';
-    targetF.forEach(function(c){html += '<div class="fr"><div class="fh"><span class="badge btg">Target</span><div class="ft">'+c.name+'</div></div><div style="font-size:11px;color:var(--red)">Contrôle non existant.</div></div>';});
+
+  // Liste des findings
+  if (!d.findings.length) {
+    html += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:.5rem;text-align:center;border:1px dashed var(--border);border-radius:4px">Aucun finding rédigé. Cliquez sur « + Ajouter un finding » pour commencer.</div>';
+  } else {
+    d.findings.forEach(function(f, idx){
+      var linkedCtrls = (f.controlIds||[]).map(getCtrl).filter(Boolean);
+      html += '<div style="border:.5px solid var(--border);border-radius:6px;padding:12px;margin-bottom:10px;background:#fff">';
+      html += '<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px">';
+      html += '<span class="badge bpc" style="font-size:10px;flex-shrink:0">Finding '+(idx+1)+'</span>';
+      html += '<div style="flex:1">';
+      html += '<div style="font-size:13px;font-weight:600">'+(f.title||'(sans titre)')+'</div>';
+      if (f.desc) html += '<div style="font-size:11px;color:var(--text-2);margin-top:4px;white-space:pre-wrap">'+f.desc+'</div>';
+      html += '</div>';
+      html += '<button class="bs" style="font-size:10px;padding:1px 6px" onclick="showEditFindingModal('+idx+')">Éditer</button>';
+      html += '<button class="bd" style="font-size:10px;padding:1px 5px" onclick="removeManualFinding('+idx+')">×</button>';
+      html += '</div>';
+
+      // Contrôles liés
+      html += '<div style="margin-top:8px;padding-top:8px;border-top:.5px dashed var(--border)">';
+      html += '<div style="font-size:10px;font-weight:600;color:var(--text-2);margin-bottom:4px">Contrôles liés ('+linkedCtrls.length+')</div>';
+      if (!linkedCtrls.length) {
+        html += '<div style="font-size:10px;color:var(--text-3);font-style:italic;padding:4px">Aucun contrôle lié. Éditez le finding pour rattacher les déficiences.</div>';
+      } else {
+        linkedCtrls.forEach(function(c){
+          var ctrlCode = c.code || c.id;
+          var typeLabel = c.design === 'target'
+            ? '<span class="badge" style="background:#FAEEDA;color:#854F0B;font-size:9px">🎯 Target</span>'
+            : c.result === 'fail'
+            ? '<span class="badge bfl" style="font-size:9px">❌ Fail</span>'
+            : '<span class="badge bdn" style="font-size:9px">✓ Pass</span>';
+          html += '<div style="background:#fafafa;border:.5px solid var(--border);border-radius:4px;padding:5px 8px;margin-bottom:3px;display:flex;align-items:center;gap:8px">';
+          html += typeLabel;
+          html += '<div style="flex:1;font-size:11px"><span style="color:var(--text-3);font-size:10px;margin-right:5px">'+ctrlCode+'</span>'+c.name+'</div>';
+          if (c.testComment) html += '<span style="font-size:10px;color:var(--text-3);font-style:italic;max-width:200px;text-overflow:ellipsis;overflow:hidden;white-space:nowrap" title="'+c.testComment.replace(/"/g,'&quot;')+'">'+c.testComment+'</span>';
+          html += '</div>';
+        });
+      }
+      html += '</div>';
+      html += '</div>';
+    });
   }
-  if (manualF.length) {
-    html += '<div style="font-size:11px;font-weight:500;color:var(--text-2);margin:.75rem 0 .5rem">Findings additionnels</div>';
-    manualF.forEach(function(f, idx){html += '<div class="fr"><div class="fh"><span class="badge bpc">Finding</span><div class="ft">'+f.title+'</div><button class="bd" style="font-size:10px;padding:2px 6px" onclick="removeManualFinding('+idx+')">×</button></div><div style="font-size:11px;color:var(--text-2)">'+f.desc+'</div></div>';});
-  }
-  if (!failF.length && !targetF.length && !manualF.length) {
-    html += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:.5rem">Aucun finding pour le moment.</div>';
-  }
+
   html += '</div>';
   return html;
 }
@@ -3853,33 +3914,67 @@ function renderMaturitySection() {
   return html;
 }
 function renderMgtRespSection() {
-  // Conserver l'ancien rendu Mgt Resp
   var d = getAudData(CA);
-  var step5c = d.controls[4]||[];
-  var step6c = step5c.filter(function(x){return x.clef && x.design==='existing' && x.finalized && x.result==='fail';});
-  var allFindings = [
-    ...step6c.filter(function(c){return c.finding;}).map(function(c){return {id:'f_'+c.name, title:c.name, desc:c.finding, type:'fail'};}),
-    ...step5c.filter(function(c){return c.design==='target';}).map(function(c){return {id:'t_'+c.name, title:c.name, desc:'Contrôle non existant', type:'target'};}),
-    ...(d.findings||[]).map(function(f, i){return {id:'m_'+i, title:f.title, desc:f.desc, type:'manual'};}),
-  ];
+  if (!d.findings) d.findings = [];
   if (!d.mgtResp) d.mgtResp = [];
+  var step5c = d.controls[4]||[];
+  function getCtrl(id) { return step5c.find(function(c){return c.id === id;}); }
+
+  // Source unique : les findings rédigés à l'étape Report
+  var allFindings = d.findings.map(function(f, i){
+    var fid = f.id || ('f_'+i);
+    var linkedCtrls = (f.controlIds||[]).map(getCtrl).filter(Boolean);
+    return {id: fid, title: f.title, desc: f.desc, type: 'finding', controls: linkedCtrls};
+  });
+
+  // S'assurer qu'une mgtResp existe pour chaque finding
   allFindings.forEach(function(f){
     if (!d.mgtResp.find(function(r){return r.findingId===f.id;})) {
       d.mgtResp.push({findingId:f.id, action:'', owner:'', year:2026, quarter:'Q1', pushed:false});
     }
   });
+
   var html = '<div class="card" style="margin-bottom:.75rem">';
   html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">';
-  html += '<div style="font-size:12px;font-weight:600;color:var(--text-2)">Management Responses</div>';
+  html += '<div style="font-size:12px;font-weight:600;color:var(--text-2)">Management Responses <span style="font-size:10px;font-weight:400;color:var(--text-3)">('+allFindings.length+' finding'+(allFindings.length>1?'s':'')+')</span></div>';
   html += '<button class="bs" style="font-size:11px;padding:3px 9px" onclick="pushAllMgtResp()">Envoyer vers Plans d\'action →</button>';
   html += '</div>';
   if (!allFindings.length) {
-    html += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:.5rem">Aucun finding identifié.</div>';
+    html += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:.5rem">Aucun finding identifié. Rédigez les findings à l\'étape Report.</div>';
   } else {
     allFindings.forEach(function(f){
       var resp = d.mgtResp.find(function(r){return r.findingId===f.id;}) || {};
-      var tbadge = {fail:'bfl',target:'btg',manual:'bpc'}[f.type];
-      html += '<div class="mr-row"><div class="mr-hdr"><span class="badge '+tbadge+'">'+(f.type==='fail'?'Fail':f.type==='target'?'Target':'Finding')+'</span><div class="mr-title">'+f.title+'</div>'+(resp.pushed?'<span class="tag-new">✓ Envoyé</span>':'')+'</div><div style="font-size:11px;color:var(--text-2);margin-bottom:.625rem">'+f.desc+'</div><div class="mr-fields"><div><label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:3px">Action</label><input style="font-size:11px" placeholder="Action corrective..." value="'+(resp.action||'')+'" onchange="setMgtResp(\''+f.id+'\',\'action\',this.value)"/></div><div><label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:3px">Owner</label><input style="font-size:11px" placeholder="ex: Finance, IT..." value="'+(resp.owner||'')+'" onchange="setMgtResp(\''+f.id+'\',\'owner\',this.value)"/></div><div><label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:3px">Deadline</label><div style="display:flex;gap:4px"><select style="font-size:11px" onchange="setMgtResp(\''+f.id+'\',\'year\',parseInt(this.value))"><option '+(resp.year===2025?'selected':'')+'>2025</option><option '+(resp.year===2026?'selected':'')+'>2026</option><option '+(resp.year===2027?'selected':'')+'>2027</option><option '+(resp.year===2028?'selected':'')+'>2028</option></select><select style="font-size:11px" onchange="setMgtResp(\''+f.id+'\',\'quarter\',this.value)"><option '+(resp.quarter==='Q1'?'selected':'')+'>Q1</option><option '+(resp.quarter==='Q2'?'selected':'')+'>Q2</option><option '+(resp.quarter==='Q3'?'selected':'')+'>Q3</option><option '+(resp.quarter==='Q4'?'selected':'')+'>Q4</option></select></div></div></div></div>';
+      html += '<div class="mr-row">';
+      html += '<div class="mr-hdr"><span class="badge bpc">Finding</span><div class="mr-title">'+f.title+'</div>'+(resp.pushed?'<span class="tag-new">✓ Envoyé</span>':'')+'</div>';
+      if (f.desc) html += '<div style="font-size:11px;color:var(--text-2);margin-bottom:.5rem;white-space:pre-wrap">'+f.desc+'</div>';
+      // Liste compact des contrôles liés
+      if (f.controls.length) {
+        html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:.5rem">Contrôles concernés : ';
+        html += f.controls.map(function(c){
+          var typeLabel = c.design === 'target' ? '🎯' : '❌';
+          return typeLabel+' '+(c.code||c.id)+' '+c.name;
+        }).join(' · ');
+        html += '</div>';
+      }
+      html += '<div class="mr-fields">';
+      html += '<div><label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:3px">Action</label><input style="font-size:11px" placeholder="Action corrective..." value="'+(resp.action||'').replace(/"/g,'&quot;')+'" onchange="setMgtResp(\''+f.id+'\',\'action\',this.value)"/></div>';
+      html += '<div><label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:3px">Owner</label><input style="font-size:11px" placeholder="ex: Finance, IT..." value="'+(resp.owner||'').replace(/"/g,'&quot;')+'" onchange="setMgtResp(\''+f.id+'\',\'owner\',this.value)"/></div>';
+      html += '<div><label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:3px">Deadline</label><div style="display:flex;gap:4px">';
+      html += '<select style="font-size:11px" onchange="setMgtResp(\''+f.id+'\',\'year\',parseInt(this.value))">';
+      html += '<option '+(resp.year===2025?'selected':'')+'>2025</option>';
+      html += '<option '+(resp.year===2026?'selected':'')+'>2026</option>';
+      html += '<option '+(resp.year===2027?'selected':'')+'>2027</option>';
+      html += '<option '+(resp.year===2028?'selected':'')+'>2028</option>';
+      html += '</select>';
+      html += '<select style="font-size:11px" onchange="setMgtResp(\''+f.id+'\',\'quarter\',this.value)">';
+      html += '<option '+(resp.quarter==='Q1'?'selected':'')+'>Q1</option>';
+      html += '<option '+(resp.quarter==='Q2'?'selected':'')+'>Q2</option>';
+      html += '<option '+(resp.quarter==='Q3'?'selected':'')+'>Q3</option>';
+      html += '<option '+(resp.quarter==='Q4'?'selected':'')+'>Q4</option>';
+      html += '</select>';
+      html += '</div></div>';
+      html += '</div>';
+      html += '</div>';
     });
   }
   html += '</div>';
@@ -4237,10 +4332,120 @@ async function setFinding(i,val){const d=getAudData(CA);const kc=(d.controls[4]|
 async function setSampleSize(i,val){const d=getAudData(CA);const kc=(d.controls[4]||[]).filter(c=>c.clef&&c.design==='existing');if(kc[i]){kc[i].sampleSize=val?parseInt(val):null;await saveAuditData(CA);}}
 async function setSampleMethod(i,val){const d=getAudData(CA);const kc=(d.controls[4]||[]).filter(c=>c.clef&&c.design==='existing');if(kc[i]){kc[i].sampleMethod=val;await saveAuditData(CA);}}
 async function setTestComment(i,val){const d=getAudData(CA);const kc=(d.controls[4]||[]).filter(c=>c.clef&&c.design==='existing');if(kc[i]){kc[i].testComment=val;await saveAuditData(CA);}}
-function showAddFindingModal(){openModal('Nouveau finding',`<div><label>Titre</label><input id="f-title" placeholder="ex : Absence de contrôle sur les accès"/></div><div><label>Description</label><textarea id="f-desc" style="height:80px" placeholder="Décrivez l'anomalie..."></textarea></div>`,async ()=>{const title=document.getElementById('f-title').value.trim();if(!title){toast('Titre obligatoire');return;}const d=getAudData(CA);d.findings.push({title,desc:document.getElementById('f-desc').value.trim()});await saveAuditData(CA);document.getElementById('det-content').innerHTML=renderDetContent();toast('Finding ajouté ✓');});}
+function showAddFindingModal() { showFindingModal(null); }
+function showEditFindingModal(idx) {
+  var d = getAudData(CA);
+  var f = (d.findings||[])[idx];
+  if (!f) return;
+  showFindingModal({idx: idx, finding: f});
+}
+function showFindingModal(existing) {
+  var d = getAudData(CA);
+  var step5c = d.controls[4]||[];
+  // Liste des contrôles "à traiter" : fail (test finalisé) + target
+  var failedCtrls = step5c.filter(function(c){return c.clef && c.design==='existing' && c.finalized && c.result==='fail';});
+  var targetCtrls = step5c.filter(function(c){return c.design==='target';});
+  var problematicCtrls = failedCtrls.concat(targetCtrls);
+
+  var f = existing ? existing.finding : {};
+  var currentCtrlIds = (f.controlIds || []);
+
+  // Construire la liste des checkboxes
+  var ctrlsHtml = '';
+  if (!problematicCtrls.length) {
+    ctrlsHtml = '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:8px">Aucun contrôle fail ni target dans cet audit. Vous pouvez quand même créer un finding sans contrôle lié.</div>';
+  } else {
+    ctrlsHtml = problematicCtrls.map(function(c){
+      var ctrlCode = c.code || c.id;
+      var checked = currentCtrlIds.indexOf(c.id) >= 0 ? 'checked' : '';
+      var typeLabel = c.design === 'target'
+        ? '<span class="badge" style="background:#FAEEDA;color:#854F0B;font-size:9px">🎯 Target</span>'
+        : '<span class="badge bfl" style="font-size:9px">❌ Fail</span>';
+      var commentary = c.testComment
+        ? '<div style="font-size:10px;color:var(--text-3);margin-top:2px;font-style:italic">'+c.testComment.replace(/</g,'&lt;')+'</div>'
+        : '';
+      return '<label style="display:flex;align-items:flex-start;gap:8px;padding:6px 8px;border-bottom:.5px solid var(--border);cursor:pointer">'
+        + '<input type="checkbox" class="f-ctrl-cb" value="'+c.id+'" '+checked+' style="margin-top:3px"/>'
+        + '<div style="flex:1">'
+        + '<div style="display:flex;align-items:center;gap:6px">'
+        + typeLabel
+        + '<span style="font-size:10px;color:var(--text-3);font-family:monospace">'+ctrlCode+'</span>'
+        + '<span style="font-size:11px;font-weight:500">'+c.name+'</span>'
+        + '</div>'
+        + commentary
+        + '</div>'
+        + '</label>';
+    }).join('');
+  }
+
+  var body = '<div><label>Titre du finding <span style="color:var(--red)">*</span></label>'
+    + '<input id="f-title" value="'+(f.title||'').replace(/"/g,'&quot;')+'" placeholder="ex : Ségrégation des tâches insuffisante en P2P"/></div>'
+    + '<div><label>Description / Constat</label>'
+    + '<textarea id="f-desc" style="width:100%;min-height:100px" placeholder="Constat, contexte, risque, recommandation...">'+(f.desc||'').replace(/</g,'&lt;')+'</textarea></div>'
+    + '<div><label>Contrôles liés ('+problematicCtrls.length+' candidats)</label>'
+    + '<div style="border:.5px solid var(--border);border-radius:4px;max-height:280px;overflow-y:auto;background:#fafafa">'
+    + ctrlsHtml
+    + '</div></div>';
+
+  openModal(existing ? 'Éditer le finding' : 'Nouveau finding', body, async function(){
+    var title = document.getElementById('f-title').value.trim();
+    if (!title) { toast('Titre obligatoire'); return; }
+    var desc = document.getElementById('f-desc').value.trim();
+    var checkedIds = Array.from(document.querySelectorAll('.f-ctrl-cb:checked')).map(function(cb){return cb.value;});
+
+    if (!d.findings) d.findings = [];
+    if (existing) {
+      d.findings[existing.idx] = Object.assign({}, d.findings[existing.idx], {
+        title: title,
+        desc: desc,
+        controlIds: checkedIds,
+      });
+      addHist('edit', 'Finding "'+title+'" modifié');
+    } else {
+      d.findings.push({
+        id: 'f_'+Date.now(),
+        title: title,
+        desc: desc,
+        controlIds: checkedIds,
+        createdAt: new Date().toISOString(),
+      });
+      addHist('add', 'Finding "'+title+'" créé');
+    }
+    await saveAuditData(CA);
+    document.getElementById('det-content').innerHTML = renderDetContent();
+    toast('Finding '+(existing?'modifié':'ajouté')+' ✓');
+  });
+}
 async function removeManualFinding(i){const d=getAudData(CA);d.findings.splice(i,1);await saveAuditData(CA);document.getElementById('det-content').innerHTML=renderDetContent();}
 async function setMgtResp(findingId,field,val){const d=getAudData(CA);const r=d.mgtResp.find(x=>x.findingId===findingId);if(r){r[field]=val;await saveAuditData(CA);}}
-function pushAllMgtResp(){const d=getAudData(CA);const ap=AUDIT_PLAN.find(a=>a.id===CA);const pushed=d.mgtResp.filter(r=>r.action&&r.owner&&!r.pushed);if(!pushed.length){toast('Aucune réponse complète à envoyer');return;}pushed.forEach(r=>{const step5c=d.controls[4]||[];const step6c=d.controls[5]||[];const allF=[...step6c.filter(c=>c.result==='fail'&&c.finding).map(c=>({id:'f_'+c.name,title:c.name})),...step5c.filter(c=>c.design==='target').map(c=>({id:'t_'+c.name,title:c.name})),...(d.findings||[]).map((f,i)=>({id:'m_'+i,title:f.title}))];const f=allF.find(x=>x.id===r.findingId);if(!f)return;ACTIONS.unshift({id:'ac'+Date.now()+Math.random(),title:r.action,audit:ap?.titre||'—',resp:CU?.name||'—',dept:r.owner,ent:ap?.type==='BU'?ap.entite:'Groupe',year:r.year,quarter:r.quarter,status:'Non démarré',pct:0,fromFinding:true,findingTitle:f.title});r.pushed=true;addHist('add',`Plan d'action créé depuis finding "${f.title}"`);});document.getElementById('det-content').innerHTML=renderDetContent();toast(pushed.length+' plan(s) d\'action créé(s) ✓');}
+function pushAllMgtResp(){
+  const d=getAudData(CA);
+  const ap=AUDIT_PLAN.find(a=>a.id===CA);
+  const pushed=d.mgtResp.filter(r=>r.action&&r.owner&&!r.pushed);
+  if(!pushed.length){toast('Aucune réponse complète à envoyer');return;}
+  pushed.forEach(r=>{
+    const f=(d.findings||[]).find((x,i)=>(x.id||('f_'+i))===r.findingId);
+    if(!f)return;
+    ACTIONS.unshift({
+      id:'ac'+Date.now()+Math.random(),
+      title:r.action,
+      audit:ap?.titre||'—',
+      resp:CU?.name||'—',
+      dept:r.owner,
+      ent:ap?.type==='BU'?ap.entite:'Groupe',
+      year:r.year,
+      quarter:r.quarter,
+      status:'Non démarré',
+      pct:0,
+      fromFinding:true,
+      findingTitle:f.title
+    });
+    r.pushed=true;
+    addHist('add',`Plan d'action créé depuis finding "${f.title}"`);
+  });
+  document.getElementById('det-content').innerHTML=renderDetContent();
+  toast(pushed.length+' plan(s) d\'action créé(s) ✓');
+}
 async function addFakeDoc(){
   // Étape 1 : sélection du fichier
   var inp=document.createElement('input');
