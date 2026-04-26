@@ -6,9 +6,6 @@ const AUDITFLOW_CONFIG = {
   siteId:      null,   // rempli automatiquement au premier appel Graph
   driveId:     null,   // rempli automatiquement au premier appel Graph
 
-  // Fallback login local (invités externes sans compte Axway)
-  demoPassword: 'Audit1234!',
-
   // URL Azure Static Web App
   appUrl: 'https://white-moss-0f615d11e.7.azurestaticapps.net',
 };
