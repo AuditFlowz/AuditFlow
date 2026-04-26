@@ -53,6 +53,32 @@ var RISK_IMPACT_COLORS = {
 // ══════════════════════════════════════════════════════════════
 var PRODUCT_LINES = [];
 
+// ══════════════════════════════════════════════════════════════
+//  CONTROLS LIBRARY : Référentiel de contrôles standards (COSO, COBIT, ITGC...)
+//  [{id, framework, domain, code, name, description, wcgwTypical, nature,
+//    frequency, key, designDefault, ownerType, testProcedures, appliesToDomains, archived}]
+// ══════════════════════════════════════════════════════════════
+var CONTROLS_LIBRARY = [];
+
+// Frameworks supportés (référentiels)
+var CONTROL_FRAMEWORKS = ['COSO 2013', 'COBIT 2019', 'ITGC', 'SOX', 'ISO 27001', 'RGPD', 'NIST CSF', 'Custom'];
+
+// Domaines de contrôles standard (catégorisation transversale)
+var CONTROL_DOMAINS = [
+  'Financial Reporting',
+  'IT General Controls',
+  'Cyber Security',
+  'Access Management',
+  'Change Management',
+  'Procurement',
+  'Human Resources',
+  'Compliance & Legal',
+  'Operations',
+  'Data Privacy',
+  'Vendor Management',
+  'Business Continuity',
+];
+
 // Catégories par défaut pour les missions "Other" (non-audit)
 // Les utilisateurs peuvent en ajouter de nouvelles à la volée dans le formulaire
 var OTHER_CATEGORIES_DEFAULT = [
