@@ -34,6 +34,52 @@ const CL_SYNONYMS = {
   'hr': ['human resources', 'payroll'],
 };
 
+// ════════════════════════════════════════════════════════════════════════════
+//  BRIDGE — Mapping exact entre process AuditFlow et cycles bibliothèque
+//
+//  Clé : nom EXACT du process tel que défini dans PROCESSES (champ .proc)
+//  Valeur : tableau des domaines biblio applicables (champ .domain des contrôles)
+//
+//  Si un process n'est pas listé ici, le système retombe sur le matching
+//  par synonymes/mots-clés (CL_SYNONYMS ci-dessus).
+//
+//  Process avec liste vide = pas de bibliothèque → l'IA peut suggérer (cas 3).
+// ════════════════════════════════════════════════════════════════════════════
+const CL_PROCESS_BRIDGE = {
+  // ─── Finance ────────────────────────────────────────────────────────────
+  'Finance - OTC':                       ['Order-to-Cash'],
+  'Finance - Treasury':                  ['Treasury'],
+  'Finance - Accounting & Tax':          ['Record-to-Report', 'Fixed Assets', 'R&D'],
+  'Finance - Budget/Forecast':           [],
+
+  // ─── Achats ─────────────────────────────────────────────────────────────
+  'Purchasing & Third Party Mgt':        ['Procure-to-Pay'],
+
+  // ─── RH ─────────────────────────────────────────────────────────────────
+  'HR - Payroll':                        ['Payroll'],
+  'HR - Talent Acquisition':             ['Human Resources'],
+
+  // ─── IT ─────────────────────────────────────────────────────────────────
+  'IT - Cybersecurity & Data':           ['IT - Access Management', 'IT - Data'],
+  'IT - Structure':                      ['IT - Access Management', 'IT - Data'],
+
+  // ─── Edition / Distribution / Deployment ───────────────────────────────
+  'Product Dev':                         ['R&D'],
+  'Product Deployment (On Prem / SaaS)': ['IT - Access Management', 'IT - Data'],
+  'Renewals':                            ['Order-to-Cash'],
+  'Sales':                               ['Order-to-Cash'],
+
+  // ─── Process spécifiques (pas de biblio standard, IA recommandée) ──────
+  'Acquisitions & Integration':          [],
+  'Product Roadmap':                     [],
+  'Cust Support':                        [],
+  'Customer Success':                    [],
+  'Sales Enablement':                    [],
+  'Marketing (Corp, GTM)':               [],
+  'ESG':                                 [],
+  'Compliance':                          [],
+};
+
 function clEsc(s) {
   if (s === null || s === undefined) return '';
   return String(s)
@@ -62,24 +108,36 @@ function openControlLibraryPicker(auditId) {
   const proc = (window.PROCESSES || []).find(p => p.id === ap.processId);
   const procName = proc ? proc.proc : (ap.titre || '');
 
-  const baseKeywords = procName.toLowerCase()
-    .replace(/[\-&\(\)\/]/g, ' ')
-    .split(/\s+/)
-    .filter(w => w.length >= 2);
-  const allKeywords = new Set(baseKeywords);
-  baseKeywords.forEach(k => {
-    if (CL_SYNONYMS[k]) CL_SYNONYMS[k].forEach(s => allKeywords.add(s.toLowerCase()));
-  });
-  const keywords = Array.from(allKeywords);
+  // ── PRIORITÉ 1 : Bridge exact (mapping en dur) ──────────────────────────
+  // Si le process est dans la table CL_PROCESS_BRIDGE, on utilise son mapping
+  let matchingDomains = new Set();
+  let matchSource = 'fallback';
 
-  const matchingDomains = new Set();
-  CONTROLS_LIBRARY.forEach(c => {
-    if (c.archived) return;
-    const domLower = (c.domain || '').toLowerCase();
-    if (keywords.some(k => domLower.includes(k))) {
-      matchingDomains.add(c.domain);
-    }
-  });
+  if (procName && CL_PROCESS_BRIDGE.hasOwnProperty(procName)) {
+    const mapped = CL_PROCESS_BRIDGE[procName];
+    mapped.forEach(d => matchingDomains.add(d));
+    matchSource = mapped.length > 0 ? 'bridge' : 'bridge-empty';
+  } else {
+    // ── PRIORITÉ 2 : Fallback par synonymes/mots-clés ─────────────────────
+    const baseKeywords = procName.toLowerCase()
+      .replace(/[\-&\(\)\/]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length >= 2);
+    const allKeywords = new Set(baseKeywords);
+    baseKeywords.forEach(k => {
+      if (CL_SYNONYMS[k]) CL_SYNONYMS[k].forEach(s => allKeywords.add(s.toLowerCase()));
+    });
+    const keywords = Array.from(allKeywords);
+
+    CONTROLS_LIBRARY.forEach(c => {
+      if (c.archived) return;
+      const domLower = (c.domain || '').toLowerCase();
+      if (keywords.some(k => domLower.includes(k))) {
+        matchingDomains.add(c.domain);
+      }
+    });
+    matchSource = matchingDomains.size > 0 ? 'synonyms' : 'none';
+  }
 
   const allDomains = [...new Set(CONTROLS_LIBRARY.filter(c => !c.archived).map(c => c.domain))];
   const sortedDomains = [
@@ -104,7 +162,12 @@ function openControlLibraryPicker(auditId) {
       </div>
       <div style="background:#E1F5EE;color:#085041;padding:8px 12px;font-size:12px">
         <strong>${clEsc(procName)}</strong> · ${candidates.length} contrôles · ${preChecked.size} pré-cochés
-        ${matchingDomains.size > 0 ? '<br>Cycles pertinents : <strong>' + clEsc([...matchingDomains].join(', ')) + '</strong>' : ''}
+        ${matchingDomains.size > 0
+          ? '<br>Cycles pertinents : <strong>' + clEsc([...matchingDomains].join(', ')) + '</strong>'
+          : (matchSource === 'bridge-empty'
+              ? '<br><em>Aucun cycle bibliothèque ne couvre ce process — tous les contrôles sont affichés. L\'IA peut suggérer des contrôles spécifiques.</em>'
+              : '<br><em>Process non reconnu — affichage de tous les contrôles disponibles.</em>')
+        }
       </div>
       <div style="padding:10px 16px;border-bottom:1px solid #eee;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         <input id="cl-kw" placeholder="Filtrer par mot-clé..."
