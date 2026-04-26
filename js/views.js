@@ -3774,16 +3774,30 @@ async function removeControlAt(idx) {
   toast('Contrôle supprimé ✓');
 }
 function renderTestsSection() {
-  // Conserver l'ancien rendu Tests pour CS=5
   var d = getAudData(CA);
   var step5c = d.controls[4]||[];
   var keyExist = step5c.filter(function(c){return c.clef && c.design==='existing';});
   var targets = step5c.filter(function(c){return c.design==='target';});
-  return '<div class="card" style="margin-bottom:.75rem"><div style="font-size:12px;font-weight:600;color:var(--text-2);margin-bottom:8px">Tests — Contrôles clefs existants</div>'
-    + (keyExist.length ? buildExecTable(keyExist) : '<div style="font-size:11px;color:var(--text-3);padding:.5rem;font-style:italic">Aucun contrôle clef existant. Définissez-en dans l\'étape 5.</div>')
-    + '<div style="font-size:12px;font-weight:600;margin:.875rem 0 .5rem;color:var(--text-2)">Contrôles Target (anomalies automatiques)</div>'
-    + (targets.length ? buildTargetList(targets) : '<div style="font-size:11px;color:var(--text-3);padding:.5rem;font-style:italic">Aucun contrôle Target.</div>')
-    + '</div>';
+  var html = '<div class="card" style="margin-bottom:.75rem">';
+  html += '<div style="font-size:12px;font-weight:600;color:var(--text-2);margin-bottom:4px">Testings — Contrôles clefs existants</div>';
+  html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:10px;font-style:italic">Pour chaque contrôle clef existant, documentez votre procédure de test, votre échantillon et le résultat. Les contrôles Target (à mettre en place) seront pris en compte directement à l\'étape Findings sans test.</div>';
+  html += buildExecTable(keyExist);
+  if (targets.length) {
+    html += '<div style="margin-top:14px;padding-top:10px;border-top:1px dashed var(--border)">';
+    html += '<div style="font-size:11px;font-weight:600;color:#854F0B;margin-bottom:4px">Contrôles Target (non testés — alimenteront les Findings)</div>';
+    html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:6px;font-style:italic">Ces contrôles n\'existent pas encore. Pas de test à réaliser. Ils apparaîtront automatiquement à l\'étape Report comme déficiences à adresser.</div>';
+    targets.forEach(function(c, idx){
+      var ctrlCode = c.code || ('CTRL-T'+(idx+1));
+      html += '<div style="background:#FFF7ED;border:.5px solid #FED7AA;border-radius:4px;padding:6px 10px;margin-bottom:4px;display:flex;align-items:center;gap:8px">';
+      html += '<span class="badge" style="background:#FAEEDA;color:#854F0B;font-size:9px">Target</span>';
+      html += '<div style="flex:1;font-size:11px"><span style="color:var(--text-3);font-size:10px;margin-right:5px">'+ctrlCode+'</span>'+c.name+'</div>';
+      if (c.owner) html += '<span style="font-size:10px;color:var(--text-3)">Owner : '+c.owner+'</span>';
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+  html += '</div>';
+  return html;
 }
 function renderFindingsSection() {
   var d = getAudData(CA);
@@ -4220,6 +4234,9 @@ async function removeControl(i){const d=getAudData(CA);d.controls[CS].splice(i,1
 async function setTestNature(i,val){const d=getAudData(CA);const kc=(d.controls[4]||[]).filter(c=>c.clef&&c.design==='existing');if(kc[i]){kc[i].testNature=val;await saveAuditData(CA);}}
 async function setTestResult(i,val){const d=getAudData(CA);const kc=(d.controls[4]||[]).filter(c=>c.clef&&c.design==='existing');if(kc[i]){kc[i].result=val;await saveAuditData(CA);document.getElementById('det-content').innerHTML=renderDetContent();}}
 async function setFinding(i,val){const d=getAudData(CA);const kc=(d.controls[4]||[]).filter(c=>c.clef&&c.design==='existing');if(kc[i]){kc[i].finding=val;await saveAuditData(CA);}}
+async function setSampleSize(i,val){const d=getAudData(CA);const kc=(d.controls[4]||[]).filter(c=>c.clef&&c.design==='existing');if(kc[i]){kc[i].sampleSize=val?parseInt(val):null;await saveAuditData(CA);}}
+async function setSampleMethod(i,val){const d=getAudData(CA);const kc=(d.controls[4]||[]).filter(c=>c.clef&&c.design==='existing');if(kc[i]){kc[i].sampleMethod=val;await saveAuditData(CA);}}
+async function setTestComment(i,val){const d=getAudData(CA);const kc=(d.controls[4]||[]).filter(c=>c.clef&&c.design==='existing');if(kc[i]){kc[i].testComment=val;await saveAuditData(CA);}}
 function showAddFindingModal(){openModal('Nouveau finding',`<div><label>Titre</label><input id="f-title" placeholder="ex : Absence de contrôle sur les accès"/></div><div><label>Description</label><textarea id="f-desc" style="height:80px" placeholder="Décrivez l'anomalie..."></textarea></div>`,async ()=>{const title=document.getElementById('f-title').value.trim();if(!title){toast('Titre obligatoire');return;}const d=getAudData(CA);d.findings.push({title,desc:document.getElementById('f-desc').value.trim()});await saveAuditData(CA);document.getElementById('det-content').innerHTML=renderDetContent();toast('Finding ajouté ✓');});}
 async function removeManualFinding(i){const d=getAudData(CA);d.findings.splice(i,1);await saveAuditData(CA);document.getElementById('det-content').innerHTML=renderDetContent();}
 async function setMgtResp(findingId,field,val){const d=getAudData(CA);const r=d.mgtResp.find(x=>x.findingId===findingId);if(r){r[field]=val;await saveAuditData(CA);}}
@@ -4344,13 +4361,104 @@ async function unmarkDocReviewed(docIndex) {
 async function renameDoc(docIndex){var d=getAudData(CA);var doc=d.docs[docIndex];if(!doc)return;var newName=prompt('Nouveau nom :', doc.name);if(!newName||newName.trim()===''||newName===doc.name)return;try{await renameDocInDB(CA,docIndex,newName.trim());document.getElementById('det-content').innerHTML=renderDetContent();toast('Renommé ✓');}catch(e){toast('Erreur : '+e.message);}}
 async function replaceDoc(docIndex){var inp=document.createElement('input');inp.type='file';inp.accept='.pdf,.xlsx,.xls,.docx,.doc,.pptx,.ppt,.csv,.txt';inp.onchange=async function(){if(!inp.files.length)return;var file=inp.files[0];toast('Remplacement...');try{await replaceDocInDB(CA,docIndex,file,CS,CU?CU.name:'Inconnu');document.getElementById('det-content').innerHTML=renderDetContent();toast(file.name+' remplacé ✓');}catch(e){toast('Erreur : '+e.message);}};inp.click();}
 async function saveNotes(){var d=getAudData(CA);d.notes=document.querySelector('textarea')?document.querySelector('textarea').value:'';await saveAuditData(CA);toast('Notes sauvegardées ✓');}
-async function finalizeTest(i){const d=getAudData(CA);const kc=(d.controls[4]||[]).filter(x=>x.clef&&x.design==='existing');const ctrl=kc[i];if(!ctrl)return;if(!ctrl.testNature){toast('Veuillez sélectionner la nature du test');return;}if(!ctrl.result){toast('Veuillez indiquer le résultat');return;}if(ctrl.result==='fail'&&!ctrl.finding){toast('Documentez le finding avant de finaliser');return;}ctrl.finalized=true;addHist('edit',`Test finalisé — "${ctrl.name}" : ${ctrl.result}`);await saveAuditData(CA);document.getElementById('det-content').innerHTML=renderDetContent();toast(`Test "${ctrl.name}" finalisé ✓`);}
+async function finalizeTest(i){const d=getAudData(CA);const kc=(d.controls[4]||[]).filter(x=>x.clef&&x.design==='existing');const ctrl=kc[i];if(!ctrl)return;if(!ctrl.testNature){toast('Renseignez la nature du test');return;}if(!ctrl.result){toast('Renseignez le résultat (Pass/Fail)');return;}if(ctrl.result==='fail'&&!ctrl.testComment){toast('Documentez le commentaire de test (constats)');return;}ctrl.finalized=true;addHist('edit',`Test finalisé — "${ctrl.name}" : ${ctrl.result}`);await saveAuditData(CA);document.getElementById('det-content').innerHTML=renderDetContent();toast(`Test "${ctrl.name}" finalisé ✓`);}
+async function unfinalizeTest(i){const d=getAudData(CA);const kc=(d.controls[4]||[]).filter(x=>x.clef&&x.design==='existing');const ctrl=kc[i];if(!ctrl)return;ctrl.finalized=false;addHist('edit',`Test rouvert — "${ctrl.name}"`);await saveAuditData(CA);document.getElementById('det-content').innerHTML=renderDetContent();toast(`Test "${ctrl.name}" rouvert`);}
 function setMaturity(key){const d=getAudData(CA);if(!d.maturity)d.maturity={level:'',notes:'',saved:false};d.maturity.level=key;d.maturity.saved=false;document.getElementById('det-content').innerHTML=renderDetContent();}
 async function saveMaturity(){const d=getAudData(CA);if(!d.maturity?.level){toast('Veuillez sélectionner un niveau');return;}d.maturity.notes=document.getElementById('maturity-notes')?.value||'';d.maturity.saved=true;addHist('edit',`Maturité définie : ${d.maturity.level}`);await saveAuditData(CA);toast('Évaluation sauvegardée ✓');document.getElementById('det-content').innerHTML=renderDetContent();}
 
 function buildControlList(ctrls){if(!ctrls||!ctrls.length)return'<div style="font-size:12px;color:var(--text-3);padding:.5rem">Aucun contrôle identifié.</div>';var h='<div class="ch"><span>Contrôle</span><span>Owner</span><span>Fréquence</span><span>Clef ?</span><span>Design</span><span></span></div>';ctrls.forEach(function(ctrl,ci){h+='<div class="cr"><span style="font-weight:500">'+ctrl.name+'</span><span style="color:var(--text-2)">'+ctrl.owner+'</span><span style="color:var(--text-2)">'+ctrl.freq+'</span><span><span class="badge '+(ctrl.clef?'bps':'bpl')+'">'+(ctrl.clef?'Oui':'Non')+'</span></span><span><span class="badge '+(ctrl.design==='existing'?'bdn':'btg')+'">'+(ctrl.design==='existing'?'Existing':'Target')+'</span></span><button class="bd" style="font-size:10px;padding:2px 6px" onclick="removeControl('+ci+')">X</button></div>';});return h;}
 function buildTargetList(targets){if(!targets||!targets.length)return'<div style="font-size:12px;color:var(--text-3);padding:.5rem">Aucun contrôle target.</div>';return targets.map(function(ctrl){return'<div class="fr"><div class="fh"><span class="badge btg">Target</span><div class="ft">'+ctrl.name+'</div></div><div style="font-size:11px;color:var(--red)">Contrôle non existant — à définir par '+ctrl.owner+'.</div></div>';}).join('');}
-function buildExecTable(kc){let h='<div class="tw"><table><thead><tr><th>Contrôle</th><th>Nature du test</th><th>Résultat</th><th>Finding</th><th>Action</th></tr></thead><tbody>';kc.forEach(function(ctrl,i){const dis=ctrl.finalized?'disabled':'';h+='<tr><td style="font-size:11px;font-weight:500">'+ctrl.name+'</td><td><select onchange="setTestNature('+i+',this.value)" '+dis+' style="font-size:11px"><option value="">-- Nature --</option><option value="Instruction" '+(ctrl.testNature==='Instruction'?'selected':'')+'>Instruction</option><option value="Observation" '+(ctrl.testNature==='Observation'?'selected':'')+'>Observation</option><option value="Re-performance" '+(ctrl.testNature==='Re-performance'?'selected':'')+'>Re-performance</option></select></td><td><select onchange="setTestResult('+i+',this.value)" '+dis+' style="font-size:11px"><option value="">-- Résultat --</option><option value="pass" '+(ctrl.result==='pass'?'selected':'')+'>Pass</option><option value="fail" '+(ctrl.result==='fail'?'selected':'')+'>Fail</option></select></td><td>'+(ctrl.result==='fail'?'<textarea onchange="setFinding('+i+',this.value)" placeholder="Documentez..." '+dis+' style="width:100%;font-size:10px;min-height:40px">'+(ctrl.finding||'')+'</textarea>':'<span style="color:var(--text-3)">-</span>')+'</td><td>'+(ctrl.finalized?'<span class="badge bdn">Finalisé</span>':'<button class="bp" style="font-size:10px;padding:4px 8px" onclick="finalizeTest('+i+')">Finaliser</button>')+'</td></tr>';});return h+'</tbody></table></div>';}
+function buildExecTable(kc){
+  if (!kc || !kc.length) return '<div style="font-size:11px;color:var(--text-3);padding:.5rem;font-style:italic">Aucun contrôle clef existant à tester.</div>';
+  var d = getAudData(CA);
+  var wcgwList = (d.wcgw && d.wcgw[4]) || [];
+  var html = '';
+  kc.forEach(function(ctrl, i){
+    var dis = ctrl.finalized ? 'disabled' : '';
+    var ctrlCode = ctrl.code || ('CTRL-'+(i+1));
+    var wcgwLinked = wcgwList.find(function(w){return w.id === ctrl.wcgwId;});
+    var wcgwBadge = wcgwLinked
+      ? '<span class="badge bpl" style="font-size:9px;padding:1px 5px">'+(wcgwLinked.code||'')+' — '+wcgwLinked.title+'</span>'
+      : '<span style="font-size:10px;color:#854F0B;font-style:italic">Pas de WCGW lié</span>';
+    var details = [];
+    if (ctrl.owner) details.push('Owner : '+ctrl.owner);
+    if (ctrl.freq) details.push('Fréquence : '+ctrl.freq);
+    if (ctrl.nature) details.push('Nature : '+ctrl.nature);
+    var resultBadge = ctrl.result === 'pass'
+      ? '<span class="badge bdn" style="font-size:10px">✓ Pass</span>'
+      : ctrl.result === 'fail'
+      ? '<span class="badge bfl" style="font-size:10px">✗ Fail</span>'
+      : '';
+
+    html += '<div style="border:.5px solid var(--border);border-radius:6px;padding:12px;margin-bottom:10px;background:'+(ctrl.finalized?'#fafafa':'#fff')+'">';
+    // En-tête
+    html += '<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:8px">';
+    html += '<div style="flex:1">';
+    html += '<div style="font-size:12px;font-weight:600"><span style="color:var(--text-3);font-size:10px;margin-right:6px">'+ctrlCode+'</span>'+ctrl.name+'</div>';
+    if (ctrl.description) html += '<div style="font-size:10px;color:var(--text-3);margin-top:2px">'+ctrl.description+'</div>';
+    html += '<div style="font-size:10px;color:var(--text-2);margin-top:4px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">';
+    html += wcgwBadge;
+    if (details.length) html += '<span>·</span><span>'+details.join(' · ')+'</span>';
+    html += '</div>';
+    html += '</div>';
+    if (resultBadge) html += '<div style="flex-shrink:0">'+resultBadge+'</div>';
+    if (ctrl.finalized) html += '<span class="badge bdn" style="font-size:10px;flex-shrink:0">Finalisé</span>';
+    html += '</div>';
+
+    // Champs de test
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px">';
+    // Nature de test (textarea libre)
+    html += '<div style="grid-column:span 2">';
+    html += '<label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:3px">Nature du test</label>';
+    html += '<textarea onchange="setTestNature('+i+',this.value)" '+dis+' placeholder="Décrivez la procédure de test..." style="width:100%;min-height:50px;font-size:11px;padding:6px">'+(ctrl.testNature||'')+'</textarea>';
+    html += '</div>';
+    // Sample size + méthode
+    html += '<div>';
+    html += '<label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:3px">Taille du sample</label>';
+    html += '<input type="number" min="0" onchange="setSampleSize('+i+',this.value)" '+dis+' value="'+(ctrl.sampleSize||'')+'" placeholder="ex : 25" style="width:100%;font-size:11px;padding:6px"/>';
+    html += '</div>';
+    html += '<div>';
+    html += '<label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:3px">Méthode d\'échantillonnage</label>';
+    html += '<select onchange="setSampleMethod('+i+',this.value)" '+dis+' style="width:100%;font-size:11px;padding:6px">';
+    html += '<option value="">— Choisir —</option>';
+    html += '<option value="random"'+(ctrl.sampleMethod==='random'?' selected':'')+'>Aléatoire</option>';
+    html += '<option value="judgmental"'+(ctrl.sampleMethod==='judgmental'?' selected':'')+'>Judgmental</option>';
+    html += '<option value="full"'+(ctrl.sampleMethod==='full'?' selected':'')+'>Full population</option>';
+    html += '</select>';
+    html += '</div>';
+    // Résultat
+    html += '<div style="grid-column:span 2">';
+    html += '<label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:3px">Résultat</label>';
+    html += '<div style="display:flex;gap:12px;padding:4px 0">';
+    html += '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px">';
+    html += '<input type="radio" name="result-'+i+'" value="pass" '+(ctrl.result==='pass'?'checked':'')+' '+dis+' onchange="setTestResult('+i+',this.value)"/> ✓ Pass';
+    html += '</label>';
+    html += '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px">';
+    html += '<input type="radio" name="result-'+i+'" value="fail" '+(ctrl.result==='fail'?'checked':'')+' '+dis+' onchange="setTestResult('+i+',this.value)"/> ✗ Fail';
+    html += '</label>';
+    html += '</div>';
+    html += '</div>';
+    // Commentaire de test
+    html += '<div style="grid-column:span 2">';
+    html += '<label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:3px">Commentaire de test (observations)</label>';
+    html += '<textarea onchange="setTestComment('+i+',this.value)" '+dis+' placeholder="Ce que vous avez constaté pendant le test (chiffres, exceptions, anomalies...)..." style="width:100%;min-height:50px;font-size:11px;padding:6px">'+(ctrl.testComment||'')+'</textarea>';
+    html += '</div>';
+    html += '</div>';
+
+    // Bouton finaliser
+    if (!ctrl.finalized) {
+      html += '<div style="display:flex;justify-content:flex-end;margin-top:8px">';
+      html += '<button class="bp" style="font-size:11px;padding:5px 12px" onclick="finalizeTest('+i+')">Finaliser le test</button>';
+      html += '</div>';
+    } else {
+      html += '<div style="display:flex;justify-content:flex-end;margin-top:8px">';
+      html += '<button class="bs" style="font-size:11px;padding:5px 12px" onclick="unfinalizeTest('+i+')">Rouvrir</button>';
+      html += '</div>';
+    }
+    html += '</div>';
+  });
+  return html;
+}
 function buildDocList(docs){
   if(!docs||!docs.length) return '';
   var isAdmin = CU && CU.role==='admin';
