@@ -105,12 +105,13 @@ const ENT={sbs:'<span class="badge bsbs">SBS</span>',axw:'<span class="badge bax
 
 let CU=null,CV='dashboard',CA=null,CS=0,CT='roles';
 
+// L'authentification passe par Microsoft Entra ID (MSAL).
+// Aucun mot de passe n'est stocké côté application.
 var USERS=[
-  {id:'pm',name:'Philippe M.',email:'pmassard@74software.com',role:'admin',status:'actif',pwd:'Audit1234!',organization_id:'00000000-0000-0000-0000-000000000001'},
-  {id:'sh',name:'Selma H.',email:'shentabli@74software.com',role:'auditeur',status:'actif',pwd:'Audit1234!',organization_id:'00000000-0000-0000-0000-000000000001'},
-  {id:'ne',name:'Nisrine E.',email:'nechah@74software.com',role:'auditeur',status:'actif',pwd:'Audit1234!',organization_id:'00000000-0000-0000-0000-000000000001'},
-  // Superadmin — à adapter avec votre email et mot de passe
-  {id:'superadmin',name:'Super Admin',email:'pmassard.fr@gmail.com',role:'superadmin',status:'actif',pwd:'Audit1234!',organization_id:'00000000-0000-0000-0000-000000000000'},
+  {id:'pm',name:'Philippe M.',email:'pmassard@74software.com',role:'admin',status:'actif',organization_id:'00000000-0000-0000-0000-000000000001'},
+  {id:'sh',name:'Selma H.',email:'shentabli@74software.com',role:'auditeur',status:'actif',organization_id:'00000000-0000-0000-0000-000000000001'},
+  {id:'ne',name:'Nisrine E.',email:'nechah@74software.com',role:'auditeur',status:'actif',organization_id:'00000000-0000-0000-0000-000000000001'},
+  {id:'superadmin',name:'Super Admin',email:'pmassard.fr@gmail.com',role:'superadmin',status:'actif',organization_id:'00000000-0000-0000-0000-000000000000'},
 ];
 let PENDING=[];
 let HISTORY_LOG=[];
