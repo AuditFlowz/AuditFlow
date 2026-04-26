@@ -67,11 +67,21 @@ function openControlLibraryPicker(auditId) {
     return;
   }
 
-  const ap = (window.AUDIT_PLAN || []).find(a => a.id === auditId);
+  // Fallback : si auditId vide/invalide, utiliser la variable globale CA
+  let realAuditId = auditId;
+  let ap = (window.AUDIT_PLAN || []).find(a => a.id === realAuditId);
+  if (!ap && typeof window.CA !== 'undefined' && window.CA) {
+    realAuditId = window.CA;
+    ap = (window.AUDIT_PLAN || []).find(a => a.id === realAuditId);
+    console.log('[CTRL_LIB] Fallback sur CA:', realAuditId);
+  }
   if (!ap) {
+    console.error('[CTRL_LIB] Audit introuvable. auditId=', auditId, 'CA=', window.CA);
     if (typeof toast === 'function') toast('Audit introuvable');
     return;
   }
+  // À partir d'ici on utilise realAuditId au lieu de auditId
+  auditId = realAuditId;
 
   const proc = (window.PROCESSES || []).find(p => p.id === ap.processId);
   const procName = proc ? proc.proc : (ap.titre || '');
