@@ -1,49 +1,3 @@
-// ╔═══════════════════════════════════════════════════════════════════════════╗
-// ║                                                                           ║
-// ║   AuditFlow — views.js                                                    ║
-// ║   Vues, modales et handlers de l'application                              ║
-// ║                                                                           ║
-// ║   Pour naviguer : Ctrl+F sur '§ NN' (ex: §  18) pour sauter à la section. ║
-// ║                                                                           ║
-// ╠═══════════════════════════════════════════════════════════════════════════╣
-// ║                                                                           ║
-// ║   TABLE DES MATIÈRES                                                      ║
-// ║                                                                           ║
-// ║   §  01.  HELPERS GÉNÉRIQUES                                              ║
-// ║   §  02.  MATRICE DE RISQUES — Helpers                                    ║
-// ║   §  03.  MATRICE DE RISQUES — Rendu modal & heatmap                      ║
-// ║   §  04.  HELPERS PROGRESSION                                             ║
-// ║   §  05.  VUE — TABLEAU DE BORD                                           ║
-// ║   §  06.  VUE — PLAN PROCESS (Audit Universe)                             ║
-// ║   §  07.  VUE — PLAN BU & GROUP STRUCTURE                                 ║
-// ║   §  08.  VUE — PLAN AUDIT (création de missions)                         ║
-// ║   §  09.  VUE — SUIVI PROCESS                                             ║
-// ║   §  10.  VUE — SUIVI BU & CARTE D3                                       ║
-// ║   §  11.  VUE — PLANIFICATION (Gantt)                                     ║
-// ║   §  12.  VUE — PLANS D'ACTION                                            ║
-// ║   §  13.  VUE — RISK UNIVERSE                                             ║
-// ║   §  14.  VUE — PRODUCT LINES                                             ║
-// ║   §  15.  VUE — HISTORIQUE                                                ║
-// ║   §  16.  VUE — RÔLES & ACCÈS                                             ║
-// ║   §  17.  VUE — MES AUDITS                                                ║
-// ║   §  18.  VUE — DÉTAIL AUDIT — Layout commun                              ║
-// ║   §  19.  VUE — DÉTAIL AUDIT — Étape 5 (RCM)                              ║
-// ║   §  20.  VUE — DÉTAIL AUDIT — Étapes 6/7/8                               ║
-// ║   §  21.  VUE — DÉTAIL AUDIT — Handlers communs                           ║
-// ║   §  22.  VUE — DÉTAIL AUDIT — Validation d'étape                         ║
-// ║   §  23.  VUE — DÉTAIL AUDIT — Tâches & contrôles legacy                  ║
-// ║   §  24.  VUE — PROFIL                                                    ║
-// ║   §  25.  EXPORT PDF                                                      ║
-// ║   §  26.  UTILS BAS DE FICHIER                                            ║
-// ║                                                                           ║
-// ╚═══════════════════════════════════════════════════════════════════════════╝
-
-
-// ═══════════════════════════════════════════════════════════════════════════
-// §  01.  HELPERS GÉNÉRIQUES
-//        uuidv4, RISK_LEVELS, riskLabel, riskScore, riskCrit, riskBadge
-// ═══════════════════════════════════════════════════════════════════════════
-
 // Génère un UUID v4 compatible Supabase
 function uuidv4(){
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,function(c){
@@ -72,12 +26,6 @@ function riskLabel(key){
   var r=RISK_LEVELS.find(function(x){return x.key===key;});
   return r?'<span class="badge '+r.badge+'">'+r.label+'</span>':'<span class="badge bpl">—</span>';
 }
-
-
-// ═══════════════════════════════════════════════════════════════════════════
-// §  02.  MATRICE DE RISQUES — Helpers
-//        RISK_LABELS_PxI, getProcRisks, computeProcRiskLevelFromRefs
-// ═══════════════════════════════════════════════════════════════════════════
 
 // ══════════════════════════════════════════════════════════════
 //  MATRICE RISQUES — Helpers
@@ -238,12 +186,6 @@ async function removeProcRisk(procId,ri){
 // ══════════════════════════════════════════════════════════════
 //  MATRICE RISQUES — Step 5
 // ══════════════════════════════════════════════════════════════
-
-// ═══════════════════════════════════════════════════════════════════════════
-// §  03.  MATRICE DE RISQUES — Rendu modal & heatmap
-//        renderRiskMatrix, buildHeatmap, showAddAuditRiskModal
-// ═══════════════════════════════════════════════════════════════════════════
-
 function renderRiskMatrix(){
   var ap=AUDIT_PLAN.find(function(a){return a.id===CA;});
   var d=getAudData(CA);
@@ -472,12 +414,6 @@ function showLinkControlModal(riskId){
 }
 
 
-
-// ═══════════════════════════════════════════════════════════════════════════
-// §  04.  HELPERS PROGRESSION
-//        calculateAuditProgress
-// ═══════════════════════════════════════════════════════════════════════════
-
 function calculateAuditProgress(ap){
   if(!ap) return 0;
   if(ap.statut==='Clôturé') return 100;
@@ -491,12 +427,6 @@ function calculateAuditProgress(ap){
 // ══════════════════════════════════════════════════════════════
 //  DASHBOARD
 // ══════════════════════════════════════════════════════════════
-
-// ═══════════════════════════════════════════════════════════════════════════
-// §  05.  VUE — TABLEAU DE BORD
-//        V['dashboard'], donut, capsules, filtres
-// ═══════════════════════════════════════════════════════════════════════════
-
 V['dashboard']=()=>{
   // ── Toutes les années disponibles (calculées depuis AUDIT_PLAN) ─
   var allYears=[...new Set(AUDIT_PLAN.map(function(a){return a.annee;}).filter(function(y){return y;}))].sort();
@@ -973,12 +903,6 @@ function dbSetStatut(v){window._dbStatut=v;nav('dashboard');}
 // ══════════════════════════════════════════════════════════════
 //  AUDIT UNIVERSE (ex Plan Process)
 // ══════════════════════════════════════════════════════════════
-
-// ═══════════════════════════════════════════════════════════════════════════
-// §  06.  VUE — PLAN PROCESS (Audit Universe)
-//        V['plan-process'], CRUD domaines/processus
-// ═══════════════════════════════════════════════════════════════════════════
-
 V['plan-process']=()=>`
   <div class="topbar">
     <div class="tbtitle">Audit Universe</div>
@@ -1169,12 +1093,6 @@ function showEditProcModal(idx){
 //  GROUP STRUCTURE (nouvelle version - Région > Pays > Sociétés)
 //  Structure: [{id, region, country, companies:[{id, society, employees, productLineIds:[], domains}]}]
 // ══════════════════════════════════════════════════════════════
-
-
-// ═══════════════════════════════════════════════════════════════════════════
-// §  07.  VUE — PLAN BU & GROUP STRUCTURE
-//        V['plan-bu'], gsLoad, gsRender, helpers GS
-// ═══════════════════════════════════════════════════════════════════════════
 
 var GROUP_STRUCTURE=[]; // nouvelle structure (array de pays)
 
@@ -1510,12 +1428,6 @@ function getRegionForCountry(country){
 // ══════════════════════════════════════════════════════════════
 //  PLAN AUDIT (inchangé)
 // ══════════════════════════════════════════════════════════════
-
-// ═══════════════════════════════════════════════════════════════════════════
-// §  08.  VUE — PLAN AUDIT (création de missions)
-//        V['plan-audit'], modale audit, multi-process
-// ═══════════════════════════════════════════════════════════════════════════
-
 V['plan-audit']=()=>`
   <div class="topbar"><div class="tbtitle">Plan Audit</div><button class="bp ao" onclick="showAddAuditModal()">+ Ajouter une mission</button></div>
   <div class="content">
@@ -1955,12 +1867,6 @@ async function deleteAudit(idx){
 }
 
 // ── Plan Process consolidé (section Plans Audit) ──────────────
-
-// ═══════════════════════════════════════════════════════════════════════════
-// §  09.  VUE — SUIVI PROCESS
-//        V['plans-process'], renderPlanProcessTable
-// ═══════════════════════════════════════════════════════════════════════════
-
 V['plans-process']=()=>`
   <div class="topbar">
     <div class="tbtitle">Plan Process 2025–2028</div>
@@ -2071,12 +1977,6 @@ function renderPlanProcessTable(){
 }
 
 // ── Plan BU consolidé (section Plans Audit) ───────────────────
-
-// ═══════════════════════════════════════════════════════════════════════════
-// §  10.  VUE — SUIVI BU & CARTE D3
-//        V['plans-bu'], renderWorldMap, drill-down par pays
-// ═══════════════════════════════════════════════════════════════════════════
-
 V['plans-bu']=()=>`
   <div class="topbar">
     <div class="tbtitle">Plan BU 2025–2028</div>
@@ -2415,12 +2315,6 @@ function clearBUCountryFilter() {
 // ══════════════════════════════════════════════════════════════
 //  PLANIFICATION (Gantt — inchangé)
 // ══════════════════════════════════════════════════════════════
-
-// ═══════════════════════════════════════════════════════════════════════════
-// §  11.  VUE — PLANIFICATION (Gantt)
-//        V['planification'], renderGantt
-// ═══════════════════════════════════════════════════════════════════════════
-
 V['planification']=()=>`
   <div class="topbar"><div class="tbtitle">Planification</div></div>
   <div class="content">
@@ -2485,12 +2379,6 @@ function renderGantt(){
 // ══════════════════════════════════════════════════════════════
 //  PLANS D'ACTION (inchangé)
 // ══════════════════════════════════════════════════════════════
-
-// ═══════════════════════════════════════════════════════════════════════════
-// §  12.  VUE — PLANS D'ACTION
-//        V['plans-action'], renderActionList, modales
-// ═══════════════════════════════════════════════════════════════════════════
-
 V['plans-action']=()=>`
   <div class="topbar"><div class="tbtitle">Suivi des plans d'action</div><button class="bp" onclick="showNewActionModal()">+ Ajouter</button></div>
   <div class="content">
@@ -2553,12 +2441,6 @@ async function deleteAction(id){
 // ══════════════════════════════════════════════════════════════
 //  RISK UNIVERSE : hiérarchie des risques Groupe / Opérationnels
 // ══════════════════════════════════════════════════════════════
-
-
-// ═══════════════════════════════════════════════════════════════════════════
-// §  13.  VUE — RISK UNIVERSE
-//        V['risk-universe'], URD + risques opérationnels, matrice
-// ═══════════════════════════════════════════════════════════════════════════
 
 V['risk-universe']=()=>`
   <div class="topbar">
@@ -2864,12 +2746,6 @@ function ruShowMatrix() {
 // ══════════════════════════════════════════════════════════════
 //  PRODUCT LINES (squelette - phase D)
 // ══════════════════════════════════════════════════════════════
-
-// ═══════════════════════════════════════════════════════════════════════════
-// §  14.  VUE — PRODUCT LINES
-//        V['product-lines'], CRUD lignes de produit
-// ═══════════════════════════════════════════════════════════════════════════
-
 V['product-lines']=()=>`
   <div class="topbar">
     <div class="tbtitle">Product Lines</div>
@@ -3026,355 +2902,9 @@ async function plSavePL(pl) {
   } catch(e){ console.warn('[PL] save error:', e.message); toast('Erreur sauvegarde: '+e.message); }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// §  14b. VUE — BIBLIOTHÈQUE DE CONTRÔLES (COSO/COBIT/ITGC)
-//        V['controls-library'], libRender, libControlModal, libImportToAudit
-// ═══════════════════════════════════════════════════════════════════════════
-
-V['controls-library']=()=>`
-  <div class="topbar">
-    <div class="tbtitle">📚 Bibliothèque de contrôles</div>
-    <button class="bp" onclick="libAddControl()">+ Nouveau contrôle</button>
-  </div>
-  <div class="content">
-    <div style="display:flex;gap:10px;margin-bottom:1rem;flex-wrap:wrap">
-      <input type="text" id="lib-search" placeholder="🔍 Rechercher (nom, code, description...)" style="flex:1;min-width:200px;font-size:12px" oninput="libRender()"/>
-      <select id="lib-fw" style="font-size:12px;min-width:140px" onchange="libRender()">
-        <option value="">Tous frameworks</option>
-        ${(typeof CONTROL_FRAMEWORKS!=='undefined'?CONTROL_FRAMEWORKS:[]).map(f=>'<option>'+f+'</option>').join('')}
-      </select>
-      <select id="lib-dom" style="font-size:12px;min-width:160px" onchange="libRender()">
-        <option value="">Tous domaines</option>
-        ${(typeof CONTROL_DOMAINS!=='undefined'?CONTROL_DOMAINS:[]).map(d=>'<option>'+d+'</option>').join('')}
-      </select>
-      <select id="lib-key" style="font-size:12px;min-width:110px" onchange="libRender()">
-        <option value="">Key & Non-Key</option>
-        <option value="1">Key uniquement</option>
-        <option value="0">Non-Key uniquement</option>
-      </select>
-    </div>
-    <div id="lib-stats" style="font-size:11px;color:var(--text-3);margin-bottom:8px"></div>
-    <div id="lib-list"></div>
-  </div>`;
-I['controls-library']=()=>libRender();
-
-function libRender(){
-  var search = (document.getElementById('lib-search')||{}).value || '';
-  var fw = (document.getElementById('lib-fw')||{}).value || '';
-  var dom = (document.getElementById('lib-dom')||{}).value || '';
-  var keyFilter = (document.getElementById('lib-key')||{}).value || '';
-  var s = search.toLowerCase().trim();
-
-  var rows = (CONTROLS_LIBRARY||[]).filter(function(c){
-    if (fw && c.framework !== fw) return false;
-    if (dom && c.domain !== dom) return false;
-    if (keyFilter === '1' && !c.key) return false;
-    if (keyFilter === '0' && c.key) return false;
-    if (s) {
-      var hay = (c.code+' '+c.name+' '+c.description+' '+c.wcgwTypical+' '+c.framework+' '+c.domain).toLowerCase();
-      if (hay.indexOf(s) < 0) return false;
-    }
-    return true;
-  });
-
-  var statsEl = document.getElementById('lib-stats');
-  if (statsEl) {
-    statsEl.textContent = rows.length + ' / ' + (CONTROLS_LIBRARY||[]).length + ' contrôles affichés';
-  }
-
-  var listEl = document.getElementById('lib-list');
-  if (!listEl) return;
-
-  if (!rows.length) {
-    listEl.innerHTML = '<div class="card" style="text-align:center;padding:2rem;color:var(--text-3);font-style:italic">'
-      + (CONTROLS_LIBRARY.length ? 'Aucun contrôle ne correspond aux critères.' : 'La bibliothèque est vide. Cliquez sur "+ Nouveau contrôle" pour en ajouter.')
-      + '</div>';
-    return;
-  }
-
-  // Grouper par framework
-  var byFw = {};
-  rows.forEach(function(c){
-    var k = c.framework || '— Sans framework —';
-    if (!byFw[k]) byFw[k] = [];
-    byFw[k].push(c);
-  });
-
-  var html = '';
-  Object.keys(byFw).sort().forEach(function(fw){
-    html += '<div style="margin-bottom:1.5rem">';
-    html += '<div style="font-size:13px;font-weight:600;color:var(--purple-dk);margin-bottom:.5rem;padding:6px 10px;background:var(--purple-lt);border-radius:5px">'+fw+' <span style="font-weight:400;color:var(--text-3);font-size:11px">('+byFw[fw].length+')</span></div>';
-    byFw[fw].forEach(function(c){
-      html += '<div class="card" style="padding:12px;margin-bottom:6px;display:flex;gap:10px;align-items:flex-start">';
-      html += '<div style="flex:1;min-width:0">';
-      html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">';
-      if (c.code) html += '<span style="font-size:10px;color:var(--text-3);font-family:monospace">'+c.code+'</span>';
-      html += '<span style="font-weight:600;font-size:13px">'+c.name+'</span>';
-      html += '<span class="badge '+(c.key?'bpc':'bpl')+'" style="font-size:9px">'+(c.key?'Key':'Non-Key')+'</span>';
-      html += '<span class="badge bdn" style="font-size:9px">'+(c.designDefault||'Existing')+'</span>';
-      if (c.domain) html += '<span class="badge" style="background:#E5E7EB;color:#374151;font-size:9px">'+c.domain+'</span>';
-      html += '</div>';
-      if (c.description) html += '<div style="font-size:11px;color:var(--text-2);margin:4px 0">'+c.description+'</div>';
-      if (c.wcgwTypical) html += '<div style="font-size:10px;color:var(--text-3);margin:4px 0"><strong>WCGW typique :</strong> '+c.wcgwTypical+'</div>';
-      html += '<div style="display:flex;gap:12px;font-size:10px;color:var(--text-3);margin-top:4px;flex-wrap:wrap">';
-      if (c.nature) html += '<span><strong>Nature :</strong> '+c.nature+'</span>';
-      if (c.frequency) html += '<span><strong>Fréquence :</strong> '+c.frequency+'</span>';
-      if (c.ownerType) html += '<span><strong>Owner type :</strong> '+c.ownerType+'</span>';
-      html += '</div>';
-      html += '</div>';
-      html += '<div style="display:flex;flex-direction:column;gap:4px">';
-      html += '<button class="bs" style="font-size:10px;padding:3px 8px" onclick="libEditControl(\''+c.id+'\')">Éditer</button>';
-      html += '<button class="bd" style="font-size:10px;padding:3px 8px" onclick="libDeleteControl(\''+c.id+'\')">Archiver</button>';
-      html += '</div>';
-      html += '</div>';
-    });
-    html += '</div>';
-  });
-  listEl.innerHTML = html;
-}
-
-function libControlModal(existing) {
-  var c = existing || {};
-  var fwOpts = (CONTROL_FRAMEWORKS||[]).map(function(f){return '<option value="'+f+'"'+(c.framework===f?' selected':'')+'>'+f+'</option>';}).join('');
-  var domOpts = (CONTROL_DOMAINS||[]).map(function(d){return '<option value="'+d+'"'+(c.domain===d?' selected':'')+'>'+d+'</option>';}).join('');
-  var natOpts = ['IT','IT-Dependent','Manual'].map(function(n){return '<option value="'+n+'"'+(c.nature===n?' selected':'')+'>'+n+'</option>';}).join('');
-  var freqOpts = ['As needed','Day','Week','Month','Quarter','Semester','Year'].map(function(f){return '<option value="'+f+'"'+(c.frequency===f?' selected':'')+'>'+f+'</option>';}).join('');
-
-  var body = '<div class="g2">'
-    + '<div><label>Framework <span style="color:var(--red)">*</span></label><select id="lc-fw"><option value="">— Choisir —</option>'+fwOpts+'</select></div>'
-    + '<div><label>Domaine</label><select id="lc-dom"><option value="">—</option>'+domOpts+'</select></div>'
-    + '</div>'
-    + '<div class="g2">'
-    + '<div><label>Code</label><input id="lc-code" value="'+(c.code||'')+'" placeholder="ex: COSO-CC-12.3"/></div>'
-    + '<div><label>Type</label><select id="lc-key"><option value="1"'+(c.key?' selected':'')+'>Key</option><option value="0"'+(!c.key?' selected':'')+'>Non Key</option></select></div>'
-    + '</div>'
-    + '<div><label>Nom <span style="color:var(--red)">*</span></label><input id="lc-name" value="'+(c.name||'')+'" placeholder="ex: Validation à 2 niveaux des accès"/></div>'
-    + '<div><label>Description</label><textarea id="lc-desc" style="width:100%;min-height:60px" placeholder="Décrivez le contrôle...">'+(c.description||'')+'</textarea></div>'
-    + '<div><label>WCGW typique (que ce contrôle bloque)</label><textarea id="lc-wcgw" style="width:100%;min-height:50px" placeholder="ex: Modification non autorisée des écritures comptables">'+(c.wcgwTypical||'')+'</textarea></div>'
-    + '<div class="g2">'
-    + '<div><label>Nature</label><select id="lc-nat"><option value="">—</option>'+natOpts+'</select></div>'
-    + '<div><label>Fréquence</label><select id="lc-freq"><option value="">—</option>'+freqOpts+'</select></div>'
-    + '</div>'
-    + '<div class="g2">'
-    + '<div><label>Design par défaut</label><select id="lc-design"><option value="Existing"'+(c.designDefault==='Existing'?' selected':'')+'>Existing</option><option value="Target"'+(c.designDefault==='Target'?' selected':'')+'>Target</option></select></div>'
-    + '<div><label>Owner type</label><input id="lc-owner" value="'+(c.ownerType||'')+'" placeholder="ex: Finance, IT, RH..."/></div>'
-    + '</div>'
-    + '<div><label>Procédures de test</label><textarea id="lc-test" style="width:100%;min-height:70px" placeholder="ex: Échantillonner 25 transactions du trimestre. Vérifier que chaque a 2 signataires distincts dans l\'ERP. Documenter les exceptions.">'+(c.testProcedures||'')+'</textarea></div>';
-
-  openModal(existing ? 'Éditer le contrôle' : 'Nouveau contrôle de bibliothèque', body, async function(){
-    var fw = document.getElementById('lc-fw').value;
-    var name = document.getElementById('lc-name').value.trim();
-    if (!fw) { toast('Framework obligatoire'); return; }
-    if (!name) { toast('Nom obligatoire'); return; }
-
-    var ctrl = {
-      id: existing ? existing.id : 'lib_'+Date.now(),
-      framework: fw,
-      domain: document.getElementById('lc-dom').value,
-      code: document.getElementById('lc-code').value.trim(),
-      name: name,
-      description: document.getElementById('lc-desc').value.trim(),
-      wcgwTypical: document.getElementById('lc-wcgw').value.trim(),
-      nature: document.getElementById('lc-nat').value,
-      frequency: document.getElementById('lc-freq').value,
-      key: document.getElementById('lc-key').value === '1',
-      designDefault: document.getElementById('lc-design').value,
-      ownerType: document.getElementById('lc-owner').value.trim(),
-      testProcedures: document.getElementById('lc-test').value.trim(),
-      appliesToDomains: existing ? (existing.appliesToDomains||[]) : [],
-      archived: false,
-    };
-
-    if (existing) {
-      var idx = CONTROLS_LIBRARY.findIndex(function(x){return x.id===existing.id;});
-      if (idx>=0) CONTROLS_LIBRARY[idx] = ctrl;
-      addHist('edit', 'Contrôle bibliothèque "'+name+'" modifié');
-    } else {
-      CONTROLS_LIBRARY.push(ctrl);
-      addHist('add', 'Contrôle bibliothèque "'+name+'" ajouté');
-    }
-    await libSaveControl(ctrl);
-    libRender();
-    toast('Contrôle '+(existing?'modifié':'ajouté')+' ✓');
-  });
-}
-
-function libAddControl(){ libControlModal(null); }
-function libEditControl(id){
-  var c = CONTROLS_LIBRARY.find(function(x){return x.id===id;});
-  if (c) libControlModal(c);
-}
-async function libDeleteControl(id){
-  var c = CONTROLS_LIBRARY.find(function(x){return x.id===id;});
-  if (!c) return;
-  if (!confirm('Archiver le contrôle "'+c.name+'" ?\n\nIl ne sera plus proposé à l\'import dans les audits, mais reste en base.')) return;
-  c.archived = true;
-  await libSaveControl(c);
-  CONTROLS_LIBRARY = CONTROLS_LIBRARY.filter(function(x){return x.id!==id;});
-  addHist('arch', 'Contrôle bibliothèque "'+c.name+'" archivé');
-  libRender();
-  toast('Contrôle archivé ✓');
-}
-
-async function libSaveControl(c) {
-  try {
-    await spUpsert('AF_ControlsLibrary', c.id, {
-      framework: c.framework||'',
-      domain: c.domain||'',
-      code: c.code||'',
-      lib_name: c.name||'',
-      description: c.description||'',
-      wcgw_typical: c.wcgwTypical||'',
-      nature: c.nature||'',
-      frequency: c.frequency||'',
-      key: !!c.key,
-      design_default: c.designDefault||'Existing',
-      owner_type: c.ownerType||'',
-      test_procedures: c.testProcedures||'',
-      applies_to_domains: JSON.stringify(c.appliesToDomains||[]),
-      archived: !!c.archived,
-      Title: c.name||c.code||'(sans nom)',
-    });
-  } catch(e){ console.warn('[Lib] save error:', e.message); toast('Erreur sauvegarde: '+e.message); }
-}
-
-// ─── Import depuis bibliothèque dans la modal Contrôle (étape 5) ──────────
-function libShowImportModal() {
-  if (!CONTROLS_LIBRARY || !CONTROLS_LIBRARY.length) {
-    toast('La bibliothèque est vide. Va dans 📚 Bibliothèque de contrôles pour en ajouter.');
-    return;
-  }
-  // Récupérer le domaine du processus de l'audit en cours pour pré-filtrer
-  var a = (AUDIT_PLAN||[]).find(function(x){return x.id===CA;});
-  var pids = (Array.isArray(a&&a.processIds) && a.processIds.length) ? a.processIds : (a&&a.processId ? [a.processId] : []);
-  var auditDomains = [];
-  pids.forEach(function(pid){
-    var p = PROCESSES.find(function(x){return x.id===pid;});
-    if (p && p.dom) auditDomains.push(p.dom);
-  });
-
-  var fwOpts = '<option value="">Tous</option>'+(CONTROL_FRAMEWORKS||[]).map(function(f){return '<option>'+f+'</option>';}).join('');
-  var domOpts = '<option value="">Tous</option>'+(CONTROL_DOMAINS||[]).map(function(d){return '<option>'+d+'</option>';}).join('');
-
-  var body = '<div style="font-size:11px;color:var(--text-3);margin-bottom:10px">Sélectionnez les contrôles à importer dans cet audit. Les valeurs seront copiées et restent modifiables.</div>'
-    + '<div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">'
-    + '<input type="text" id="li-search" placeholder="🔍 Rechercher..." style="flex:1;min-width:140px;font-size:11px" oninput="libRefreshImportList()"/>'
-    + '<select id="li-fw" style="font-size:11px" onchange="libRefreshImportList()">'+fwOpts+'</select>'
-    + '<select id="li-dom" style="font-size:11px" onchange="libRefreshImportList()">'+domOpts+'</select>'
-    + '</div>'
-    + '<div id="li-list" style="max-height:400px;overflow-y:auto;border:.5px solid var(--border);border-radius:6px;padding:6px"></div>'
-    + '<div id="li-count" style="font-size:11px;color:var(--text-3);margin-top:6px;text-align:right"></div>';
-
-  openModal('📚 Importer depuis la bibliothèque', body, async function(){
-    var checked = document.querySelectorAll('.li-cb:checked');
-    if (!checked.length) { toast('Aucun contrôle sélectionné'); return; }
-    var d = getAudData(CA);
-    if (!d.controls) d.controls = {};
-    if (!d.controls[CS]) d.controls[CS] = [];
-
-    var importedCount = 0;
-    checked.forEach(function(cb){
-      var libCtrl = CONTROLS_LIBRARY.find(function(x){return x.id===cb.value;});
-      if (!libCtrl) return;
-      var idx = d.controls[CS].length;
-      d.controls[CS].push({
-        id: 'ctrl_'+Date.now()+'_'+idx,
-        code: libCtrl.code || ('CTRL-'+(idx+1)),
-        name: libCtrl.name,
-        label: libCtrl.name,
-        description: libCtrl.description,
-        clef: libCtrl.key,
-        design: (libCtrl.designDefault||'Existing').toLowerCase(),
-        nature: libCtrl.nature,
-        freq: libCtrl.frequency,
-        owner: libCtrl.ownerType,
-        wcgwId: '', // à lier manuellement à un WCGW
-        result: null, testNature: '', finding: '', finalized: false,
-        // Traçabilité : on garde la référence au contrôle source
-        _libRef: { id: libCtrl.id, framework: libCtrl.framework, code: libCtrl.code },
-        _libTestProcedures: libCtrl.testProcedures, // utile pour étape 6
-      });
-      importedCount++;
-    });
-
-    addHist('add', importedCount+' contrôle(s) importé(s) depuis la bibliothèque');
-    await saveAuditData(CA);
-    document.getElementById('det-content').innerHTML = renderDetContent();
-    toast(importedCount+' contrôle(s) importé(s) ✓');
-  });
-
-  // Pré-filtrer si possible : le domaine du process audité
-  setTimeout(function(){
-    // Sélectionner le 1er domaine d'audit dans le dropdown si possible
-    var dom = auditDomains[0];
-    if (dom) {
-      var sel = document.getElementById('li-dom');
-      if (sel) {
-        // Chercher une correspondance approximative
-        for (var i=0; i<sel.options.length; i++) {
-          if (sel.options[i].value && dom.toLowerCase().indexOf(sel.options[i].value.toLowerCase().split(' ')[0])>=0) {
-            sel.selectedIndex = i;
-            break;
-          }
-        }
-      }
-    }
-    libRefreshImportList();
-  }, 50);
-}
-
-function libRefreshImportList() {
-  var search = (document.getElementById('li-search')||{}).value || '';
-  var fw = (document.getElementById('li-fw')||{}).value || '';
-  var dom = (document.getElementById('li-dom')||{}).value || '';
-  var s = search.toLowerCase().trim();
-
-  var rows = (CONTROLS_LIBRARY||[]).filter(function(c){
-    if (fw && c.framework !== fw) return false;
-    if (dom && c.domain !== dom) return false;
-    if (s) {
-      var hay = (c.code+' '+c.name+' '+c.description+' '+c.wcgwTypical).toLowerCase();
-      if (hay.indexOf(s) < 0) return false;
-    }
-    return true;
-  });
-
-  var listEl = document.getElementById('li-list');
-  var countEl = document.getElementById('li-count');
-  if (countEl) countEl.textContent = rows.length + ' contrôle(s) disponible(s)';
-  if (!listEl) return;
-
-  if (!rows.length) {
-    listEl.innerHTML = '<div style="text-align:center;padding:1rem;color:var(--text-3);font-style:italic;font-size:11px">Aucun contrôle ne correspond.</div>';
-    return;
-  }
-
-  var html = rows.map(function(c){
-    return '<label style="display:flex !important;flex-direction:row !important;align-items:flex-start !important;gap:8px;padding:8px;border-bottom:.5px solid var(--border);cursor:pointer;width:auto !important">'
-      + '<input type="checkbox" class="li-cb" value="'+c.id+'" style="margin-top:3px;flex-shrink:0;width:14px !important">'
-      + '<div style="flex:1;min-width:0">'
-      + '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:2px">'
-      + (c.code?'<span style="font-size:10px;color:var(--text-3);font-family:monospace">'+c.code+'</span>':'')
-      + '<span style="font-weight:500;font-size:12px">'+c.name+'</span>'
-      + '<span class="badge bpl" style="font-size:9px">'+c.framework+'</span>'
-      + '<span class="badge '+(c.key?'bpc':'bpl')+'" style="font-size:9px">'+(c.key?'Key':'Non-Key')+'</span>'
-      + '</div>'
-      + (c.description?'<div style="font-size:10px;color:var(--text-2);margin-top:2px">'+c.description+'</div>':'')
-      + '</div>'
-      + '</label>';
-  }).join('');
-  listEl.innerHTML = html;
-}
-
 // ══════════════════════════════════════════════════════════════
 //  HISTORIQUE (inchangé)
 // ══════════════════════════════════════════════════════════════
-
-// ═══════════════════════════════════════════════════════════════════════════
-// §  15.  VUE — HISTORIQUE
-//        V['historique']
-// ═══════════════════════════════════════════════════════════════════════════
-
 V['historique']=()=>`<div class="topbar"><div class="tbtitle">Historique des modifications</div></div>
   <div class="content"><div class="card" id="hl"></div></div>`;
 I['historique']=()=>{
@@ -3387,12 +2917,6 @@ I['historique']=()=>{
 // ══════════════════════════════════════════════════════════════
 //  RÔLES & ACCÈS (inchangé)
 // ══════════════════════════════════════════════════════════════
-
-// ═══════════════════════════════════════════════════════════════════════════
-// §  16.  VUE — RÔLES & ACCÈS
-//        V['roles'], fusion alias par préfixe email
-// ═══════════════════════════════════════════════════════════════════════════
-
 V['roles']=()=>`
   <div class="topbar"><div class="tbtitle">Rôles & Accès</div><button class="bp" onclick="showInviteModal()">+ Inviter</button></div>
   <div class="content">
@@ -3540,20 +3064,14 @@ function showInviteModal(){
   openModal('Inviter un membre',
     '<div><label>Prénom Nom</label><input id="iv-nm" placeholder="ex : Jean Martin"/></div>'
     +'<div><label>Email</label><input id="iv-em" placeholder="jean@groupe.com"/></div>'
-    +'<div><label>Rôle</label><select id="iv-rl"><option value="admin">Admin / Directeur</option><option value="auditeur" selected>Auditrice</option><option value="viewer">Viewer</option></select></div>'
-    +'<div style="font-size:11px;color:var(--text-3);padding:8px;background:var(--bg);border-radius:6px;margin-top:8px">ℹ️ L\'utilisateur se connecte avec ses identifiants Microsoft (SSO Entra ID).</div>',
+    +'<div><label>Mot de passe provisoire</label><input id="iv-pw" type="password" placeholder="••••••••"/></div>'
+    +'<div><label>Rôle</label><select id="iv-rl"><option value="admin">Admin / Directeur</option><option value="auditeur" selected>Auditrice</option><option value="audite">Audité</option></select></div>',
     function(){
       var name=document.getElementById('iv-nm').value.trim();
       var email=document.getElementById('iv-em').value.trim();
-      if(!name||!email){toast('Nom et email obligatoires');return;}
-      var role = document.getElementById('iv-rl').value;
-      var initials = name.split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);
-      var newUser = {id:'usr_'+Date.now(),name,email,role,initials,status:'actif',source:'invited'};
-      USERS.push(newUser);
-      // Sauvegarder dans SharePoint
-      if (typeof saveUser === 'function') {
-        saveUser(newUser).catch(function(e){console.warn('saveUser:', e.message);});
-      }
+      var pwd=document.getElementById('iv-pw').value;
+      if(!name||!email||!pwd){toast('Champs obligatoires');return;}
+      USERS.push({id:'u'+Date.now(),name,email,pwd,role:document.getElementById('iv-rl').value,status:'actif'});
       addHist('add',name+' invité(e)');renderUsersTbl();toast(name+' ajouté(e) ✓');
     });
 }
@@ -3561,12 +3079,6 @@ function showInviteModal(){
 // ══════════════════════════════════════════════════════════════
 //  AUDIT DETAIL (inchangé — tout le code original conservé)
 // ══════════════════════════════════════════════════════════════
-
-// ═══════════════════════════════════════════════════════════════════════════
-// §  17.  VUE — MES AUDITS
-//        V['mes-audits'], openAudit
-// ═══════════════════════════════════════════════════════════════════════════
-
 V['mes-audits']=()=>`
   <div class="topbar"><div class="tbtitle">Mes audits</div><button class="bp ao" onclick="nav('plan-audit')">+ Nouvel audit</button></div>
   <div class="content">
@@ -3597,12 +3109,6 @@ async function openAudit(id){CA=id;var found=getAudits().find(function(a){return
 
 // (Le reste des fonctions audit-detail, contrôles, findings, maturity, mgt-resp, docs, notes
 //  sont strictement identiques à l'original — on les conserve tels quels)
-
-
-// ═══════════════════════════════════════════════════════════════════════════
-// §  18.  VUE — DÉTAIL AUDIT — Layout commun
-//        V['audit-detail'], stepper, Workflow, Statut, Documents, Notes
-// ═══════════════════════════════════════════════════════════════════════════
 
 V['audit-detail']=()=>{
   const a=getAudits().find(x=>x.id===CA);
@@ -3872,12 +3378,6 @@ function renderNotesSection() {
 
 // ─── Sections métier (Phase 3/4 - placeholder pour l'instant) ─────────────────
 
-
-// ═══════════════════════════════════════════════════════════════════════════
-// §  19.  VUE — DÉTAIL AUDIT — Étape 5 (RCM)
-//        renderRiskSection, WCGW, Contrôles enrichis
-// ═══════════════════════════════════════════════════════════════════════════
-
 function renderRiskSection() {
   // Étape 5 : risques du processus (lecture seule depuis Risk Universe)
   // IMPORTANT : on lit depuis AUDIT_PLAN directement (pas getAudits qui simplifie l'objet et perd processIds)
@@ -4070,8 +3570,8 @@ function renderControlsSection() {
   var html = '<div class="card" style="margin-bottom:.75rem">';
   html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">';
   html += '<div style="font-size:12px;font-weight:600;color:var(--text-2)">Contrôles <span style="font-size:10px;font-weight:400;color:var(--text-3)">('+ctrls.length+')</span></div>';
-  html += '<div style="display:flex;gap:5px">';
-  html += '<button class="bs" style="font-size:11px;padding:3px 9px" onclick="libShowImportModal()" title="Importer des contrôles depuis la bibliothèque (COSO/COBIT/ITGC...)">📚 Depuis bibliothèque</button>';
+  html += '<div style="display:flex;gap:6px">';
+  html += '<button class="bs" style="font-size:11px;padding:3px 9px;background:#E1F5EE;color:#085041;border-color:#5DCAA5" onclick="openControlLibraryPicker(CA)">📚 Importer depuis la bibliothèque</button>';
   html += '<button class="bs" style="font-size:11px;padding:3px 9px" onclick="showAddControlModal()">+ Ajouter un contrôle</button>';
   html += '</div>';
   html += '</div>';
@@ -4090,6 +3590,9 @@ function renderControlsSection() {
         ? '<span class="badge bdn" style="font-size:9px">Existing</span>'
         : '<span class="badge" style="background:#FAEEDA;color:#854F0B;font-size:9px">Target</span>';
       var wcgwLinked = wcgwList.find(function(w){return w.id === c.wcgwId;});
+      var sourceBadge = c.addedFromLib
+        ? '<span class="badge" style="background:#E1F5EE;color:#085041;font-size:9px">Bibliothèque</span>'
+        : '<span class="badge" style="background:#FBEAF0;color:#72243E;font-size:9px">Manuel</span>';
 
       html += '<div style="border-top:.5px solid var(--border);padding:8px 0">';
       html += '<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:4px">';
@@ -4097,7 +3600,7 @@ function renderControlsSection() {
       html += '<div style="font-size:12px;font-weight:500"><span style="color:var(--text-3);font-size:10px;margin-right:6px">'+ctrlCode+'</span>'+(c.name||c.label||'(sans nom)')+'</div>';
       if (c.description) html += '<div style="font-size:10px;color:var(--text-3);margin-top:2px">'+c.description+'</div>';
       html += '</div>';
-      html += typeBadge + designBadge;
+      html += sourceBadge + typeBadge + designBadge;
       html += '<button class="bs" style="font-size:10px;padding:1px 6px;margin-left:5px" onclick="showEditControlModal('+idx+')">Éditer</button>';
       html += '<button class="bd" style="font-size:10px;padding:1px 5px" onclick="removeControlAt('+idx+')">×</button>';
       html += '</div>';
@@ -4197,12 +3700,6 @@ async function removeControlAt(idx) {
   document.getElementById('det-content').innerHTML = renderDetContent();
   toast('Contrôle supprimé ✓');
 }
-
-// ═══════════════════════════════════════════════════════════════════════════
-// §  20.  VUE — DÉTAIL AUDIT — Étapes 6/7/8
-//        Tests, Findings, Maturity, Mgt Responses
-// ═══════════════════════════════════════════════════════════════════════════
-
 function renderTestsSection() {
   // Conserver l'ancien rendu Tests pour CS=5
   var d = getAudData(CA);
@@ -4303,12 +3800,6 @@ function renderMgtRespSection() {
 }
 
 // ─── Handlers (Statut + Notes + Documents) ────────────────────
-
-
-// ═══════════════════════════════════════════════════════════════════════════
-// §  21.  VUE — DÉTAIL AUDIT — Handlers communs
-//        toggleStepPrepDone/Reviewed, saveStepNote, documents
-// ═══════════════════════════════════════════════════════════════════════════
 
 async function toggleStepPrepDone(checked) {
   var d = getAudData(CA);
@@ -4513,12 +4004,6 @@ function switchDetTab(tab){
   document.getElementById('det-content').innerHTML=renderDetContent();
 }
 
-
-// ═══════════════════════════════════════════════════════════════════════════
-// §  22.  VUE — DÉTAIL AUDIT — Validation d'étape
-//        REQUIRED_DOCS, getStepState, finalizeStep, reviewStep
-// ═══════════════════════════════════════════════════════════════════════════
-
 var REQUIRED_DOCS={0:['Audit Planning Memo'],1:['Work Program'],2:['Kick Off Slides','Meeting Invitation'],3:['Narratif'],4:['Testing Strategy'],5:['Testing Documentation'],6:['Rapport']};
 function getMissingDocs(stepIndex,docs){var required=REQUIRED_DOCS[stepIndex];if(!required||!required.length)return[];var uploadedNames=(docs||[]).map(function(f){return f.name.toLowerCase();});return required.filter(function(req){return!uploadedNames.some(function(name){return name.indexOf(req.toLowerCase())!==-1;});});}
 // ── Workflow d'étape : finalisation + revue ────────────────────
@@ -4651,12 +4136,6 @@ async function autoUnfinalizeIfNeeded() {
     toast('Étape repassée en préparation (modifiée)');
   }
 }
-
-
-// ═══════════════════════════════════════════════════════════════════════════
-// §  23.  VUE — DÉTAIL AUDIT — Tâches & contrôles legacy
-//        renderTaskList, showAddControlModal (legacy), findings
-// ═══════════════════════════════════════════════════════════════════════════
 
 async function validerEtape(){var ap=AUDIT_PLAN.find(function(a){return a.id===CA;});var d=getAudData(CA);var missing=getMissingDocs(CS,d.docs);if(missing.length){var msg='Document(s) requis :\n';missing.forEach(function(m){msg+='  • '+m+'\n';});alert(msg);return;}if(CS<9){CS++;if(ap){ap.statut='En cours';ap.step=CS;}await saveAuditPlan(ap);addHist('edit','Etape '+CS+' validée — '+(ap?ap.titre:''));goStep(CS);toast('"'+STEPS[CS].s+'" validée ✓');}else{if(ap){ap.statut='Clôturé';ap.step=9;await saveAuditPlan(ap);}toast('Mission clôturée ✓');}}
 function renderTaskList(st,a){if(!st.length)return'<div style="font-size:12px;color:var(--text-3);padding:.5rem">Aucune tâche.</div>';return st.map((t,i)=>`<div class="ti"><div class="tcb ${t.done?'done':''}" onclick="toggleTask(${i})">${t.done?'✓':''}</div><div class="tt ${t.done?'dt':''}">${t.desc}</div><select style="font-size:11px;padding:2px 6px;border-radius:20px;background:var(--bg)" onchange="reassignTask(${i},this.value)"><option value="none" ${!t.assignee||t.assignee==='none'?'selected':''}>—</option>${buildAssigneeOpts(a.assignedTo,t.assignee)}</select><span style="font-size:10px;color:${t.done?'var(--green)':t.assignee&&t.assignee!=='none'?'var(--purple)':'var(--text-3)'}">${t.done?'✓':t.assignee&&t.assignee!=='none'?'En cours':'À faire'}</span></div>`).join('');}
@@ -4866,12 +4345,6 @@ function buildTplCards(names,badgeCls){return names.map(function(n){return'<div 
 // ══════════════════════════════════════════════════════════════
 //  PROFIL UTILISATEUR
 // ══════════════════════════════════════════════════════════════
-
-// ═══════════════════════════════════════════════════════════════════════════
-// §  24.  VUE — PROFIL
-//        V['profil'] (SSO Microsoft)
-// ═══════════════════════════════════════════════════════════════════════════
-
 V['profil']=()=>`
   <div class="topbar"><div class="tbtitle">Mon profil</div></div>
   <div class="content" style="max-width:520px;">
@@ -4881,28 +4354,71 @@ V['profil']=()=>`
         <div>
           <div style="font-size:15px;font-weight:600;">${CU?CU.name:'—'}</div>
           <div style="font-size:12px;color:var(--text-2);">${CU?CU.email:'—'}</div>
-          <div style="font-size:11px;color:var(--text-3);margin-top:2px;">${CU&&CU.role==='admin'?'Admin / Directeur':CU&&CU.role==='viewer'?'Viewer':'Auditrice'}</div>
+          <div style="font-size:11px;color:var(--text-3);margin-top:2px;">${CU&&CU.role==='admin'?'Admin / Directeur':'Auditeur'}</div>
         </div>
       </div>
-      <div style="font-size:13px;font-weight:600;margin-bottom:.875rem;">Authentification</div>
-      <div style="font-size:12px;color:var(--text-2);line-height:1.6;padding:10px;background:var(--bg);border-radius:6px;">
-        <p style="margin:0 0 8px;">Votre compte est géré via <strong>Microsoft Entra ID (SSO)</strong>.</p>
-        <p style="margin:0 0 8px;">Pour modifier votre mot de passe, gérer votre authentification multi-facteurs ou vos appareils de confiance, utilisez le portail Microsoft.</p>
-        <a href="https://mysignins.microsoft.com/security-info" target="_blank" rel="noopener" class="bp" style="display:inline-block;margin-top:6px;text-decoration:none;font-size:12px;padding:6px 12px;">Gérer mon compte Microsoft →</a>
+      <div style="font-size:13px;font-weight:600;margin-bottom:.875rem;">Changer le mot de passe</div>
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div>
+          <label class="f-lbl">Mot de passe actuel</label>
+          <input type="password" id="pw-current" class="f-inp" style="width:100%;" placeholder="••••••••"/>
+        </div>
+        <div>
+          <label class="f-lbl">Nouveau mot de passe</label>
+          <input type="password" id="pw-new" class="f-inp" style="width:100%;" placeholder="8 car. min., 1 majuscule, 1 spécial"/>
+        </div>
+        <div>
+          <label class="f-lbl">Confirmer le nouveau mot de passe</label>
+          <input type="password" id="pw-confirm" class="f-inp" style="width:100%;" placeholder="••••••••"/>
+        </div>
+        <div id="pw-error" style="display:none;font-size:12px;color:var(--red);background:var(--red-lt);padding:6px 10px;border-radius:6px;"></div>
+        <button class="bp" style="width:100%;margin-top:4px;" onclick="changePassword()">Enregistrer le nouveau mot de passe</button>
       </div>
     </div>
   </div>`;
 I['profil']=()=>{};
 
+async function changePassword(){
+  var current =document.getElementById('pw-current').value;
+  var newPwd   =document.getElementById('pw-new').value;
+  var confirm2 =document.getElementById('pw-confirm').value;
+  var errEl    =document.getElementById('pw-error');
+  errEl.style.display='none';
+
+  var user=USERS.find(function(u){return u.id===CU.id;});
+  if(!user||user.pwd!==current){
+    errEl.textContent='Mot de passe actuel incorrect.';
+    errEl.style.display='block';
+    return;
+  }
+  if(newPwd.length<8||!/[A-Z]/.test(newPwd)||!/[^a-zA-Z0-9]/.test(newPwd)){
+    errEl.textContent='Le nouveau mot de passe doit contenir 8 caractères min., 1 majuscule et 1 caractère spécial.';
+    errEl.style.display='block';
+    return;
+  }
+  if(newPwd!==confirm2){
+    errEl.textContent='Les mots de passe ne correspondent pas.';
+    errEl.style.display='block';
+    return;
+  }
+  // Mettre à jour en mémoire
+  user.pwd=newPwd;
+  CU.pwd=newPwd;
+  sessionStorage.setItem('af_user',JSON.stringify(CU));
+  // Mettre à jour en base
+  try {
+    var userObj=USERS.find(function(u){return u.id===CU.id;});
+    if(userObj) await saveUser(userObj);
+  } catch(e){ console.warn('pwd update:',e); }
+  toast('Mot de passe mis à jour ✓');
+  document.getElementById('pw-current').value='';
+  document.getElementById('pw-new').value='';
+  document.getElementById('pw-confirm').value='';
+}
+
 // ══════════════════════════════════════════════════════════════
 //  EXPORT PDF
 // ══════════════════════════════════════════════════════════════
-
-// ═══════════════════════════════════════════════════════════════════════════
-// §  25.  EXPORT PDF
-//        exportDashboardPDF, exportAuditPDF
-// ═══════════════════════════════════════════════════════════════════════════
-
 function exportDashboardPDF(){
   var CY=window._dbYear||new Date().getFullYear();
   // Tous les audits de l'année (sans filtre statut pour avoir les 3 sections)
@@ -5199,10 +4715,4 @@ function exportAuditPDF(auditId){
 }
 
 // Helper anti-XSS pour les attributs onclick (apostrophes)
-
-// ═══════════════════════════════════════════════════════════════════════════
-// §  26.  UTILS BAS DE FICHIER
-//        _escQ
-// ═══════════════════════════════════════════════════════════════════════════
-
 function _escQ(s){return(s||'').replace(/'/g,'&#39;');}
