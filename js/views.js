@@ -1,3 +1,49 @@
+// ╔═══════════════════════════════════════════════════════════════════════════╗
+// ║                                                                           ║
+// ║   AuditFlow — views.js                                                    ║
+// ║   Vues, modales et handlers de l'application                              ║
+// ║                                                                           ║
+// ║   Pour naviguer : Ctrl+F sur '§ NN' (ex: §  18) pour sauter à la section. ║
+// ║                                                                           ║
+// ╠═══════════════════════════════════════════════════════════════════════════╣
+// ║                                                                           ║
+// ║   TABLE DES MATIÈRES                                                      ║
+// ║                                                                           ║
+// ║   §  01.  HELPERS GÉNÉRIQUES                                              ║
+// ║   §  02.  MATRICE DE RISQUES — Helpers                                    ║
+// ║   §  03.  MATRICE DE RISQUES — Rendu modal & heatmap                      ║
+// ║   §  04.  HELPERS PROGRESSION                                             ║
+// ║   §  05.  VUE — TABLEAU DE BORD                                           ║
+// ║   §  06.  VUE — PLAN PROCESS (Audit Universe)                             ║
+// ║   §  07.  VUE — PLAN BU & GROUP STRUCTURE                                 ║
+// ║   §  08.  VUE — PLAN AUDIT (création de missions)                         ║
+// ║   §  09.  VUE — SUIVI PROCESS                                             ║
+// ║   §  10.  VUE — SUIVI BU & CARTE D3                                       ║
+// ║   §  11.  VUE — PLANIFICATION (Gantt)                                     ║
+// ║   §  12.  VUE — PLANS D'ACTION                                            ║
+// ║   §  13.  VUE — RISK UNIVERSE                                             ║
+// ║   §  14.  VUE — PRODUCT LINES                                             ║
+// ║   §  15.  VUE — HISTORIQUE                                                ║
+// ║   §  16.  VUE — RÔLES & ACCÈS                                             ║
+// ║   §  17.  VUE — MES AUDITS                                                ║
+// ║   §  18.  VUE — DÉTAIL AUDIT — Layout commun                              ║
+// ║   §  19.  VUE — DÉTAIL AUDIT — Étape 5 (RCM)                              ║
+// ║   §  20.  VUE — DÉTAIL AUDIT — Étapes 6/7/8                               ║
+// ║   §  21.  VUE — DÉTAIL AUDIT — Handlers communs                           ║
+// ║   §  22.  VUE — DÉTAIL AUDIT — Validation d'étape                         ║
+// ║   §  23.  VUE — DÉTAIL AUDIT — Tâches & contrôles legacy                  ║
+// ║   §  24.  VUE — PROFIL                                                    ║
+// ║   §  25.  EXPORT PDF                                                      ║
+// ║   §  26.  UTILS BAS DE FICHIER                                            ║
+// ║                                                                           ║
+// ╚═══════════════════════════════════════════════════════════════════════════╝
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §  01.  HELPERS GÉNÉRIQUES
+//        uuidv4, RISK_LEVELS, riskLabel, riskScore, riskCrit, riskBadge
+// ═══════════════════════════════════════════════════════════════════════════
+
 // Génère un UUID v4 compatible Supabase
 function uuidv4(){
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,function(c){
@@ -26,6 +72,12 @@ function riskLabel(key){
   var r=RISK_LEVELS.find(function(x){return x.key===key;});
   return r?'<span class="badge '+r.badge+'">'+r.label+'</span>':'<span class="badge bpl">—</span>';
 }
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §  02.  MATRICE DE RISQUES — Helpers
+//        RISK_LABELS_PxI, getProcRisks, computeProcRiskLevelFromRefs
+// ═══════════════════════════════════════════════════════════════════════════
 
 // ══════════════════════════════════════════════════════════════
 //  MATRICE RISQUES — Helpers
@@ -186,6 +238,12 @@ async function removeProcRisk(procId,ri){
 // ══════════════════════════════════════════════════════════════
 //  MATRICE RISQUES — Step 5
 // ══════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §  03.  MATRICE DE RISQUES — Rendu modal & heatmap
+//        renderRiskMatrix, buildHeatmap, showAddAuditRiskModal
+// ═══════════════════════════════════════════════════════════════════════════
+
 function renderRiskMatrix(){
   var ap=AUDIT_PLAN.find(function(a){return a.id===CA;});
   var d=getAudData(CA);
@@ -414,6 +472,12 @@ function showLinkControlModal(riskId){
 }
 
 
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §  04.  HELPERS PROGRESSION
+//        calculateAuditProgress
+// ═══════════════════════════════════════════════════════════════════════════
+
 function calculateAuditProgress(ap){
   if(!ap) return 0;
   if(ap.statut==='Clôturé') return 100;
@@ -427,6 +491,12 @@ function calculateAuditProgress(ap){
 // ══════════════════════════════════════════════════════════════
 //  DASHBOARD
 // ══════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §  05.  VUE — TABLEAU DE BORD
+//        V['dashboard'], donut, capsules, filtres
+// ═══════════════════════════════════════════════════════════════════════════
+
 V['dashboard']=()=>{
   // ── Toutes les années disponibles (calculées depuis AUDIT_PLAN) ─
   var allYears=[...new Set(AUDIT_PLAN.map(function(a){return a.annee;}).filter(function(y){return y;}))].sort();
@@ -903,6 +973,12 @@ function dbSetStatut(v){window._dbStatut=v;nav('dashboard');}
 // ══════════════════════════════════════════════════════════════
 //  AUDIT UNIVERSE (ex Plan Process)
 // ══════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §  06.  VUE — PLAN PROCESS (Audit Universe)
+//        V['plan-process'], CRUD domaines/processus
+// ═══════════════════════════════════════════════════════════════════════════
+
 V['plan-process']=()=>`
   <div class="topbar">
     <div class="tbtitle">Audit Universe</div>
@@ -1093,6 +1169,12 @@ function showEditProcModal(idx){
 //  GROUP STRUCTURE (nouvelle version - Région > Pays > Sociétés)
 //  Structure: [{id, region, country, companies:[{id, society, employees, productLineIds:[], domains}]}]
 // ══════════════════════════════════════════════════════════════
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §  07.  VUE — PLAN BU & GROUP STRUCTURE
+//        V['plan-bu'], gsLoad, gsRender, helpers GS
+// ═══════════════════════════════════════════════════════════════════════════
 
 var GROUP_STRUCTURE=[]; // nouvelle structure (array de pays)
 
@@ -1428,6 +1510,12 @@ function getRegionForCountry(country){
 // ══════════════════════════════════════════════════════════════
 //  PLAN AUDIT (inchangé)
 // ══════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §  08.  VUE — PLAN AUDIT (création de missions)
+//        V['plan-audit'], modale audit, multi-process
+// ═══════════════════════════════════════════════════════════════════════════
+
 V['plan-audit']=()=>`
   <div class="topbar"><div class="tbtitle">Plan Audit</div><button class="bp ao" onclick="showAddAuditModal()">+ Ajouter une mission</button></div>
   <div class="content">
@@ -1867,6 +1955,12 @@ async function deleteAudit(idx){
 }
 
 // ── Plan Process consolidé (section Plans Audit) ──────────────
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §  09.  VUE — SUIVI PROCESS
+//        V['plans-process'], renderPlanProcessTable
+// ═══════════════════════════════════════════════════════════════════════════
+
 V['plans-process']=()=>`
   <div class="topbar">
     <div class="tbtitle">Plan Process 2025–2028</div>
@@ -1977,6 +2071,12 @@ function renderPlanProcessTable(){
 }
 
 // ── Plan BU consolidé (section Plans Audit) ───────────────────
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §  10.  VUE — SUIVI BU & CARTE D3
+//        V['plans-bu'], renderWorldMap, drill-down par pays
+// ═══════════════════════════════════════════════════════════════════════════
+
 V['plans-bu']=()=>`
   <div class="topbar">
     <div class="tbtitle">Plan BU 2025–2028</div>
@@ -2315,6 +2415,12 @@ function clearBUCountryFilter() {
 // ══════════════════════════════════════════════════════════════
 //  PLANIFICATION (Gantt — inchangé)
 // ══════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §  11.  VUE — PLANIFICATION (Gantt)
+//        V['planification'], renderGantt
+// ═══════════════════════════════════════════════════════════════════════════
+
 V['planification']=()=>`
   <div class="topbar"><div class="tbtitle">Planification</div></div>
   <div class="content">
@@ -2379,6 +2485,12 @@ function renderGantt(){
 // ══════════════════════════════════════════════════════════════
 //  PLANS D'ACTION (inchangé)
 // ══════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §  12.  VUE — PLANS D'ACTION
+//        V['plans-action'], renderActionList, modales
+// ═══════════════════════════════════════════════════════════════════════════
+
 V['plans-action']=()=>`
   <div class="topbar"><div class="tbtitle">Suivi des plans d'action</div><button class="bp" onclick="showNewActionModal()">+ Ajouter</button></div>
   <div class="content">
@@ -2441,6 +2553,12 @@ async function deleteAction(id){
 // ══════════════════════════════════════════════════════════════
 //  RISK UNIVERSE : hiérarchie des risques Groupe / Opérationnels
 // ══════════════════════════════════════════════════════════════
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §  13.  VUE — RISK UNIVERSE
+//        V['risk-universe'], URD + risques opérationnels, matrice
+// ═══════════════════════════════════════════════════════════════════════════
 
 V['risk-universe']=()=>`
   <div class="topbar">
@@ -2746,6 +2864,12 @@ function ruShowMatrix() {
 // ══════════════════════════════════════════════════════════════
 //  PRODUCT LINES (squelette - phase D)
 // ══════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §  14.  VUE — PRODUCT LINES
+//        V['product-lines'], CRUD lignes de produit
+// ═══════════════════════════════════════════════════════════════════════════
+
 V['product-lines']=()=>`
   <div class="topbar">
     <div class="tbtitle">Product Lines</div>
@@ -2905,6 +3029,12 @@ async function plSavePL(pl) {
 // ══════════════════════════════════════════════════════════════
 //  HISTORIQUE (inchangé)
 // ══════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §  15.  VUE — HISTORIQUE
+//        V['historique']
+// ═══════════════════════════════════════════════════════════════════════════
+
 V['historique']=()=>`<div class="topbar"><div class="tbtitle">Historique des modifications</div></div>
   <div class="content"><div class="card" id="hl"></div></div>`;
 I['historique']=()=>{
@@ -2917,6 +3047,12 @@ I['historique']=()=>{
 // ══════════════════════════════════════════════════════════════
 //  RÔLES & ACCÈS (inchangé)
 // ══════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §  16.  VUE — RÔLES & ACCÈS
+//        V['roles'], fusion alias par préfixe email
+// ═══════════════════════════════════════════════════════════════════════════
+
 V['roles']=()=>`
   <div class="topbar"><div class="tbtitle">Rôles & Accès</div><button class="bp" onclick="showInviteModal()">+ Inviter</button></div>
   <div class="content">
@@ -3085,6 +3221,12 @@ function showInviteModal(){
 // ══════════════════════════════════════════════════════════════
 //  AUDIT DETAIL (inchangé — tout le code original conservé)
 // ══════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §  17.  VUE — MES AUDITS
+//        V['mes-audits'], openAudit
+// ═══════════════════════════════════════════════════════════════════════════
+
 V['mes-audits']=()=>`
   <div class="topbar"><div class="tbtitle">Mes audits</div><button class="bp ao" onclick="nav('plan-audit')">+ Nouvel audit</button></div>
   <div class="content">
@@ -3115,6 +3257,12 @@ async function openAudit(id){CA=id;var found=getAudits().find(function(a){return
 
 // (Le reste des fonctions audit-detail, contrôles, findings, maturity, mgt-resp, docs, notes
 //  sont strictement identiques à l'original — on les conserve tels quels)
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §  18.  VUE — DÉTAIL AUDIT — Layout commun
+//        V['audit-detail'], stepper, Workflow, Statut, Documents, Notes
+// ═══════════════════════════════════════════════════════════════════════════
 
 V['audit-detail']=()=>{
   const a=getAudits().find(x=>x.id===CA);
@@ -3383,6 +3531,12 @@ function renderNotesSection() {
 }
 
 // ─── Sections métier (Phase 3/4 - placeholder pour l'instant) ─────────────────
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §  19.  VUE — DÉTAIL AUDIT — Étape 5 (RCM)
+//        renderRiskSection, WCGW, Contrôles enrichis
+// ═══════════════════════════════════════════════════════════════════════════
 
 function renderRiskSection() {
   // Étape 5 : risques du processus (lecture seule depuis Risk Universe)
@@ -3700,6 +3854,12 @@ async function removeControlAt(idx) {
   document.getElementById('det-content').innerHTML = renderDetContent();
   toast('Contrôle supprimé ✓');
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §  20.  VUE — DÉTAIL AUDIT — Étapes 6/7/8
+//        Tests, Findings, Maturity, Mgt Responses
+// ═══════════════════════════════════════════════════════════════════════════
+
 function renderTestsSection() {
   // Conserver l'ancien rendu Tests pour CS=5
   var d = getAudData(CA);
@@ -3800,6 +3960,12 @@ function renderMgtRespSection() {
 }
 
 // ─── Handlers (Statut + Notes + Documents) ────────────────────
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §  21.  VUE — DÉTAIL AUDIT — Handlers communs
+//        toggleStepPrepDone/Reviewed, saveStepNote, documents
+// ═══════════════════════════════════════════════════════════════════════════
 
 async function toggleStepPrepDone(checked) {
   var d = getAudData(CA);
@@ -4004,6 +4170,12 @@ function switchDetTab(tab){
   document.getElementById('det-content').innerHTML=renderDetContent();
 }
 
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §  22.  VUE — DÉTAIL AUDIT — Validation d'étape
+//        REQUIRED_DOCS, getStepState, finalizeStep, reviewStep
+// ═══════════════════════════════════════════════════════════════════════════
+
 var REQUIRED_DOCS={0:['Audit Planning Memo'],1:['Work Program'],2:['Kick Off Slides','Meeting Invitation'],3:['Narratif'],4:['Testing Strategy'],5:['Testing Documentation'],6:['Rapport']};
 function getMissingDocs(stepIndex,docs){var required=REQUIRED_DOCS[stepIndex];if(!required||!required.length)return[];var uploadedNames=(docs||[]).map(function(f){return f.name.toLowerCase();});return required.filter(function(req){return!uploadedNames.some(function(name){return name.indexOf(req.toLowerCase())!==-1;});});}
 // ── Workflow d'étape : finalisation + revue ────────────────────
@@ -4136,6 +4308,12 @@ async function autoUnfinalizeIfNeeded() {
     toast('Étape repassée en préparation (modifiée)');
   }
 }
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §  23.  VUE — DÉTAIL AUDIT — Tâches & contrôles legacy
+//        renderTaskList, showAddControlModal (legacy), findings
+// ═══════════════════════════════════════════════════════════════════════════
 
 async function validerEtape(){var ap=AUDIT_PLAN.find(function(a){return a.id===CA;});var d=getAudData(CA);var missing=getMissingDocs(CS,d.docs);if(missing.length){var msg='Document(s) requis :\n';missing.forEach(function(m){msg+='  • '+m+'\n';});alert(msg);return;}if(CS<9){CS++;if(ap){ap.statut='En cours';ap.step=CS;}await saveAuditPlan(ap);addHist('edit','Etape '+CS+' validée — '+(ap?ap.titre:''));goStep(CS);toast('"'+STEPS[CS].s+'" validée ✓');}else{if(ap){ap.statut='Clôturé';ap.step=9;await saveAuditPlan(ap);}toast('Mission clôturée ✓');}}
 function renderTaskList(st,a){if(!st.length)return'<div style="font-size:12px;color:var(--text-3);padding:.5rem">Aucune tâche.</div>';return st.map((t,i)=>`<div class="ti"><div class="tcb ${t.done?'done':''}" onclick="toggleTask(${i})">${t.done?'✓':''}</div><div class="tt ${t.done?'dt':''}">${t.desc}</div><select style="font-size:11px;padding:2px 6px;border-radius:20px;background:var(--bg)" onchange="reassignTask(${i},this.value)"><option value="none" ${!t.assignee||t.assignee==='none'?'selected':''}>—</option>${buildAssigneeOpts(a.assignedTo,t.assignee)}</select><span style="font-size:10px;color:${t.done?'var(--green)':t.assignee&&t.assignee!=='none'?'var(--purple)':'var(--text-3)'}">${t.done?'✓':t.assignee&&t.assignee!=='none'?'En cours':'À faire'}</span></div>`).join('');}
@@ -4345,6 +4523,12 @@ function buildTplCards(names,badgeCls){return names.map(function(n){return'<div 
 // ══════════════════════════════════════════════════════════════
 //  PROFIL UTILISATEUR
 // ══════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §  24.  VUE — PROFIL
+//        V['profil'] (SSO Microsoft)
+// ═══════════════════════════════════════════════════════════════════════════
+
 V['profil']=()=>`
   <div class="topbar"><div class="tbtitle">Mon profil</div></div>
   <div class="content" style="max-width:520px;">
@@ -4370,6 +4554,12 @@ I['profil']=()=>{};
 // ══════════════════════════════════════════════════════════════
 //  EXPORT PDF
 // ══════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §  25.  EXPORT PDF
+//        exportDashboardPDF, exportAuditPDF
+// ═══════════════════════════════════════════════════════════════════════════
+
 function exportDashboardPDF(){
   var CY=window._dbYear||new Date().getFullYear();
   // Tous les audits de l'année (sans filtre statut pour avoir les 3 sections)
@@ -4666,4 +4856,10 @@ function exportAuditPDF(auditId){
 }
 
 // Helper anti-XSS pour les attributs onclick (apostrophes)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §  26.  UTILS BAS DE FICHIER
+//        _escQ
+// ═══════════════════════════════════════════════════════════════════════════
+
 function _escQ(s){return(s||'').replace(/'/g,'&#39;');}
