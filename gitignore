@@ -1,0 +1,14 @@
+# Files générés / temporaires
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Le CSV n'a pas vocation à être commit après import si tu veux garder ton repo léger
+# (décommenter si tu préfères)
+# data/auditflow_control_library.csv
