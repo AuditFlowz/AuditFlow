@@ -3185,10 +3185,10 @@ function renderDetContent(){
 
   // ── 3. SECTIONS SPÉCIFIQUES MÉTIER selon l'étape ─────────
   if (CS === 4) {
-    // Étape 5 (index 4) : WCGW / Contrôles / Test Strategy
+    // Étape 5 (index 4) : ITW : WCGW & Contrôles (groupés)
     html += renderRiskSection();
     html += renderWCGWSection();
-    html += renderControlsSection();
+    // renderControlsSection désactivée - tout est dans renderWCGWSection
   } else if (CS === 5) {
     // Étape 6 (index 5) : Testings — tests des contrôles uniquement
     html += renderTestsSection();
@@ -3415,56 +3415,124 @@ function renderRiskSection() {
   return html;
 }
 
-// ─── ÉTAPE 5 : WCGW (What Could Go Wrong) ─────────────────────
+// ─── ÉTAPE 5 : WCGW (What Could Go Wrong) avec contrôles groupés ─────
 function renderWCGWSection() {
   var d = getAudData(CA);
   if (!d.wcgw) d.wcgw = {};
-  // d.wcgw[CS] = [{id, code, title, description, riskIds:[]}]
   var wcgwList = d.wcgw[CS] || [];
   var ctrls = (d.controls && d.controls[CS]) || [];
 
   var html = '<div class="card" style="margin-bottom:.75rem">';
   html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">';
-  html += '<div style="font-size:12px;font-weight:600;color:var(--text-2)">WCGW — What Could Go Wrong <span style="font-size:10px;font-weight:400;color:var(--text-3)">('+wcgwList.length+')</span></div>';
+  html += '<div style="font-size:12px;font-weight:600;color:var(--text-2)">WCGW & Contrôles <span style="font-size:10px;font-weight:400;color:var(--text-3)">('+wcgwList.length+' WCGW · '+ctrls.length+' contrôles)</span></div>';
+  html += '<div style="display:flex;gap:6px">';
+  html += '<button class="bs" style="font-size:11px;padding:3px 9px;background:#E1F5EE;color:#085041;border-color:#5DCAA5" onclick="openControlLibraryPicker(CA)">📚 Importer depuis la bibliothèque</button>';
   html += '<button class="bs" style="font-size:11px;padding:3px 9px" onclick="showAddWCGWModal()">+ Ajouter un WCGW</button>';
   html += '</div>';
-  html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:8px;font-style:italic">Scénarios dans lesquels les risques peuvent se matérialiser. Liez chaque WCGW à un ou plusieurs risques URD du processus.</div>';
+  html += '</div>';
+  html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:8px;font-style:italic">Pour chaque scénario à risque (WCGW), définissez les contrôles existants ou cibles qui le bloquent.</div>';
 
   if (!wcgwList.length) {
-    html += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:.5rem">Aucun WCGW défini. Cliquez sur "+ Ajouter un WCGW".</div>';
+    html += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:.5rem;text-align:center;border:1px dashed var(--border);border-radius:4px">Aucun WCGW défini. Commencez par cliquer sur « + Ajouter un WCGW » pour identifier un scénario à risque.</div>';
   } else {
     wcgwList.forEach(function(w, idx){
       var linkedRisks = (w.riskIds||[]).map(function(rid){
         var r = (RISK_UNIVERSE||[]).find(function(x){return x.id===rid;});
         return r ? r.title : '';
       }).filter(Boolean);
-      var blockedBy = ctrls.filter(function(c){return c.wcgwId === w.id;}).length;
-      html += '<div style="border-top:.5px solid var(--border);padding:8px 0">';
-      html += '<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:4px">';
+      var wcgwCtrls = ctrls.filter(function(c){return c.wcgwId === w.id;});
+
+      html += '<div style="border:.5px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px;background:#fafafa">';
+      // En-tête WCGW
+      html += '<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px">';
       html += '<span class="badge bpl" style="font-size:9px;padding:2px 6px;flex-shrink:0">'+(w.code||('WCGW-'+(idx+1)))+'</span>';
       html += '<div style="flex:1">';
-      html += '<div style="font-size:12px;font-weight:500">'+w.title+'</div>';
+      html += '<div style="font-size:12px;font-weight:600">'+w.title+'</div>';
       if (w.description) html += '<div style="font-size:10px;color:var(--text-3);margin-top:2px">'+w.description+'</div>';
       html += '</div>';
       html += '<button class="bs" style="font-size:10px;padding:1px 6px" onclick="showEditWCGWModal('+idx+')">Éditer</button>';
       html += '<button class="bd" style="font-size:10px;padding:1px 5px" onclick="removeWCGW('+idx+')">×</button>';
       html += '</div>';
-      // Détails : risques liés + contrôles
-      html += '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:10px;color:var(--text-3);padding-left:38px">';
+
+      // Risques liés
       if (linkedRisks.length) {
-        html += '<span><strong>Risques :</strong></span>';
+        html += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:10px;padding:4px 0 6px;margin-left:38px">';
+        html += '<span style="color:var(--text-3)"><strong>Risques liés :</strong></span>';
         linkedRisks.forEach(function(rt){
           html += '<span class="badge bpl" style="font-size:9px;padding:1px 5px">'+rt+'</span>';
         });
-      } else {
-        html += '<span style="font-style:italic">Aucun risque lié</span>';
+        html += '</div>';
       }
-      html += '<span>·</span>';
-      html += '<span><strong>Contrôles :</strong> '+blockedBy+'</span>';
+
+      // Bloc Contrôles
+      html += '<div style="margin-left:38px;margin-top:6px;padding-top:6px;border-top:.5px dashed var(--border)">';
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">';
+      html += '<span style="font-size:10px;font-weight:600;color:var(--text-2)">Contrôles bloquants ('+wcgwCtrls.length+')</span>';
+      html += '<button class="bs" style="font-size:10px;padding:1px 6px" onclick="showAddControlModalForWCGW(\''+w.id+'\')">+ Ajouter contrôle</button>';
       html += '</div>';
-      html += '</div>';
+
+      if (!wcgwCtrls.length) {
+        html += '<div style="font-size:10px;color:var(--text-3);font-style:italic;padding:4px">Aucun contrôle. Cliquez sur « + Ajouter contrôle » ou utilisez la bibliothèque.</div>';
+      } else {
+        wcgwCtrls.forEach(function(c){
+          var origIdx = ctrls.indexOf(c);
+          var ctrlCode = c.code || ('CTRL-'+(origIdx+1));
+          var typeBadge = c.clef
+            ? '<span class="badge" style="background:#E0E7FF;color:#3730A3;font-size:9px">Key</span>'
+            : '<span class="badge bpl" style="font-size:9px">Non Key</span>';
+          var designBadge = c.design === 'existing'
+            ? '<span class="badge bdn" style="font-size:9px">Existing</span>'
+            : '<span class="badge" style="background:#FAEEDA;color:#854F0B;font-size:9px">Target</span>';
+          var sourceBadge = c.addedFromLib
+            ? '<span class="badge" style="background:#E1F5EE;color:#085041;font-size:9px">Biblio</span>'
+            : '';
+
+          html += '<div style="background:#fff;border:.5px solid var(--border);border-radius:4px;padding:6px 8px;margin-bottom:4px">';
+          html += '<div style="display:flex;align-items:flex-start;gap:6px">';
+          html += '<div style="flex:1;min-width:0">';
+          html += '<div style="font-size:11px;font-weight:500"><span style="color:var(--text-3);font-size:10px;margin-right:5px">'+ctrlCode+'</span>'+(c.name||c.label||'(sans nom)')+'</div>';
+          if (c.description) html += '<div style="font-size:10px;color:var(--text-3);margin-top:1px">'+c.description+'</div>';
+          // Détails compact
+          var details = [];
+          if (c.nature) details.push(c.nature);
+          if (c.freq) details.push(c.freq);
+          if (c.owner) details.push('Owner: '+c.owner);
+          if (details.length) html += '<div style="font-size:10px;color:var(--text-2);margin-top:2px">'+details.join(' · ')+'</div>';
+          html += '</div>';
+          html += '<div style="display:flex;gap:3px;align-items:center;flex-shrink:0">';
+          html += sourceBadge + typeBadge + designBadge;
+          html += '<button class="bs" style="font-size:9px;padding:1px 5px;margin-left:3px" onclick="showEditControlModal('+origIdx+')">Éditer</button>';
+          html += '<button class="bd" style="font-size:9px;padding:1px 4px" onclick="removeControlAt('+origIdx+')">×</button>';
+          html += '</div>';
+          html += '</div>';
+          html += '</div>';
+        });
+      }
+      html += '</div>';  // fin bloc Contrôles
+      html += '</div>';  // fin bloc WCGW
     });
   }
+
+  // Section "Contrôles non rattachés" pour les anciens audits
+  var orphans = ctrls.filter(function(c){return !c.wcgwId;});
+  if (orphans.length) {
+    html += '<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">';
+    html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">';
+    html += '<span style="font-size:11px;font-weight:600;color:#854F0B">⚠ Contrôles non rattachés à un WCGW ('+orphans.length+')</span>';
+    html += '</div>';
+    html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:6px;font-style:italic">Ces contrôles ne sont liés à aucun WCGW. Éditez-les pour les rattacher.</div>';
+    orphans.forEach(function(c){
+      var origIdx = ctrls.indexOf(c);
+      var ctrlCode = c.code || ('CTRL-'+(origIdx+1));
+      html += '<div style="background:#FFF7ED;border:.5px solid #FED7AA;border-radius:4px;padding:6px 8px;margin-bottom:4px;display:flex;align-items:center;gap:6px">';
+      html += '<div style="flex:1"><span style="color:var(--text-3);font-size:10px;margin-right:5px">'+ctrlCode+'</span><span style="font-size:11px">'+(c.name||c.label||'(sans nom)')+'</span></div>';
+      html += '<button class="bs" style="font-size:9px;padding:1px 5px" onclick="showEditControlModal('+origIdx+')">Rattacher</button>';
+      html += '<button class="bd" style="font-size:9px;padding:1px 4px" onclick="removeControlAt('+origIdx+')">×</button>';
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+
   html += '</div>';
   return html;
 }
@@ -3620,7 +3688,12 @@ function renderControlsSection() {
   return html;
 }
 
-function showAddControlModal() { showControlModal(null); }
+function showAddControlModal(preselectedWcgwId) {
+  showControlModal(preselectedWcgwId ? {ctrl: {wcgwId: preselectedWcgwId}, isPreset: true} : null);
+}
+function showAddControlModalForWCGW(wcgwId) {
+  showAddControlModal(wcgwId);
+}
 function showEditControlModal(idx) {
   var d = getAudData(CA);
   var c = (d.controls && d.controls[CS] || [])[idx];
@@ -3655,7 +3728,7 @@ function showControlModal(existing) {
     + (wcgwList.length?'':'<div style="font-size:10px;color:var(--text-3);margin-top:3px;font-style:italic">Créez d\'abord des WCGW pour pouvoir les lier.</div>')
     + '</div>';
 
-  openModal(existing ? 'Éditer contrôle' : 'Nouveau contrôle', body, async function(){
+  openModal((existing && !existing.isPreset) ? 'Éditer contrôle' : 'Nouveau contrôle', body, async function(){
     var name = document.getElementById('c-name').value.trim();
     if (!name) { toast('Nom obligatoire'); return; }
     var description = document.getElementById('c-desc').value.trim();
@@ -3669,7 +3742,7 @@ function showControlModal(existing) {
     if (!d.controls) d.controls = {};
     if (!d.controls[CS]) d.controls[CS] = [];
 
-    if (existing) {
+    if (existing && !existing.isPreset) {
       Object.assign(d.controls[CS][existing.idx], {
         name, label:name, description, clef, design, nature, freq, owner, wcgwId,
       });
@@ -3686,7 +3759,7 @@ function showControlModal(existing) {
     }
     await saveAuditData(CA);
     document.getElementById('det-content').innerHTML = renderDetContent();
-    toast('Contrôle '+(existing?'modifié':'créé')+' ✓');
+    toast('Contrôle '+(existing && !existing.isPreset ?'modifié':'créé')+' ✓');
   });
 }
 
@@ -4142,7 +4215,7 @@ function renderTaskList(st,a){if(!st.length)return'<div style="font-size:12px;co
 async function toggleTask(i){const d=getAudData(CA);if(!d.tasks[CS])d.tasks[CS]=[];d.tasks[CS][i].done=!d.tasks[CS][i].done;await saveAuditData(CA);const a=getAudits().find(x=>x.id===CA);document.getElementById('task-list').innerHTML=renderTaskList(d.tasks[CS],a);document.getElementById('stepper-card').innerHTML=renderStepper();}
 async function reassignTask(i,val){const d=getAudData(CA);if(d.tasks[CS]&&d.tasks[CS][i])d.tasks[CS][i].assignee=val;await saveAuditData(CA);document.getElementById('stepper-card').innerHTML=renderStepper();if(val!=='none')toast(`Assigné à ${TM[val]?.name}`);}
 function showNewTaskModal(){const a=getAudits().find(x=>x.id===CA);openModal('Nouvelle tâche',`<div><label>Description</label><input id="t-desc" placeholder="ex : Analyser les données..."/></div><div><label>Assignée à</label><select id="t-assign"><option value="none">— Non assignée</option>${buildAssigneeOpts(a.assignedTo,null)}</select></div>`,async ()=>{const desc=document.getElementById('t-desc').value.trim();if(!desc){toast('Description obligatoire');return;}const d=getAudData(CA);if(!d.tasks[CS])d.tasks[CS]=[];d.tasks[CS].push({desc,assignee:document.getElementById('t-assign').value,done:false});await saveAuditData(CA);document.getElementById('det-content').innerHTML=renderDetContent();document.getElementById('stepper-card').innerHTML=renderStepper();toast('Tâche créée ✓');});}
-function showAddControlModal(){openModal('Ajouter un contrôle',`<div><label>Nom du contrôle</label><input id="c-name" placeholder="ex : Rapprochement mensuel des soldes"/></div><div><label>Contrôle owner</label><input id="c-owner" placeholder="ex : Finance"/></div><div class="g2"><div><label>Fréquence</label><select id="c-freq"><option>Mensuel</option><option>Trimestriel</option><option>Semestriel</option><option>Annuel</option><option>Ad hoc</option></select></div><div><label>Contrôle clef ?</label><select id="c-clef"><option value="1">Oui — sera testé</option><option value="0">Non</option></select></div></div><div><label>Design</label><select id="c-design"><option value="existing">Existing</option><option value="target">Target</option></select></div>`,async ()=>{const name=document.getElementById('c-name').value.trim();if(!name){toast('Nom obligatoire');return;}const d=getAudData(CA);if(!d.controls[CS])d.controls[CS]=[];d.controls[CS].push({name,owner:document.getElementById('c-owner').value,freq:document.getElementById('c-freq').value,clef:document.getElementById('c-clef').value==='1',design:document.getElementById('c-design').value,result:null,testNature:'',finding:''});await saveAuditData(CA);document.getElementById('det-content').innerHTML=renderDetContent();toast('Contrôle ajouté ✓');});}
+function showAddControlModal_LEGACY_REMOVED(){/* doublon retiré */}
 async function removeControl(i){const d=getAudData(CA);d.controls[CS].splice(i,1);await saveAuditData(CA);document.getElementById('det-content').innerHTML=renderDetContent();}
 async function setTestNature(i,val){const d=getAudData(CA);const kc=(d.controls[4]||[]).filter(c=>c.clef&&c.design==='existing');if(kc[i]){kc[i].testNature=val;await saveAuditData(CA);}}
 async function setTestResult(i,val){const d=getAudData(CA);const kc=(d.controls[4]||[]).filter(c=>c.clef&&c.design==='existing');if(kc[i]){kc[i].result=val;await saveAuditData(CA);document.getElementById('det-content').innerHTML=renderDetContent();}}
