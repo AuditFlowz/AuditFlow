@@ -1,50 +1,14 @@
 // ════════════════════════════════════════════════════════════════════════════
-//  control-library.js v6 — Bridge simple et déterministe
+//  control-library.js v8 — Picker simple avec dropdown cycle
 //
-//  Logique unique :
-//   1. On lit le nom EXACT du process de l'audit (PROCESSES.proc)
-//   2. On le cherche dans CL_PROCESS_BRIDGE
-//   3. Si match avec une liste non-vide : on filtre CONTROLS_LIBRARY par domain
-//   4. Sinon : message "Aucun référentiel" + bouton "Voir tous les contrôles"
+//  Logique minimaliste :
+//   - L'auditeur ouvre la modale
+//   - Choisit un cycle dans un dropdown ("Tous", "Order-to-Cash", "P2P"...)
+//   - Filtre par mot-clé si besoin
+//   - Coche les contrôles voulus, importe
+//
+//  Aucune dépendance à AUDIT_PLAN, PROCESSES, ou bridge complexe.
 // ════════════════════════════════════════════════════════════════════════════
-
-// ─── BRIDGE : Process AuditFlow → Cycles bibliothèque ──────────────────────
-// Clé = nom EXACT du process tel que stocké dans PROCESSES.proc
-// Valeur = tableau de domaines biblio (champ .domain des contrôles)
-const CL_PROCESS_BRIDGE = {
-  // Domain A - Governance
-  'Acquisitions & Integration':          [],
-  'Compliance':                          [],
-  'ESG':                                 [],
-
-  // Domain B - Edition
-  'Product Dev':                         ['R&D'],
-  'Product Roadmap':                     [],
-
-  // Domain C - Deployment
-  'Cust Support':                        [],
-  'Product Deployment (On Prem / SaaS)': ['IT - Access Management', 'IT - Data'],
-
-  // Domain D - Distribution
-  'Customer Success':                    [],
-  'Marketing (Corp, GTM)':               [],
-  'Renewals':                            ['Order-to-Cash'],
-  'Sales':                               ['Order-to-Cash'],
-  'Sales Enablement':                    [],
-
-  // Domain E - Support
-  'Finance - Accounting & Tax':          ['Record-to-Report', 'Fixed Assets', 'R&D'],
-  'Finance - Budget/Forecast':           [],
-  'Finance - OTC':                       ['Order-to-Cash'],
-  'Finance - Treasury':                  ['Treasury'],
-  'HR - Payroll':                        ['Payroll'],
-  'HR - Talent Aquisition':              ['Human Resources'],   // sans 'c' (orthographe BD)
-  'IT - Cybersecurity & Data':           ['IT - Access Management', 'IT - Data'],
-  'IT - Structure':                      ['IT - Access Management', 'IT - Data'],
-  'Purchasing & Third Party Mgt':        ['Procure-to-Pay'],
-};
-
-// ─── HELPERS ───────────────────────────────────────────────────────────────
 
 function clEsc(s) {
   if (s === null || s === undefined) return '';
@@ -59,86 +23,51 @@ function clMapFrequency(f) {
   return map[f] || 'Ad hoc';
 }
 
-// ─── MODALE D'IMPORT ───────────────────────────────────────────────────────
-
 function openControlLibraryPicker(auditId) {
+  // ─── Vérifications minimales ────────────────────────────────────────────
   if (typeof CONTROLS_LIBRARY === 'undefined' || !Array.isArray(CONTROLS_LIBRARY) || CONTROLS_LIBRARY.length === 0) {
     if (typeof toast === 'function') toast('Bibliothèque vide ou non chargée');
     return;
   }
 
-  // Fallback : si auditId vide/invalide, utiliser la variable globale CA
-  let realAuditId = auditId;
-  let ap = (window.AUDIT_PLAN || []).find(a => a.id === realAuditId);
-  if (!ap && typeof window.CA !== 'undefined' && window.CA) {
-    realAuditId = window.CA;
-    ap = (window.AUDIT_PLAN || []).find(a => a.id === realAuditId);
-    console.log('[CTRL_LIB] Fallback sur CA:', realAuditId);
-  }
-  if (!ap) {
-    console.error('[CTRL_LIB] Audit introuvable. auditId=', auditId, 'CA=', window.CA);
+  // Fallback : si auditId est tombé, utiliser CA (audit courant)
+  let realAuditId = auditId || (typeof window.CA !== 'undefined' ? window.CA : null);
+  if (!realAuditId) {
     if (typeof toast === 'function') toast('Audit introuvable');
     return;
   }
-  // À partir d'ici on utilise realAuditId au lieu de auditId
-  auditId = realAuditId;
 
-  const proc = (window.PROCESSES || []).find(p => p.id === ap.processId);
-  const procName = proc ? proc.proc : (ap.titre || '');
-
-  // ─── Logique de matching unique : BRIDGE ─────────────────────────────────
-  let mappedDomains = null;
-  if (CL_PROCESS_BRIDGE.hasOwnProperty(procName)) {
-    mappedDomains = CL_PROCESS_BRIDGE[procName];
-  }
-
-  // Logger pour debug
-  console.log('[CTRL_LIB] Process audité:', JSON.stringify(procName));
-  console.log('[CTRL_LIB] Bridge match:', mappedDomains);
-
-  // Filtrer les contrôles pertinents
-  let candidates;
-  let bannerHtml;
-
-  if (mappedDomains && mappedDomains.length > 0) {
-    candidates = CONTROLS_LIBRARY.filter(c =>
-      !c.archived && mappedDomains.includes(c.domain)
-    );
-    bannerHtml = `<div style="background:#E1F5EE;color:#085041;padding:8px 12px;font-size:12px">
-      <strong>${clEsc(procName)}</strong> → référentiel${mappedDomains.length>1?'s':''} <strong>${clEsc(mappedDomains.join(', '))}</strong>
-      · ${candidates.length} contrôle${candidates.length>1?'s':''} disponible${candidates.length>1?'s':''}
-    </div>`;
-  } else {
-    candidates = [];
-    const reason = mappedDomains === null
-      ? 'Ce processus n\'est pas mappé dans le bridge'
-      : 'Aucun référentiel bibliothèque ne couvre ce processus';
-    bannerHtml = `<div style="background:#FAEEDA;color:#854F0B;padding:8px 12px;font-size:12px">
-      <strong>${clEsc(procName)}</strong> · ${reason}.<br>
-      Tu peux ajouter des contrôles manuellement, ou utiliser l'IA pour des suggestions adaptées (à venir).
-    </div>`;
-  }
-
-  // Tous les contrôles non-archivés (pour le mode "voir tout")
+  // ─── Données ────────────────────────────────────────────────────────────
   const allControls = CONTROLS_LIBRARY.filter(c => !c.archived);
+  const allCycles = [...new Set(allControls.map(c => c.domain))].filter(Boolean).sort();
 
   // ─── Construction de la modale ──────────────────────────────────────────
   const ov = document.createElement('div');
   ov.id = 'cl-ov';
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px';
+
+  const cycleOptions = ['<option value="">— Tous les cycles —</option>']
+    .concat(allCycles.map(c => `<option value="${clEsc(c)}">${clEsc(c)} (${allControls.filter(x => x.domain === c).length})</option>`))
+    .join('');
+
   ov.innerHTML = `
     <div style="background:#fff;border-radius:8px;max-width:900px;width:100%;max-height:85vh;display:flex;flex-direction:column">
       <div style="padding:14px 18px;border-bottom:1px solid #eee;display:flex;justify-content:space-between;align-items:center">
         <div style="font-size:15px;font-weight:600">Importer depuis la bibliothèque</div>
         <button onclick="document.getElementById('cl-ov').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:#999">×</button>
       </div>
-      ${bannerHtml}
-      <div style="padding:10px 16px;border-bottom:1px solid #eee;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <div style="padding:12px 16px;border-bottom:1px solid #eee;display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:#fafafa">
+        <label style="font-size:12px;color:#444;font-weight:500">Cycle :</label>
+        <select id="cl-cycle" style="padding:6px 10px;border:1px solid #ccc;border-radius:4px;font-size:12px;min-width:220px;cursor:pointer">
+          ${cycleOptions}
+        </select>
         <input id="cl-kw" placeholder="Filtrer par mot-clé..."
-          style="flex:1;min-width:180px;padding:5px 9px;border:1px solid #ccc;border-radius:4px;font-size:12px"/>
+          style="flex:1;min-width:180px;padding:6px 10px;border:1px solid #ccc;border-radius:4px;font-size:12px"/>
         <label style="font-size:12px;display:flex;align-items:center;gap:5px;cursor:pointer;white-space:nowrap">
-          <input type="checkbox" id="cl-all" /> Voir tous les contrôles (${allControls.length})
+          <input type="checkbox" id="cl-key"/> Clés uniquement
         </label>
+      </div>
+      <div style="padding:8px 16px;border-bottom:1px solid #eee;display:flex;gap:8px;background:#f5f5f5">
         <button id="cl-tick" type="button"
           style="padding:4px 10px;border:1px solid #ccc;background:#fff;border-radius:4px;cursor:pointer;font-size:11px">
           Tout cocher
@@ -167,10 +96,13 @@ function openControlLibraryPicker(auditId) {
 
   // ─── Rendu de la liste ──────────────────────────────────────────────────
   const render = () => {
+    const cycle = document.getElementById('cl-cycle').value;
     const kw = document.getElementById('cl-kw').value.toLowerCase().trim();
-    const showAll = document.getElementById('cl-all').checked;
+    const keyOnly = document.getElementById('cl-key').checked;
 
-    let rows = showAll ? allControls : candidates;
+    let rows = allControls;
+    if (cycle) rows = rows.filter(c => c.domain === cycle);
+    if (keyOnly) rows = rows.filter(c => c.key === true);
     if (kw) {
       rows = rows.filter(c =>
         ((c.name || '') + ' ' + (c.description || '') + ' ' + (c.domain || '') + ' ' + (c.wcgwTypical || ''))
@@ -178,36 +110,23 @@ function openControlLibraryPicker(auditId) {
       );
     }
 
-    const isPrechecked = (c) => {
-      if (!mappedDomains || mappedDomains.length === 0) return false;
-      return mappedDomains.includes(c.domain);
-    };
-
     const grouped = {};
     rows.forEach(r => {
-      const k = r.domain || '(sans domaine)';
+      const k = r.domain || '(sans cycle)';
       if (!grouped[k]) grouped[k] = [];
       grouped[k].push(r);
     });
 
-    const mapped = mappedDomains || [];
-    const sortedDomains = [
-      ...mapped.filter(d => grouped[d]),
-      ...Object.keys(grouped).filter(d => !mapped.includes(d)).sort()
-    ];
-
     let html = '';
-    sortedDomains.forEach(g => {
-      const isMapped = mapped.includes(g);
-      html += `<div style="background:${isMapped ? '#E1F5EE' : '#f5f5f5'};color:${isMapped ? '#085041' : '#333'};padding:6px 14px;font-size:11px;font-weight:600;border-top:0.5px solid #ddd">
-        ${clEsc(g)} (${grouped[g].length})${isMapped ? ' ★' : ''}
+    Object.keys(grouped).sort().forEach(g => {
+      html += `<div style="background:#E1F5EE;color:#085041;padding:6px 14px;font-size:11px;font-weight:600;border-top:0.5px solid #ddd">
+        ${clEsc(g)} (${grouped[g].length})
       </div>`;
       grouped[g].forEach(r => {
-        const ck = isPrechecked(r) ? 'checked' : '';
         const isAuto = (r.nature || '').toLowerCase().includes('it-dependent');
         html += `<label style="display:flex;gap:10px;padding:9px 14px;border-bottom:1px solid #f0f0f0;cursor:pointer;align-items:flex-start"
           onmouseover="this.style.background='#fafafa'" onmouseout="this.style.background=''">
-          <input type="checkbox" class="cl-pk" data-id="${clEsc(r.id)}" ${ck} style="margin-top:3px"/>
+          <input type="checkbox" class="cl-pk" data-id="${clEsc(r.id)}" style="margin-top:3px"/>
           <div style="flex:1;min-width:0">
             <div style="font-size:11px;color:#999;font-family:monospace">${clEsc(r.code || r.id)}</div>
             <div style="font-size:13px;font-weight:500;color:#222;margin-top:1px">${clEsc(r.name)}</div>
@@ -224,7 +143,7 @@ function openControlLibraryPicker(auditId) {
     });
 
     if (rows.length === 0) {
-      html = '<div style="padding:40px;text-align:center;color:#999;font-size:13px">Aucun contrôle disponible. Coche « Voir tous les contrôles » pour accéder à la bibliothèque complète.</div>';
+      html = '<div style="padding:40px;text-align:center;color:#999;font-size:13px">Aucun contrôle ne correspond aux filtres</div>';
     }
     document.getElementById('cl-list').innerHTML = html;
 
@@ -237,8 +156,9 @@ function openControlLibraryPicker(auditId) {
     document.querySelectorAll('.cl-pk').forEach(cb => cb.addEventListener('change', upd));
   };
 
+  document.getElementById('cl-cycle').addEventListener('change', render);
   document.getElementById('cl-kw').addEventListener('input', render);
-  document.getElementById('cl-all').addEventListener('change', render);
+  document.getElementById('cl-key').addEventListener('change', render);
 
   document.getElementById('cl-tick').addEventListener('click', () => {
     document.querySelectorAll('.cl-pk').forEach(cb => cb.checked = true);
@@ -259,8 +179,11 @@ function openControlLibraryPicker(auditId) {
       return;
     }
 
-    const d = AUD_DATA[auditId];
-    if (!d) { if (typeof toast === 'function') toast('Données audit introuvables'); return; }
+    if (typeof AUD_DATA === 'undefined' || !AUD_DATA[realAuditId]) {
+      if (typeof toast === 'function') toast('Données audit introuvables');
+      return;
+    }
+    const d = AUD_DATA[realAuditId];
 
     const stepKey = String((typeof window.CS !== 'undefined' && window.CS !== null) ? window.CS : 4);
     if (!d.controls) d.controls = {};
@@ -297,8 +220,8 @@ function openControlLibraryPicker(auditId) {
       return;
     }
 
-    if (typeof saveAuditData === 'function') await saveAuditData(auditId);
-    if (typeof addHist === 'function') addHist(auditId, `${added} contrôle(s) importé(s) depuis la bibliothèque`);
+    if (typeof saveAuditData === 'function') await saveAuditData(realAuditId);
+    if (typeof addHist === 'function') addHist(realAuditId, `${added} contrôle(s) importé(s) depuis la bibliothèque`);
 
     document.getElementById('cl-ov').remove();
     if (typeof toast === 'function') toast(`${added} contrôle(s) importé(s) ✓`);
