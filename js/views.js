@@ -3250,7 +3250,10 @@ function renderDetContent(){
   // Plus besoin de répéter ici.
 
   // ── 3. SECTIONS SPÉCIFIQUES MÉTIER selon l'étape ─────────
-  if (CS === 4) {
+  if (CS === 1) {
+    // Étape 2 (index 1) : Work Program — préparation du Kick Off
+    html += renderKickoffPrepSection();
+  } else if (CS === 4) {
     // Étape 5 (index 4) : ITW : WCGW & Contrôles (groupés)
     html += renderRiskSection();
     html += renderWCGWSection();
@@ -3440,6 +3443,134 @@ function renderNotesSection() {
   html += '</div>';
   html += '</div>';
   return html;
+}
+
+// ─── ÉTAPE 2 (CS=1) : Préparation du Kick Off ─────────────────────────
+function renderKickoffPrepSection() {
+  var d = getAudData(CA);
+  if (!d.kickoffPrep) d.kickoffPrep = {};
+  var p = d.kickoffPrep;
+  if (!p.scope) p.scope = {processOwner:'', periodFrom:'', periodTo:'', docsList:'', outOfScope:''};
+  if (!Array.isArray(p.interviews)) p.interviews = [];
+  if (!p.planning) p.planning = {kickOff:'', interviews:'', testing:'', report:'', restitution:''};
+
+  var html = '';
+
+  // ── SECTION 1 : Scope ──────────────────────────────────────
+  html += '<div class="card" style="margin-bottom:.75rem">';
+  html += '<div style="font-size:12px;font-weight:600;color:var(--text-2);margin-bottom:4px">Périmètre & Scope</div>';
+  html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:10px;font-style:italic">Apparaîtra en slide « Audit Scope » du Kick Off Presentation.</div>';
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px">';
+  html += '<div>';
+  html += '<label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:3px">Process Owner / Contact métier</label>';
+  html += '<input value="'+(p.scope.processOwner||'').replace(/"/g,'&quot;')+'" placeholder="ex : Marie Dupont — Finance Director" onchange="setKickoffScope(\'processOwner\',this.value)" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:4px"/>';
+  html += '</div>';
+  html += '<div>';
+  html += '<label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:3px">Période auditée</label>';
+  html += '<div style="display:flex;gap:4px;align-items:center">';
+  html += '<input type="date" value="'+(p.scope.periodFrom||'')+'" onchange="setKickoffScope(\'periodFrom\',this.value)" style="flex:1;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:4px"/>';
+  html += '<span style="font-size:11px;color:var(--text-3)">→</span>';
+  html += '<input type="date" value="'+(p.scope.periodTo||'')+'" onchange="setKickoffScope(\'periodTo\',this.value)" style="flex:1;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:4px"/>';
+  html += '</div>';
+  html += '</div>';
+  html += '</div>';
+  html += '<div style="margin-bottom:8px">';
+  html += '<label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:3px">Documents demandés / périmètre détaillé</label>';
+  html += '<textarea onchange="setKickoffScope(\'docsList\',this.value)" placeholder="ex : journaux comptables, contrats clients clés, états bancaires, exports SAP..." style="width:100%;min-height:60px;font-size:11px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;resize:vertical">'+(p.scope.docsList||'').replace(/</g,'&lt;')+'</textarea>';
+  html += '</div>';
+  html += '<div>';
+  html += '<label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:3px">Hors scope</label>';
+  html += '<textarea onchange="setKickoffScope(\'outOfScope\',this.value)" placeholder="ex : process déjà couverts par un autre audit, périmètre géographique exclu..." style="width:100%;min-height:50px;font-size:11px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;resize:vertical">'+(p.scope.outOfScope||'').replace(/</g,'&lt;')+'</textarea>';
+  html += '</div>';
+  html += '</div>';
+
+  // ── SECTION 2 : Interviews planifiées ──────────────────────
+  html += '<div class="card" style="margin-bottom:.75rem">';
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">';
+  html += '<span style="font-size:12px;font-weight:600;color:var(--text-2)">Interviews planifiées <span style="font-size:10px;font-weight:400;color:var(--text-3)">('+p.interviews.length+')</span></span>';
+  html += '<button class="bs" style="font-size:11px;padding:3px 9px" onclick="addKickoffInterview()">+ Ajouter une interview</button>';
+  html += '</div>';
+  html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:10px;font-style:italic">Liste des entretiens prévus pendant l\'audit. Apparaîtra en slide « Interviews » du Kick Off.</div>';
+
+  if (!p.interviews.length) {
+    html += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:.5rem;text-align:center;border:1px dashed var(--border);border-radius:4px">Aucune interview planifiée. Cliquez sur « + Ajouter une interview ».</div>';
+  } else {
+    // En-tête de tableau
+    html += '<div style="display:grid;grid-template-columns:1fr 1.2fr 1.4fr 1fr 30px;gap:6px;font-size:10px;color:var(--text-3);font-weight:500;padding:4px 0;border-bottom:.5px solid var(--border)">';
+    html += '<span>Département</span><span>Main contact</span><span>Email</span><span>Timeslot</span><span></span>';
+    html += '</div>';
+    p.interviews.forEach(function(itw, idx){
+      html += '<div style="display:grid;grid-template-columns:1fr 1.2fr 1.4fr 1fr 30px;gap:6px;padding:4px 0;border-bottom:.5px solid var(--border)">';
+      html += '<input value="'+(itw.dept||'').replace(/"/g,'&quot;')+'" placeholder="ex : Finance" onchange="setKickoffInterview('+idx+',\'dept\',this.value)" style="font-size:11px;padding:4px 6px;border:1px solid var(--border);border-radius:3px"/>';
+      html += '<input value="'+(itw.contact||'').replace(/"/g,'&quot;')+'" placeholder="ex : J. Smith — CFO" onchange="setKickoffInterview('+idx+',\'contact\',this.value)" style="font-size:11px;padding:4px 6px;border:1px solid var(--border);border-radius:3px"/>';
+      html += '<input value="'+(itw.email||'').replace(/"/g,'&quot;')+'" type="email" placeholder="j.smith@..." onchange="setKickoffInterview('+idx+',\'email\',this.value)" style="font-size:11px;padding:4px 6px;border:1px solid var(--border);border-radius:3px"/>';
+      html += '<input value="'+(itw.timeslot||'').replace(/"/g,'&quot;')+'" placeholder="ex : 12/05 — 10:00" onchange="setKickoffInterview('+idx+',\'timeslot\',this.value)" style="font-size:11px;padding:4px 6px;border:1px solid var(--border);border-radius:3px"/>';
+      html += '<button class="bd" style="font-size:11px;padding:3px 6px" onclick="removeKickoffInterview('+idx+')" title="Supprimer">×</button>';
+      html += '</div>';
+    });
+  }
+  html += '</div>';
+
+  // ── SECTION 3 : Planning - Dates clés ──────────────────────
+  html += '<div class="card" style="margin-bottom:.75rem">';
+  html += '<div style="font-size:12px;font-weight:600;color:var(--text-2);margin-bottom:4px">Planning — Dates clés</div>';
+  html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:10px;font-style:italic">Apparaîtra en slide « Key Deadlines » du Kick Off (transformé en « Week of [date] »).</div>';
+  html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">';
+  var dateFields = [
+    {key:'kickOff',     label:'Kick Off'},
+    {key:'interviews',  label:'Interviews — semaine de début'},
+    {key:'testing',     label:'Testing — semaine de début'},
+    {key:'report',      label:'Rapport — semaine de livraison'},
+    {key:'restitution', label:'Restitution ExCom'},
+  ];
+  dateFields.forEach(function(f){
+    html += '<div>';
+    html += '<label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:3px">'+f.label+'</label>';
+    html += '<input type="date" value="'+(p.planning[f.key]||'')+'" onchange="setKickoffPlanning(\''+f.key+'\',this.value)" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:4px"/>';
+    html += '</div>';
+  });
+  html += '</div>';
+  html += '</div>';
+
+  return html;
+}
+
+// Setters Kickoff Prep
+async function setKickoffScope(field, val) {
+  var d = getAudData(CA);
+  if (!d.kickoffPrep) d.kickoffPrep = {};
+  if (!d.kickoffPrep.scope) d.kickoffPrep.scope = {};
+  d.kickoffPrep.scope[field] = val;
+  await saveAuditData(CA);
+}
+async function setKickoffPlanning(field, val) {
+  var d = getAudData(CA);
+  if (!d.kickoffPrep) d.kickoffPrep = {};
+  if (!d.kickoffPrep.planning) d.kickoffPrep.planning = {};
+  d.kickoffPrep.planning[field] = val;
+  await saveAuditData(CA);
+}
+async function addKickoffInterview() {
+  var d = getAudData(CA);
+  if (!d.kickoffPrep) d.kickoffPrep = {};
+  if (!Array.isArray(d.kickoffPrep.interviews)) d.kickoffPrep.interviews = [];
+  d.kickoffPrep.interviews.push({dept:'', contact:'', email:'', timeslot:''});
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+async function setKickoffInterview(idx, field, val) {
+  var d = getAudData(CA);
+  if (!d.kickoffPrep || !Array.isArray(d.kickoffPrep.interviews)) return;
+  if (!d.kickoffPrep.interviews[idx]) return;
+  d.kickoffPrep.interviews[idx][field] = val;
+  await saveAuditData(CA);
+}
+async function removeKickoffInterview(idx) {
+  var d = getAudData(CA);
+  if (!d.kickoffPrep || !Array.isArray(d.kickoffPrep.interviews)) return;
+  d.kickoffPrep.interviews.splice(idx, 1);
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
 }
 
 // ─── Sections métier (Phase 3/4 - placeholder pour l'instant) ─────────────────
