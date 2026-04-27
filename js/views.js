@@ -3266,6 +3266,7 @@ function renderDetContent(){
     html += renderTestsSection();
   } else if (CS === 6) {
     // Étape 7 (index 6) : Report — Findings + Maturity (consolidation)
+    html += renderAuditReportGenerateBanner();
     html += renderFindingsSection();
     html += renderMaturitySection();
   } else if (CS === 8) {
@@ -3391,9 +3392,13 @@ function renderDocumentRow(label, doc, isExpected, isAdmin) {
   html += '<div style="font-size:12px;font-weight:500;display:flex;align-items:center;gap:6px">';
   html += '<span>'+label+'</span>';
   if (isExpected) html += '<span style="font-size:9px;color:var(--text-3)">(attendu)</span>';
-  // Bouton génération auto pour Kick-Off Presentation à l'étape 3 (CS=2)
-  if (label === 'Kick-Off Presentation' && CS === 2) {
+  // Bouton génération auto pour Kick Off à l'étape 3 (CS=2)
+  if ((label === 'Kick-Off Presentation' || label === 'Présentation de cadrage' || label === 'Mémo de Kick-Off') && CS === 2) {
     html += '<button class="bs" style="font-size:10px;padding:2px 7px;background:#EEEDFE;color:#3C3489;border-color:#CECBF6" onclick="generateKickoffPptx(CA);event.stopPropagation();">⬇ Générer</button>';
+  }
+  // Bouton génération auto pour Audit Report à l'étape 7 (CS=6)
+  if ((label === 'Rapport d\'audit (draft)' || label === 'Rapport d\'audit (final)') && CS === 6) {
+    html += '<button class="bs" style="font-size:10px;padding:2px 7px;background:#FAEEDA;color:#854F0B;border-color:#FAC775" onclick="generateAuditReportPptx(CA);event.stopPropagation();">⬇ Générer</button>';
   }
   html += '</div>';
   if (hasDoc) {
@@ -3448,6 +3453,43 @@ function renderNotesSection() {
   html += '<textarea id="rev-notes-'+CS+'" placeholder="Commentaires de revue..." style="width:100%;min-height:80px;resize:vertical;font-size:12px" '+(!isAdmin?'readonly':'')+' onchange="saveStepNote(\'rev\', this.value)">'+revNote+'</textarea>';
   html += '</div>';
   html += '</div>';
+  html += '</div>';
+  return html;
+}
+
+// ─── ÉTAPE 7 (CS=6) : Bandeau de génération du Audit Report ───────────
+function renderAuditReportGenerateBanner() {
+  var d = getAudData(CA);
+  var findings = Array.isArray(d.findings) ? d.findings : [];
+  var maturity = d.maturity;
+  var mgtResp = Array.isArray(d.mgtResp) ? d.mgtResp : [];
+  var controls = (d.controls && d.controls[4]) || [];
+  var testedControls = controls.filter(function(c){return c.clef && c.design==='existing' && c.finalized;});
+
+  var findingsCount = findings.length;
+  var findingsComplete = findings.filter(function(f){return f.title && f.potentialRisk && f.owner && f.probability && f.impact;}).length;
+  var maturityFilled = !!maturity;
+  var mgtRespCount = mgtResp.filter(function(r){return r.action;}).length;
+
+  var html = '<div class="card" style="margin-bottom:.75rem;background:linear-gradient(135deg,#FAEEDA 0%,#FFF4D9 100%);border:.5px solid #FAC775">';
+  html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">';
+  html += '<div style="flex:1;min-width:200px">';
+  html += '<div style="font-size:14px;font-weight:600;color:#854F0B;margin-bottom:4px">📄 Audit Report</div>';
+  html += '<div style="font-size:11px;color:#BA7517;margin-bottom:8px">Génération automatique du rapport d\'audit PowerPoint à partir des données de l\'audit.</div>';
+  html += '<div style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:#854F0B">';
+  html += '<span>'+(findingsCount?'✓':'○')+' Findings ('+findingsComplete+'/'+findingsCount+' complets)</span>';
+  html += '<span>'+(testedControls.length?'✓':'○')+' Tests ('+testedControls.length+')</span>';
+  html += '<span>'+(maturityFilled?'✓':'○')+' Maturity</span>';
+  html += '<span>'+(mgtRespCount?'✓':'○')+' Mgt Responses ('+mgtRespCount+')</span>';
+  html += '</div>';
+  html += '</div>';
+  html += '<button class="bp" style="font-size:13px;padding:8px 18px;background:#854F0B;color:#fff;font-weight:500" onclick="generateAuditReportPptx(CA)">⬇ Générer le Audit Report</button>';
+  html += '</div>';
+  if (!findingsCount) {
+    html += '<div style="font-size:10px;color:#854F0B;margin-top:10px;padding:6px 10px;background:#FAEEDA;border-radius:4px;font-style:italic">⚠ Aucun finding défini. Le rapport sera généré sans détail de findings.</div>';
+  } else if (findingsComplete < findingsCount) {
+    html += '<div style="font-size:10px;color:#854F0B;margin-top:10px;padding:6px 10px;background:#FAEEDA;border-radius:4px;font-style:italic">ⓘ '+(findingsCount-findingsComplete)+' finding(s) incomplet(s) (Potential Risk, Owner ou Risk Level manquant). Ils apparaîtront avec « — » dans le rapport.</div>';
+  }
   html += '</div>';
   return html;
 }
