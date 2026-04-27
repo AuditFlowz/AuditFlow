@@ -4161,7 +4161,11 @@ function renderFindingsSection() {
       html += '<span class="badge bpc" style="font-size:10px;flex-shrink:0">Finding '+(idx+1)+'</span>';
       html += '<div style="flex:1">';
       html += '<div style="font-size:13px;font-weight:600">'+(f.title||'(sans titre)')+'</div>';
-      if (f.desc) html += '<div style="font-size:11px;color:var(--text-2);margin-top:4px;white-space:pre-wrap">'+f.desc+'</div>';
+      // Description courte (Exec Summary) - en gras pour distinction
+      var execTxt = f.descExec || (f.desc && f.desc.length<200 ? f.desc : '');
+      var detailTxt = f.descDetailed || f.desc || '';
+      if (execTxt) html += '<div style="font-size:11px;color:var(--text-2);margin-top:4px;white-space:pre-wrap;font-style:italic">📋 <span style="color:var(--text-3);font-style:normal;font-size:9px">EXEC SUMMARY:</span> '+execTxt+'</div>';
+      if (detailTxt && detailTxt !== execTxt) html += '<div style="font-size:11px;color:var(--text-2);margin-top:4px;white-space:pre-wrap">📄 <span style="color:var(--text-3);font-size:9px">DETAILED:</span> '+detailTxt+'</div>';
       // Métadonnées : Owner + Risk level
       var metaParts = [];
       if (f.owner) metaParts.push('<strong>Owner:</strong> '+f.owner);
@@ -4699,8 +4703,12 @@ function showFindingModal(existing) {
 
   var body = '<div><label>Titre du finding <span style="color:var(--red)">*</span></label>'
     + '<input id="f-title" value="'+(f.title||'').replace(/"/g,'&quot;')+'" placeholder="ex : Ségrégation des tâches insuffisante en P2P"/></div>'
-    + '<div><label>Description / Constat</label>'
-    + '<textarea id="f-desc" style="width:100%;min-height:80px" placeholder="Constat, contexte, recommandation...">'+(f.desc||'').replace(/</g,'&lt;')+'</textarea></div>'
+    + '<div><label>Description courte (Executive Summary)</label>'
+    + '<div style="font-size:10px;color:var(--text-3);font-style:italic;margin-bottom:3px">2-3 lignes maximum. Apparaîtra en slide « Executive Summary - Findings ».</div>'
+    + '<textarea id="f-desc-exec" style="width:100%;min-height:50px" placeholder="ex : Process incomplet de tracking des opportunités de renouvellement dans SFDC.">'+((f.descExec || '')).replace(/</g,'&lt;')+'</textarea></div>'
+    + '<div><label>Description détaillée</label>'
+    + '<div style="font-size:10px;color:var(--text-3);font-style:italic;margin-bottom:3px">Constat complet, contexte, lien avec les contrôles failed. Apparaîtra en slide détaillée du finding.</div>'
+    + '<textarea id="f-desc-detail" style="width:100%;min-height:80px" placeholder="Description complète, références aux contrôles fail, contexte business...">'+(f.descDetailed || f.desc || '').replace(/</g,'&lt;')+'</textarea></div>'
     + '<div><label>Potential Risk</label>'
     + '<textarea id="f-risk" style="width:100%;min-height:50px" placeholder="ex : Missed renewals, lost revenue opportunities, contract leakage...">'+(f.potentialRisk||'').replace(/</g,'&lt;')+'</textarea></div>'
     + '<div class="g2" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">'
@@ -4722,14 +4730,15 @@ function showFindingModal(existing) {
     + '</select></div>'
     + '</div>'
     + '<div><label>Contrôles liés ('+problematicCtrls.length+' candidats)</label>'
-    + '<div style="border:.5px solid var(--border);border-radius:4px;max-height:240px;overflow-y:auto;background:#fafafa">'
+    + '<div style="border:.5px solid var(--border);border-radius:4px;max-height:200px;overflow-y:auto;background:#fafafa">'
     + ctrlsHtml
     + '</div></div>';
 
   openModal(existing ? 'Éditer le finding' : 'Nouveau finding', body, async function(){
     var title = document.getElementById('f-title').value.trim();
     if (!title) { toast('Titre obligatoire'); return; }
-    var desc = document.getElementById('f-desc').value.trim();
+    var descExec = document.getElementById('f-desc-exec').value.trim();
+    var descDetailed = document.getElementById('f-desc-detail').value.trim();
     var potentialRisk = document.getElementById('f-risk').value.trim();
     var owner = document.getElementById('f-owner').value.trim();
     var probability = document.getElementById('f-prob').value;
@@ -4740,7 +4749,9 @@ function showFindingModal(existing) {
     if (existing) {
       d.findings[existing.idx] = Object.assign({}, d.findings[existing.idx], {
         title: title,
-        desc: desc,
+        descExec: descExec,
+        descDetailed: descDetailed,
+        desc: descDetailed, // backward compat
         potentialRisk: potentialRisk,
         owner: owner,
         probability: probability,
@@ -4752,7 +4763,9 @@ function showFindingModal(existing) {
       d.findings.push({
         id: 'f_'+Date.now(),
         title: title,
-        desc: desc,
+        descExec: descExec,
+        descDetailed: descDetailed,
+        desc: descDetailed,
         potentialRisk: potentialRisk,
         owner: owner,
         probability: probability,
