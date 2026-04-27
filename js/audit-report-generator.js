@@ -444,21 +444,24 @@ async function generateAuditReportPptx(auditId) {
   const s6 = pres.addSlide();
   ar_addTitleBar(pres, s6, "Executive Summary - Findings", null);
 
-  // Phrase d'intro + maturité
-  const introText = `The audit of the ${processName} process identified ${findings.length} finding${findings.length>1?'s':''}.`;
-  s6.addText(introText, {
-    x: 0.5, y: 1.0, w: 12.3, h: 0.5,
-    fontSize: 13, color: AR_COLORS.textDark, fontFace: "Calibri",
-  });
+  // Phrase d'intro : utilise le texte saisi par l'auditeur, sinon fallback générique
+  const userHeader = (d.execSummaryHeader || '').trim();
+  const introText = userHeader || `The audit of the ${processName} process identified ${findings.length} finding${findings.length>1?'s':''}.`;
 
+  // Combiner intro + maturité dans un seul bloc de texte
+  const introParts = [
+    {text: introText, options: {fontSize: 12, color: AR_COLORS.textDark, fontFace: "Calibri"}},
+  ];
   if (matInfo) {
-    s6.addText([
-      {text: "Overall Process Maturity: ", options: {bold: true, fontSize: 13, color: AR_COLORS.textDark, fontFace: "Calibri"}},
-      {text: matInfo.label, options: {bold: true, fontSize: 13, color: matInfo.color, fontFace: "Calibri"}},
-    ], {
-      x: 0.5, y: 1.5, w: 12.3, h: 0.4,
-    });
+    introParts.push(
+      {text: ' Overall Process Maturity: ', options: {bold: true, fontSize: 12, color: AR_COLORS.textDark, fontFace: "Calibri"}},
+      {text: matInfo.label, options: {bold: true, fontSize: 12, color: matInfo.color, fontFace: "Calibri"}},
+    );
   }
+  s6.addText(introParts, {
+    x: 0.5, y: 1.0, w: 12.3, h: 1.0,
+    valign: "top",
+  });
 
   // Tableau des findings
   const fHeader = [
