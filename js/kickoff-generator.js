@@ -1,3 +1,4 @@
+
 // ════════════════════════════════════════════════════════════════════════════
 //  kickoff-generator.js — Génération du Kick Off Presentation (PowerPoint)
 //
@@ -430,12 +431,25 @@ async function generateKickoffPptx(auditId) {
     {text: "Timeslot", options: {bold: true, color: KO_COLORS.white, fill: {color: KO_COLORS.navy}, valign: "middle"}},
   ];
   let interviewRows;
+  // Helper : formater le timeslot pour l'affichage dans le pptx
+  function formatTimeslot(ts) {
+    if (!ts) return '—';
+    if (ts === '__tbd__' || ts === 'Slot not defined yet') return 'Slot not defined yet';
+    // Si c'est une date ISO YYYY-MM-DD, formater proprement
+    if (/^\d{4}-\d{2}-\d{2}$/.test(ts)) {
+      try {
+        var d = new Date(ts);
+        return d.toLocaleDateString('en-GB', {day:'2-digit', month:'short', year:'numeric'});
+      } catch(e) { return ts; }
+    }
+    return ts;
+  }
   if (interviews.length) {
     interviewRows = [interviewHeader].concat(interviews.map(itw => [
       {text: itw.dept || '—', options: {valign: "middle"}},
       {text: itw.contact || '—', options: {valign: "middle"}},
       {text: itw.email || '—', options: {valign: "middle"}},
-      {text: itw.timeslot || '—', options: {valign: "middle"}},
+      {text: formatTimeslot(itw.timeslot), options: {valign: "middle", italic: (itw.timeslot==='__tbd__')}},
     ]));
   } else {
     interviewRows = [interviewHeader,
