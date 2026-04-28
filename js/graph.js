@@ -629,8 +629,9 @@ async function saveUser(user) {
 
 // ─── Upload photo de team member ──────────────────────────────────────
 // Stratégie : on stocke les photos dans la doc library par défaut, sous /AuditFlow/TeamPhotos/
-// Le filename est prévisible : tm_<userId>.<ext>
-async function uploadTeamPhoto(userId, file) {
+// Le filename est prévisible : tm_<canonicalKey>.<ext>
+// canonicalKey = préfixe email (ex: 'pmassard') pour que les alias 74S/Axway partagent la même photo
+async function uploadTeamPhoto(canonicalKey, file) {
   if (typeof CU !== 'undefined' && CU && CU.role === 'viewer') {
     if (typeof toast === 'function') toast('Accès en lecture seule');
     return null;
@@ -640,7 +641,9 @@ async function uploadTeamPhoto(userId, file) {
   if (!['png','jpg','jpeg','gif','webp'].includes(ext)) {
     throw new Error('Format de photo non supporté (utiliser PNG, JPG, GIF ou WebP)');
   }
-  var fileName = 'tm_' + userId + '.' + ext;
+  // Sanitiser la clé pour le nom de fichier
+  var safeKey = String(canonicalKey || 'unknown').replace(/[^a-zA-Z0-9_-]/g,'_');
+  var fileName = 'tm_' + safeKey + '.' + ext;
 
   var driveId = await getDriveId();
   var uploadPath = '/drives/' + driveId + '/root:/AuditFlow/TeamPhotos/' + fileName + ':/content';
@@ -652,14 +655,6 @@ async function uploadTeamPhoto(userId, file) {
   });
   if (!res.ok) throw new Error('Upload photo failed: ' + res.status);
   var data = await res.json();
-
-  // Mettre à jour le user en mémoire + SharePoint
-  var u = (DB.users || []).find(function(x){return x.id===userId;});
-  if (u) u.photoFilename = fileName;
-  if (TM[userId]) TM[userId].photoFilename = fileName;
-
-  // Sauver dans AF_Users
-  if (u) await saveUser(u);
 
   console.log('[SP] Photo uploaded:', fileName);
   return { fileName: fileName, webUrl: data.webUrl, itemId: data.id };
@@ -850,6 +845,41 @@ function syncTeamMembers() {
   // (pour ne pas casser les audits existants qui référencent encore pm/sh/ne)
   Object.keys(newTM).forEach(function(k) { TM[k] = newTM[k]; });
   Object.keys(newAVC).forEach(function(k) { AVC[k] = newAVC[k]; });
+
+  // Propager photo/experience/academics entre alias d'un même utilisateur
+  // (même préfixe email, ex: pmassard@74software.com et pmassard@axway.com)
+  // Cela garantit que le pptx affiche la photo quel que soit l'alias assigné à l'audit.
+  var groupsByPrefix = {};
+  (DB.users || []).forEach(function(u){
+    if (!u.email) return;
+    var em = u.email.toLowerCase().trim();
+    if (em.indexOf('@')<=0) return;
+    var prefix = em.split('@')[0];
+    if (!groupsByPrefix[prefix]) groupsByPrefix[prefix] = [];
+    groupsByPrefix[prefix].push(u.id);
+  });
+  Object.keys(groupsByPrefix).forEach(function(prefix){
+    var ids = groupsByPrefix[prefix];
+    if (ids.length < 2) return; // pas d'alias, rien à propager
+    // Trouver le premier alias qui a une donnée
+    var firstPhoto = '';
+    var firstExp = '';
+    var firstAcad = '';
+    ids.forEach(function(uid){
+      if (TM[uid]) {
+        if (!firstPhoto && TM[uid].photoFilename) firstPhoto = TM[uid].photoFilename;
+        if (!firstExp && TM[uid].experience) firstExp = TM[uid].experience;
+        if (!firstAcad && TM[uid].academics) firstAcad = TM[uid].academics;
+      }
+    });
+    // Propager aux alias qui n'ont rien
+    ids.forEach(function(uid){
+      if (!TM[uid]) return;
+      if (firstPhoto && !TM[uid].photoFilename) TM[uid].photoFilename = firstPhoto;
+      if (firstExp && !TM[uid].experience) TM[uid].experience = firstExp;
+      if (firstAcad && !TM[uid].academics) TM[uid].academics = firstAcad;
+    });
+  });
 
   console.log('[SP] TM sync — ' + Object.keys(TM).length + ' membres disponibles');
 }
