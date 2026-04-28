@@ -2325,12 +2325,33 @@ V['planification']=()=>`
         <option value="BU">BU</option>
         <option value="Other">Autres</option>
       </select>
+      <button class="bs" onclick="shiftYear(-1)" title="Année précédente" style="font-size:14px;padding:4px 10px;line-height:1">◀</button>
       <select id="f-pyr" onchange="renderGantt()"><option value="all">Toutes années</option><option value="2025" selected>2025</option><option value="2026">2026</option><option value="2027">2027</option><option value="2028">2028</option></select>
+      <button class="bs" onclick="shiftYear(1)" title="Année suivante" style="font-size:14px;padding:4px 10px;line-height:1">▶</button>
       ${CU&&CU.role==='admin'?'<span style="font-size:10px;color:var(--text-3);font-style:italic;margin-left:auto">💡 Double-cliquez sur un audit pour le modifier</span>':''}
     </div>
     <div class="gw" id="gantt-wrap"></div>
   </div>`;
 I['planification']=()=>renderGantt();
+
+// ── Navigation année précédente / suivante ─────────────────────────────
+function shiftYear(delta) {
+  var sel = document.getElementById('f-pyr');
+  if (!sel) return;
+  var cur = sel.value;
+  // Si "all" → on prend l'année courante comme point de départ
+  var year = (cur === 'all') ? new Date().getFullYear() : parseInt(cur, 10);
+  if (isNaN(year)) year = new Date().getFullYear();
+  var newYear = year + delta;
+  // Vérifier que l'option existe
+  var opt = sel.querySelector('option[value="'+newYear+'"]');
+  if (!opt) {
+    if (typeof toast === 'function') toast('Pas d\'option pour ' + newYear);
+    return;
+  }
+  sel.value = String(newYear);
+  renderGantt();
+}
 
 // ── Création d'un audit depuis Planification (réutilise la modale Plan Audit, pré-remplit l'année) ──
 function showAddAuditFromPlanif(){
