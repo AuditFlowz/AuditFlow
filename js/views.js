@@ -922,8 +922,8 @@ function renderProcTable(){
     return (a||'').localeCompare(b||'', 'fr', {sensitivity:'base'});
   });
   var h='<thead><tr>'
-    +'<th style="width:160px">Domaine</th>'
-    +'<th>Processus</th>'
+    +'<th style="width:200px">Domaine / Processus</th>'
+    +'<th>Description</th>'
     +'<th style="width:120px">Niveau de risque</th>'
     +'<th style="width:180px">'+(CU&&CU.role==='admin'?'Actions':'Risques')+'</th>'
     +'</tr></thead><tbody>';
@@ -934,15 +934,13 @@ function renderProcTable(){
     doms.forEach(function(dom){
       var rows=PROCESSES.filter(function(p){return p.dom===dom&&!p.archived;});
       if(!rows.length) return;
-      // Trier les processus A-Z
       rows.sort(function(a,b){
         return (a.proc||'').localeCompare(b.proc||'', 'fr', {sensitivity:'base'});
       });
-      // Ligne de section domaine — colspan=4 (toutes les colonnes)
-      var domIdx=PROCESSES.findIndex(function(p){return p.dom===dom;});
+      // Ligne de section domaine — fond coloré sur toutes les colonnes via colspan=4
       h+='<tr class="sr">';
-      h+='<td colspan="4" style="display:flex;align-items:center;justify-content:space-between;width:100%">';
-      h+='<span>'+dom+'</span>';
+      h+='<td colspan="4" style="background:#EEEDFE;color:#3C3489;font-weight:600;padding:8px 12px;white-space:nowrap;display:flex;align-items:center;justify-content:space-between;width:100%">';
+      h+='<span style="font-size:12px">'+dom+'</span>';
       if(CU&&CU.role==='admin'){
         h+='<button class="bs" style="font-size:10px;padding:2px 7px" onclick="showRenameDomainModal(\''+_escQ(dom)+'\')">Renommer</button>';
       }
@@ -950,12 +948,10 @@ function renderProcTable(){
 
       rows.forEach(function(p){
         var idx=PROCESSES.indexOf(p);
-        // Niveau de risque : toujours calculé auto depuis riskRefs (lecture seule)
         var effectiveLevel = (p.riskRefs && p.riskRefs.length)
           ? computeProcRiskLevelFromRefs(p.riskRefs)
           : (p.riskLevel || 'faible');
         var riskCell = riskLabel(effectiveLevel);
-        // Compteur de risques associés (Risk Universe)
         var refCount = (p.riskRefs||[]).length;
         var refCountBadge = refCount
           ? '<span class="badge bpc" style="font-size:9px;margin-left:4px">'+refCount+'</span>'
@@ -968,8 +964,8 @@ function renderProcTable(){
             +'</td>'
           :'<td><button class="bs" style="font-size:10px;padding:2px 7px" onclick="showProcRisksModal(\''+p.id+'\')">⚠ Risques'+refCountBadge+'</button></td>';
         h+='<tr>';
-        h+='<td style="font-size:11px;color:var(--text-2)">'+dom+'</td>';
-        h+='<td style="font-weight:500;font-size:12px">'+p.proc+'</td>';
+        h+='<td style="font-weight:500;font-size:12px;padding-left:18px">'+p.proc+'</td>';
+        h+='<td style="font-size:11px;color:var(--text-3)">'+(p.description||'—')+'</td>';
         h+='<td>'+riskCell+'</td>';
         h+=adminCell;
         h+='</tr>';
@@ -1454,7 +1450,7 @@ function renderPlanAuditTable(){
     var sb=b.dateDebut?parseInt(b.dateDebut):99;
     return sa-sb;
   });
-  var h='<thead><tr><th>Type</th><th>Titre</th><th>Detail</th><th>Annee</th><th>Auditeurs</th><th>Statut</th>'+(CU&&CU.role==='admin'?'<th>Actions</th>':'')+'</tr></thead><tbody>';
+  var h='<thead><tr><th>Type</th><th>Titre</th><th>Detail</th><th style="width:140px">Année / Mois</th><th>Auditeurs</th><th>Statut</th>'+(CU&&CU.role==='admin'?'<th>Actions</th>':'')+'</tr></thead><tbody>';
   if(!rows.length){
     h+='<tr><td colspan="7" style="text-align:center;color:var(--text-3);padding:1.5rem">Aucun audit planifié.</td></tr>';
   } else {
@@ -1924,14 +1920,14 @@ function renderPlanProcessTable(){
     + '</div>'
     + '</div>';
 
-  var h='<thead><tr><th>Domaine</th><th>Processus</th><th>Risque</th><th>Couverture</th><th>2025</th><th>2026</th><th>2027</th><th>2028</th></tr></thead><tbody>';
+  var h='<thead><tr><th style="width:200px">Domaine / Processus</th><th>Risque</th><th>Couverture</th><th>2025</th><th>2026</th><th>2027</th><th>2028</th></tr></thead><tbody>';
   doms.forEach(function(dom){
     var rows=PROCESSES.filter(function(p){return p.dom===dom&&!p.archived;});
     if(!rows.length)return;
     rows.sort(function(a,b){
       return (a.proc||'').localeCompare(b.proc||'', 'fr', {sensitivity:'base'});
     });
-    h+='<tr class="sr"><td colspan="7">'+dom+'</td></tr>';
+    h+='<tr class="sr"><td colspan="7" style="background:#EEEDFE;color:#3C3489;font-weight:600;font-size:12px;padding:8px 12px;white-space:nowrap">'+dom+'</td></tr>';
     rows.forEach(function(p){
       var yc=function(y){
         // Trouver tous les audits de l'année qui couvrent ce processus
@@ -1954,8 +1950,7 @@ function renderPlanProcessTable(){
         ? computeProcRiskLevelFromRefs(p.riskRefs)
         : (p.riskLevel||'faible');
       h+='<tr>'
-        +'<td style="font-size:11px;color:var(--text-2)">'+dom+'</td>'
-        +'<td style="font-weight:500;font-size:11px">'+p.proc+'</td>'
+        +'<td style="font-weight:500;font-size:11px;padding-left:18px">'+p.proc+'</td>'
         +'<td>'+riskLabel(effLvl)+'</td>'
         +'<td>'+covBadge+'</td>'
         +'<td>'+yc(2025)+'</td><td>'+yc(2026)+'</td><td>'+yc(2027)+'</td><td>'+yc(2028)+'</td>'
@@ -2441,6 +2436,167 @@ async function deleteAction(id){
 // ══════════════════════════════════════════════════════════════
 //  RISK UNIVERSE : hiérarchie des risques Groupe / Opérationnels
 // ══════════════════════════════════════════════════════════════
+
+V['risk-assessment']=()=>`
+  <div class="topbar">
+    <div class="tbtitle">Risk Assessment Methodology</div>
+    <div style="display:flex;gap:7px">
+      <button class="bs" onclick="raResetDefaults()" style="font-size:11px">↺ Restaurer les valeurs par défaut</button>
+      <button class="bp" onclick="raSave()">Sauvegarder</button>
+    </div>
+  </div>
+  <div class="content">
+    <div id="ra-root"></div>
+  </div>`;
+
+I['risk-assessment']=function(){
+  raRender();
+};
+
+// ─── Risk Assessment : valeurs par défaut ───────────────────────────
+const RA_DEFAULT = {
+  intro: "Risks are assessed based on their inherent impact and likelihood of occurrence. This evaluation is theoretical and performed prior to considering the control environment in place within the Group.",
+  impacts: ['Minor', 'Limited', 'Major', 'Severe'],
+  rows: [
+    {
+      label: 'Financial',
+      cells: [
+        'Revenue < €7M or <1%\nROA < €1M or <1%',
+        'Revenue €7–14M or 1–2%\nROA €1M-2M or 1–2%',
+        'Revenue €14–70M or 2–10%\nROA €2M-10M or 2–10%',
+        'Revenue > €70M or >10%\nROA > €10M or >10%',
+      ],
+    },
+    {
+      label: 'Legal',
+      cells: [
+        'Minor breach without legal implications\nNo fine\nEasy to resolve',
+        'Breach with limited consequences\nProbable fine < €200K',
+        'Major breach\nProbable fine between €200K and €2M\nPublic disclosure\nCustomer compensation',
+        'Serious breach\nFine > €2M\nPublic disclosure\nCustomer compensation ≥ €2M\nBusiness cessation',
+      ],
+    },
+    {
+      label: 'Reputation',
+      cells: [
+        'Internal effects only\nBrand value unaffected',
+        'Limited external exposure\nModerate brand impact\nNegative media coverage',
+        'Significant external exposure\nStrong brand impact\nNegative stakeholder perception',
+        'Extensive external exposure\nDamage to brand values\nIrreversible loss of stakeholder trust',
+      ],
+    },
+    {
+      label: 'Operations',
+      cells: [
+        'Minor outages\nNo data loss\nNo customer loss',
+        'Outages requiring correction\nLow impact on NPS\nLimited customer loss',
+        'Significant customer dissatisfaction\nPotential business loss\nReversible security breach',
+        'Customer data loss\nMultiple customers affected\nMajor business loss',
+      ],
+    },
+  ],
+  likelihoods: [
+    {label: 'Rare',      desc: 'Likely to occur in Exceptional cases'},
+    {label: 'Unlikely',  desc: 'Likely to occur in a particular set of conditions'},
+    {label: 'Possible',  desc: 'May occur at a given time'},
+    {label: 'Certain',   desc: 'Group already exposed or currently happening'},
+  ],
+};
+
+// Charger / sauvegarder le RA dans une variable globale (synced avec SharePoint)
+var RA_DATA = null;
+
+function raLoad() {
+  // Charge depuis DB (rempli par graph.js au boot)
+  if (typeof DB !== 'undefined' && DB.riskAssessment) {
+    RA_DATA = JSON.parse(JSON.stringify(DB.riskAssessment));
+  } else {
+    RA_DATA = JSON.parse(JSON.stringify(RA_DEFAULT));
+  }
+}
+
+async function raSave() {
+  if (!RA_DATA) return;
+  try {
+    if (typeof saveRiskAssessment === 'function') {
+      await saveRiskAssessment(RA_DATA);
+      toast('Risk Assessment sauvegardé ✓');
+    } else {
+      toast('Fonction de sauvegarde non disponible');
+    }
+  } catch(e) {
+    console.error('[RA] save error:', e);
+    toast('Erreur lors de la sauvegarde');
+  }
+}
+
+function raResetDefaults() {
+  if (!confirm('Restaurer toutes les valeurs par défaut ? Vos modifications non sauvegardées seront perdues.')) return;
+  RA_DATA = JSON.parse(JSON.stringify(RA_DEFAULT));
+  raRender();
+}
+
+function raSetIntro(val) { if (RA_DATA) RA_DATA.intro = val; }
+function raSetImpactLabel(idx, val) { if (RA_DATA && RA_DATA.impacts) RA_DATA.impacts[idx] = val; }
+function raSetRowLabel(rowIdx, val) { if (RA_DATA && RA_DATA.rows[rowIdx]) RA_DATA.rows[rowIdx].label = val; }
+function raSetCell(rowIdx, colIdx, val) { if (RA_DATA && RA_DATA.rows[rowIdx]) RA_DATA.rows[rowIdx].cells[colIdx] = val; }
+function raSetLikelihood(idx, field, val) { if (RA_DATA && RA_DATA.likelihoods[idx]) RA_DATA.likelihoods[idx][field] = val; }
+
+function raRender() {
+  if (!RA_DATA) raLoad();
+  var root = document.getElementById('ra-root');
+  if (!root) return;
+
+  var html = '';
+  // ── Intro ──
+  html += '<div class="card" style="margin-bottom:.75rem">';
+  html += '<div style="font-size:12px;font-weight:600;color:var(--text-2);margin-bottom:6px">Introduction (apparaît en haut de la slide « Risk valuation matrix » du rapport)</div>';
+  html += '<textarea onchange="raSetIntro(this.value)" style="width:100%;min-height:80px;font-size:12px;padding:8px;border:1px solid var(--border);border-radius:4px;resize:vertical">'+(RA_DATA.intro||'').replace(/</g,'&lt;')+'</textarea>';
+  html += '</div>';
+
+  // ── Tableau Impacts (matrice 4 colonnes par catégorie) ──
+  html += '<div class="card" style="margin-bottom:.75rem">';
+  html += '<div style="font-size:12px;font-weight:600;color:var(--text-2);margin-bottom:8px">Impact Matrix</div>';
+  html += '<div style="font-size:10px;color:var(--text-3);font-style:italic;margin-bottom:10px">Cliquez dans une cellule pour la modifier. Les sauts de ligne sont conservés.</div>';
+  html += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">';
+  // Header
+  html += '<thead><tr>';
+  html += '<th style="background:#2D2E83;color:#fff;padding:8px;text-align:left;width:120px;border:1px solid #ccc">Impact</th>';
+  RA_DATA.impacts.forEach(function(imp, i){
+    html += '<th style="background:#2D2E83;color:#fff;padding:6px;border:1px solid #ccc"><input value="'+(imp||'').replace(/"/g,'&quot;')+'" onchange="raSetImpactLabel('+i+',this.value)" style="width:100%;background:transparent;color:#fff;border:none;font-weight:bold;font-size:11px;text-align:center"/></th>';
+  });
+  html += '</tr></thead><tbody>';
+  // Rows
+  RA_DATA.rows.forEach(function(row, ri){
+    html += '<tr>';
+    html += '<td style="background:#F2F2F2;padding:6px;border:1px solid #ccc;font-weight:bold;vertical-align:top"><input value="'+(row.label||'').replace(/"/g,'&quot;')+'" onchange="raSetRowLabel('+ri+',this.value)" style="width:100%;background:transparent;border:none;font-weight:bold;font-size:11px"/></td>';
+    row.cells.forEach(function(c, ci){
+      html += '<td style="padding:0;border:1px solid #ccc;vertical-align:top"><textarea onchange="raSetCell('+ri+','+ci+',this.value)" style="width:100%;min-height:80px;border:none;padding:6px;font-size:10px;resize:vertical;font-family:inherit;background:transparent">'+(c||'').replace(/</g,'&lt;')+'</textarea></td>';
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table></div>';
+  html += '</div>';
+
+  // ── Tableau Likelihood ──
+  html += '<div class="card" style="margin-bottom:.75rem">';
+  html += '<div style="font-size:12px;font-weight:600;color:var(--text-2);margin-bottom:8px">Likelihood</div>';
+  html += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">';
+  html += '<thead><tr>';
+  html += '<th style="background:#2D2E83;color:#fff;padding:8px;text-align:left;width:140px;border:1px solid #ccc">Likelihood</th>';
+  html += '<th style="background:#2D2E83;color:#fff;padding:8px;text-align:left;border:1px solid #ccc">Description</th>';
+  html += '</tr></thead><tbody>';
+  RA_DATA.likelihoods.forEach(function(l, li){
+    html += '<tr>';
+    html += '<td style="background:#F2F2F2;padding:0;border:1px solid #ccc;font-weight:bold"><input value="'+(l.label||'').replace(/"/g,'&quot;')+'" onchange="raSetLikelihood('+li+',\'label\',this.value)" style="width:100%;background:transparent;border:none;padding:6px;font-weight:bold;font-size:11px"/></td>';
+    html += '<td style="padding:0;border:1px solid #ccc"><input value="'+(l.desc||'').replace(/"/g,'&quot;')+'" onchange="raSetLikelihood('+li+',\'desc\',this.value)" style="width:100%;border:none;padding:6px;font-size:11px"/></td>';
+    html += '</tr>';
+  });
+  html += '</tbody></table></div>';
+  html += '</div>';
+
+  root.innerHTML = html;
+}
 
 V['risk-universe']=()=>`
   <div class="topbar">
