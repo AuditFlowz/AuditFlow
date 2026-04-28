@@ -4023,16 +4023,31 @@ function renderKickoffPrepSection() {
   if (!p.interviews.length) {
     html += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:.5rem;text-align:center;border:1px dashed var(--border);border-radius:4px">Aucune interview planifiée. Cliquez sur « + Ajouter une interview ».</div>';
   } else {
-    html += '<div style="display:grid;grid-template-columns:1fr 1.2fr 1.4fr 1fr 30px;gap:6px;font-size:10px;color:var(--text-3);font-weight:500;padding:4px 0;border-bottom:.5px solid var(--border)">';
+    html += '<div style="display:grid;grid-template-columns:1fr 1.2fr 1.4fr 1.4fr 30px;gap:6px;font-size:10px;color:var(--text-3);font-weight:500;padding:4px 0;border-bottom:.5px solid var(--border)">';
     html += '<span>Département</span><span>Main contact</span><span>Email</span><span>Timeslot</span><span></span>';
     html += '</div>';
     p.interviews.forEach(function(itw, idx){
-      html += '<div style="display:grid;grid-template-columns:1fr 1.2fr 1.4fr 1fr 30px;gap:6px;padding:4px 0;border-bottom:.5px solid var(--border)">';
+      // Détecter le mode courant : si timeslot vaut '__tbd__' ou commence par 'TBD' → mode "Slot not defined yet"
+      var ts = itw.timeslot || '';
+      var isTbd = (ts === '__tbd__' || ts === 'Slot not defined yet');
+      var dateValue = isTbd ? '' : ts;
+      // Vérifier si la valeur actuelle ressemble à une date YYYY-MM-DD ; sinon afficher en texte libre
+      var isDate = /^\d{4}-\d{2}-\d{2}$/.test(dateValue);
+      html += '<div style="display:grid;grid-template-columns:1fr 1.2fr 1.4fr 1.4fr 30px;gap:6px;padding:4px 0;border-bottom:.5px solid var(--border)">';
       html += '<input value="'+(itw.dept||'').replace(/"/g,'&quot;')+'" placeholder="ex : Finance" onchange="setKickoffInterview('+idx+',\'dept\',this.value)" style="font-size:11px;padding:4px 6px;border:1px solid var(--border);border-radius:3px"/>';
       html += '<input value="'+(itw.contact||'').replace(/"/g,'&quot;')+'" placeholder="ex : J. Smith — CFO" onchange="setKickoffInterview('+idx+',\'contact\',this.value)" style="font-size:11px;padding:4px 6px;border:1px solid var(--border);border-radius:3px"/>';
       html += '<input value="'+(itw.email||'').replace(/"/g,'&quot;')+'" type="email" placeholder="j.smith@..." onchange="setKickoffInterview('+idx+',\'email\',this.value)" style="font-size:11px;padding:4px 6px;border:1px solid var(--border);border-radius:3px"/>';
-      html += '<input value="'+(itw.timeslot||'').replace(/"/g,'&quot;')+'" placeholder="ex : 12/05 — 10:00" onchange="setKickoffInterview('+idx+',\'timeslot\',this.value)" style="font-size:11px;padding:4px 6px;border:1px solid var(--border);border-radius:3px"/>';
-      html += '<button class="bd" style="font-size:11px;padding:3px 6px" onclick="removeKickoffInterview('+idx+')" title="Supprimer">×</button>';
+      // Cell "Timeslot" — checkbox TBD + date input
+      html += '<div style="display:flex;flex-direction:column;gap:3px">';
+      html += '<label style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--text-3);cursor:pointer">';
+      html += '<input type="checkbox" '+(isTbd?'checked':'')+' onchange="setKickoffInterviewTbd('+idx+',this.checked)" style="margin:0"/>';
+      html += '<span>Slot not defined yet</span>';
+      html += '</label>';
+      if (!isTbd) {
+        html += '<input type="date" value="'+(isDate?dateValue:'')+'" onchange="setKickoffInterview('+idx+',\'timeslot\',this.value)" style="font-size:11px;padding:4px 6px;border:1px solid var(--border);border-radius:3px"/>';
+      }
+      html += '</div>';
+      html += '<button class="bd" style="font-size:11px;padding:3px 6px;align-self:start" onclick="removeKickoffInterview('+idx+')" title="Supprimer">×</button>';
       html += '</div>';
     });
   }
@@ -4108,6 +4123,15 @@ async function setKickoffInterview(idx, field, val) {
   if (!d.kickoffPrep.interviews[idx]) return;
   d.kickoffPrep.interviews[idx][field] = val;
   await saveAuditData(CA);
+}
+async function setKickoffInterviewTbd(idx, isTbd) {
+  var d = getAudData(CA);
+  if (!d.kickoffPrep || !Array.isArray(d.kickoffPrep.interviews)) return;
+  if (!d.kickoffPrep.interviews[idx]) return;
+  d.kickoffPrep.interviews[idx].timeslot = isTbd ? '__tbd__' : '';
+  await saveAuditData(CA);
+  // Re-render pour afficher/masquer le date input
+  document.getElementById('det-content').innerHTML = renderDetContent();
 }
 async function removeKickoffInterview(idx) {
   var d = getAudData(CA);
