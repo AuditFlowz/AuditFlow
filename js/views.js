@@ -922,14 +922,13 @@ function renderProcTable(){
     return (a||'').localeCompare(b||'', 'fr', {sensitivity:'base'});
   });
   var h='<thead><tr>'
-    +'<th style="width:200px">Domaine / Processus</th>'
-    +'<th>Description</th>'
+    +'<th style="width:340px">Domaine / Processus</th>'
     +'<th style="width:120px">Niveau de risque</th>'
     +'<th style="width:180px">'+(CU&&CU.role==='admin'?'Actions':'Risques')+'</th>'
     +'</tr></thead><tbody>';
 
   if(!doms.length){
-    h+='<tr><td colspan="4" style="text-align:center;color:var(--text-3);padding:2rem">Aucun processus. Cliquez sur "+ Domaine" pour commencer.</td></tr>';
+    h+='<tr><td colspan="3" style="text-align:center;color:var(--text-3);padding:2rem">Aucun processus. Cliquez sur "+ Domaine" pour commencer.</td></tr>';
   } else {
     doms.forEach(function(dom){
       var rows=PROCESSES.filter(function(p){return p.dom===dom&&!p.archived;});
@@ -937,9 +936,8 @@ function renderProcTable(){
       rows.sort(function(a,b){
         return (a.proc||'').localeCompare(b.proc||'', 'fr', {sensitivity:'base'});
       });
-      // Ligne de section domaine — fond coloré sur toutes les colonnes via colspan=4
       h+='<tr class="sr">';
-      h+='<td colspan="4" style="background:#EEEDFE;color:#3C3489;font-weight:600;padding:8px 12px;white-space:nowrap;display:flex;align-items:center;justify-content:space-between;width:100%">';
+      h+='<td colspan="3" style="background:#EEEDFE;color:#3C3489;font-weight:600;padding:8px 12px;white-space:nowrap;display:flex;align-items:center;justify-content:space-between;width:100%">';
       h+='<span style="font-size:12px">'+dom+'</span>';
       if(CU&&CU.role==='admin'){
         h+='<button class="bs" style="font-size:10px;padding:2px 7px" onclick="showRenameDomainModal(\''+_escQ(dom)+'\')">Renommer</button>';
@@ -965,7 +963,6 @@ function renderProcTable(){
           :'<td><button class="bs" style="font-size:10px;padding:2px 7px" onclick="showProcRisksModal(\''+p.id+'\')">⚠ Risques'+refCountBadge+'</button></td>';
         h+='<tr>';
         h+='<td style="font-weight:500;font-size:12px;padding-left:18px">'+p.proc+'</td>';
-        h+='<td style="font-size:11px;color:var(--text-3)">'+(p.description||'—')+'</td>';
         h+='<td>'+riskCell+'</td>';
         h+=adminCell;
         h+='</tr>';
