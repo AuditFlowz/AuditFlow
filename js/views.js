@@ -3087,6 +3087,156 @@ async function plSavePL(pl) {
 }
 
 // ══════════════════════════════════════════════════════════════
+//  TEAM (profils enrichis : photo + experience + academics)
+// ══════════════════════════════════════════════════════════════
+V['team']=()=>`
+  <div class="topbar">
+    <div class="tbtitle">Team</div>
+    <div style="font-size:11px;color:var(--text-3);font-style:italic">Profils utilisés dans la slide « Audit Team » du Kick Off Presentation.</div>
+  </div>
+  <div class="content">
+    <div id="team-root"></div>
+  </div>`;
+
+I['team']=function(){ teamRender(); };
+
+function teamRender() {
+  var root = document.getElementById('team-root');
+  if (!root) return;
+
+  // Récupérer tous les users (sauf viewers)
+  var users = (typeof DB !== 'undefined' && DB.users) ? DB.users.filter(function(u){
+    return u.status !== 'archived' && u.role !== 'viewer';
+  }) : [];
+
+  if (!users.length) {
+    root.innerHTML = '<div style="text-align:center;color:var(--text-3);padding:2rem">Aucun membre actif dans l\'équipe.</div>';
+    return;
+  }
+
+  var html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px">';
+  users.forEach(function(u){
+    html += teamRenderCard(u);
+  });
+  html += '</div>';
+  root.innerHTML = html;
+}
+
+function teamRenderCard(u) {
+  var html = '<div class="card" style="display:flex;flex-direction:column;align-items:center;padding:16px;text-align:center">';
+
+  // Photo ou initiales
+  var photoHtml = '';
+  if (u.photoFilename) {
+    // On affiche l'image via Graph (avec un état de chargement)
+    var imgId = 'team-img-' + u.id.replace(/[^a-zA-Z0-9]/g,'_');
+    photoHtml = '<div id="'+imgId+'" style="width:100px;height:100px;border-radius:50%;background:var(--purple);display:flex;align-items:center;justify-content:center;margin-bottom:12px;overflow:hidden;color:#fff;font-size:32px;font-weight:600">'+(u.initials||'?')+'</div>';
+    // Charger asynchroniquement la photo
+    setTimeout(function(){
+      if (typeof getTeamPhotoDataUrl === 'function') {
+        getTeamPhotoDataUrl(u.photoFilename).then(function(dataUrl){
+          if (!dataUrl) return;
+          var el = document.getElementById(imgId);
+          if (el) el.innerHTML = '<img src="'+dataUrl+'" style="width:100%;height:100%;object-fit:cover"/>';
+        });
+      }
+    }, 0);
+  } else {
+    photoHtml = '<div style="width:100px;height:100px;border-radius:50%;background:var(--purple);display:flex;align-items:center;justify-content:center;margin-bottom:12px;color:#fff;font-size:32px;font-weight:600">'+(u.initials||'?')+'</div>';
+  }
+  html += photoHtml;
+
+  // Nom
+  html += '<div style="font-size:15px;font-weight:600;color:var(--text-1)">'+u.name+'</div>';
+  // Role
+  var roleLabel = u.role === 'admin' ? 'Administrateur' : u.role === 'auditeur' ? 'Auditeur' : u.role;
+  html += '<div style="font-size:11px;color:var(--text-3);font-style:italic;margin-bottom:10px">'+roleLabel+'</div>';
+
+  // Experience + Academics (preview)
+  if (u.experience) {
+    html += '<div style="font-size:10px;color:var(--text-2);text-align:left;width:100%;margin-bottom:4px"><strong>Experience:</strong> '+(u.experience.length>80?u.experience.substring(0,80)+'…':u.experience)+'</div>';
+  }
+  if (u.academics) {
+    html += '<div style="font-size:10px;color:var(--text-2);text-align:left;width:100%;margin-bottom:8px"><strong>Academics:</strong> '+(u.academics.length>80?u.academics.substring(0,80)+'…':u.academics)+'</div>';
+  }
+  if (!u.experience && !u.academics) {
+    html += '<div style="font-size:10px;color:var(--text-3);font-style:italic;margin-bottom:8px">Aucun détail renseigné</div>';
+  }
+
+  // Bouton Éditer
+  html += '<button class="bs" style="font-size:11px;padding:5px 12px;margin-top:auto" onclick="teamShowEditModal(\''+u.id+'\')">Éditer le profil</button>';
+
+  html += '</div>';
+  return html;
+}
+
+function teamShowEditModal(userId) {
+  var u = (DB.users || []).find(function(x){return x.id===userId;});
+  if (!u) return;
+
+  var body = '<div style="display:flex;flex-direction:column;gap:12px">';
+
+  // Photo upload
+  body += '<div>';
+  body += '<label style="font-size:11px;color:var(--text-3)">Photo</label>';
+  body += '<div style="display:flex;align-items:center;gap:12px;margin-top:4px">';
+  var previewId = 'tm-photo-preview';
+  body += '<div id="'+previewId+'" style="width:80px;height:80px;border-radius:50%;background:var(--purple);display:flex;align-items:center;justify-content:center;color:#fff;font-size:24px;font-weight:600;overflow:hidden;flex-shrink:0">'+(u.initials||'?')+'</div>';
+  body += '<div style="flex:1;display:flex;flex-direction:column;gap:6px">';
+  body += '<input type="file" id="tm-photo-input" accept="image/png,image/jpeg,image/gif,image/webp" style="font-size:11px"/>';
+  body += '<div style="font-size:10px;color:var(--text-3);font-style:italic">PNG, JPG, GIF ou WebP. Recommandé : carré, 200×200 minimum.</div>';
+  if (u.photoFilename) {
+    body += '<div style="font-size:10px;color:var(--text-2)">Photo actuelle : '+u.photoFilename+'</div>';
+  }
+  body += '</div></div></div>';
+
+  // Experience
+  body += '<div>';
+  body += '<label style="font-size:11px;color:var(--text-3)">Experience</label>';
+  body += '<textarea id="tm-experience" style="width:100%;min-height:60px;font-size:12px;padding:6px;border:1px solid var(--border);border-radius:4px;resize:vertical" placeholder="ex : 10+ years in audit, 5 years at PwC, IFRS expert...">'+(u.experience||'').replace(/</g,'&lt;')+'</textarea>';
+  body += '</div>';
+
+  // Academics
+  body += '<div>';
+  body += '<label style="font-size:11px;color:var(--text-3)">Academics</label>';
+  body += '<textarea id="tm-academics" style="width:100%;min-height:60px;font-size:12px;padding:6px;border:1px solid var(--border);border-radius:4px;resize:vertical" placeholder="ex : MSc Finance ESCP, CFA, CIA...">'+(u.academics||'').replace(/</g,'&lt;')+'</textarea>';
+  body += '</div>';
+
+  body += '</div>';
+
+  openModal('Éditer le profil — '+u.name, body, async function(){
+    var experience = document.getElementById('tm-experience').value.trim();
+    var academics = document.getElementById('tm-academics').value.trim();
+    var photoInput = document.getElementById('tm-photo-input');
+    var newPhoto = photoInput && photoInput.files && photoInput.files[0] ? photoInput.files[0] : null;
+
+    // Upload photo si fournie
+    if (newPhoto) {
+      try {
+        toast('Upload de la photo...');
+        await uploadTeamPhoto(userId, newPhoto);
+      } catch(e) {
+        toast('Erreur upload photo : '+e.message);
+        console.error(e);
+        return;
+      }
+    }
+
+    // Mettre à jour les champs texte
+    u.experience = experience;
+    u.academics = academics;
+    if (TM[u.id]) {
+      TM[u.id].experience = experience;
+      TM[u.id].academics = academics;
+    }
+    await saveUser(u);
+    toast('Profil mis à jour ✓');
+    teamRender();
+  });
+}
+
+
+// ══════════════════════════════════════════════════════════════
 //  HISTORIQUE (inchangé)
 // ══════════════════════════════════════════════════════════════
 V['historique']=()=>`<div class="topbar"><div class="tbtitle">Historique des modifications</div></div>
