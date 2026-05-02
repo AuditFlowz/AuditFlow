@@ -710,15 +710,16 @@ async function uploadDoc(auditId, file, stepIndex, userName) {
   if (!res.ok) throw new Error('Upload failed: '+res.status);
   var data = await res.json();
   var sizeTxt = file.size<1024*1024 ? Math.round(file.size/1024)+' Ko' : (file.size/1024/1024).toFixed(1)+' Mo';
-  var docObj = {
+  // NOTE : on retourne l'objet — c'est au caller de le push dans d.docs et de saveAuditData.
+  // L'id local (préfixé 'doc_') est nécessaire pour que les boutons UI (markDocPendingReview,
+  // markDocReviewed, removeDoc, downloadDoc) puissent retrouver l'entrée par doc.id.
+  return {
+    id: 'doc_'+Date.now()+'_'+Math.floor(Math.random()*1000),
     name:file.name, size:sizeTxt, url:data.webUrl, driveId:driveId, itemId:data.id,
     uploadedBy:userName||'Inconnu', uploadedAt:new Date().toISOString(),
     step:stepIndex!==undefined?stepIndex:null,
+    reviewStatus:'none',
   };
-  var d = getAudData(auditId);
-  d.docs.push(docObj);
-  await saveAuditData(auditId);
-  return docObj;
 }
 
 async function deleteDoc(auditId, itemId, name) {
@@ -749,7 +750,12 @@ async function replaceDocInDB(auditId, docIndex, file, stepIndex, userName) {
     try { var driveId = await getDriveId(); await graphCall('DELETE','/drives/'+driveId+'/items/'+oldDoc.itemId); } catch(e) {}
   }
   d.docs.splice(docIndex,1);
-  return await uploadDoc(auditId, file, stepIndex, userName);
+  var newDoc = await uploadDoc(auditId, file, stepIndex, userName);
+  if (newDoc) {
+    d.docs.push(newDoc);
+    await saveAuditData(auditId);
+  }
+  return newDoc;
 }
 
 function tryParse(str, fallback) {
