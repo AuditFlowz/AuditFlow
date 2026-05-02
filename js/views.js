@@ -3581,6 +3581,12 @@ V['audit-detail']=()=>{
   if(typeof CS!=='number' || CS<0 || CS>9) CS=0;
   const step=STEPS[CS]||{s:'—'};
   const pct = Math.min(100, (CS + 1) * 10);
+  // Compter les docs de l'audit
+  const audData = getAudData(CA);
+  const docsCount = (audData.docs || []).length;
+  // État panneau ouvert/fermé (lu depuis variable globale, par défaut fermé)
+  if (typeof DOCS_PANEL_OPEN === 'undefined') window.DOCS_PANEL_OPEN = false;
+  const panelOpen = !!window.DOCS_PANEL_OPEN;
   return `
     <div class="topbar">
       <div style="display:flex;align-items:center;gap:8px">
@@ -3588,16 +3594,163 @@ V['audit-detail']=()=>{
         <div class="tbtitle">${a.name}</div>
       </div>
       <div style="display:flex;gap:7px" id="step-actions">
+        <button class="bs" onclick="toggleDocsPanel()" style="font-size:11px;${panelOpen?'background:#EEEDFE;color:#3C3489;border-color:#CECBF6':''}" title="Voir les documents de l'audit">📁 Documents (${docsCount})</button>
         <button class="bs" onclick="exportAuditPDF(CA)" style="font-size:11px;">⬇ Export PDF</button>
         ${getStepActionButtonHTML()}
       </div>
     </div>
     <div class="content">
       <div id="audit-header-compact">${renderAuditHeaderCompact(a, step, pct)}</div>
-      <div id="det-content">${renderDetContent()}</div>
+      <div id="det-layout" style="display:grid;grid-template-columns:${panelOpen?'1fr 320px':'1fr'};gap:14px;align-items:start">
+        <div id="det-content" style="min-width:0">${renderDetContent()}</div>
+        ${panelOpen ? '<div id="docs-panel" style="position:sticky;top:14px;max-height:calc(100vh - 140px)">'+renderDocsPanel()+'</div>' : ''}
+      </div>
     </div>`;
 };
 I['audit-detail']=()=>{};
+
+// ─── Panel "Documents" sticky à droite (option 2 — workflow audit) ────────
+window.DOCS_PANEL_OPEN = false;
+
+function toggleDocsPanel() {
+  window.DOCS_PANEL_OPEN = !window.DOCS_PANEL_OPEN;
+  // Re-render via nav() (la fonction officielle de routage)
+  if (typeof nav === 'function' && CA) {
+    nav('audit-detail');
+  } else {
+    // Fallback : rebuild manuel
+    var c = document.getElementById('vc');
+    if (c) {
+      c.innerHTML = V['audit-detail']();
+      if (I['audit-detail']) I['audit-detail']();
+    }
+  }
+}
+
+function renderDocsPanel() {
+  var d = getAudData(CA);
+  var docs = d.docs || [];
+  var STEPS_LOCAL = (typeof STEPS !== 'undefined') ? STEPS : [];
+
+  // Grouper par étape
+  var byStep = {};
+  var noStep = [];
+  docs.forEach(function(doc, idx){
+    var step = (typeof doc.step === 'number') ? doc.step : null;
+    if (step === null || step === undefined) {
+      noStep.push({doc: doc, idx: idx});
+    } else {
+      if (!byStep[step]) byStep[step] = [];
+      byStep[step].push({doc: doc, idx: idx});
+    }
+  });
+
+  var html = '<div class="card" style="padding:0;overflow:hidden;display:flex;flex-direction:column;height:100%">';
+  // Header
+  html += '<div style="padding:12px 14px;border-bottom:.5px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0">';
+  html += '<div style="font-size:13px;font-weight:600;color:var(--text-1)">📁 Documents <span style="font-size:11px;font-weight:400;color:var(--text-3)">('+docs.length+')</span></div>';
+  html += '<button class="bs" onclick="toggleDocsPanel()" style="font-size:13px;padding:2px 8px;line-height:1" title="Fermer">✕</button>';
+  html += '</div>';
+
+  // Search
+  html += '<div style="padding:10px 14px;border-bottom:.5px solid var(--border);flex-shrink:0">';
+  html += '<input id="docs-panel-search" placeholder="Rechercher..." oninput="filterDocsPanel(this.value)" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px"/>';
+  html += '</div>';
+
+  // Body scrollable
+  html += '<div id="docs-panel-list" style="flex:1;overflow-y:auto;padding:8px 6px">';
+
+  if (!docs.length) {
+    html += '<div style="font-size:11px;color:var(--text-3);font-style:italic;text-align:center;padding:1.5rem 1rem">Aucun document uploadé pour cet audit.</div>';
+  } else {
+    // Sections par étape (ordonnées 0..9)
+    var stepKeys = Object.keys(byStep).map(Number).sort(function(a,b){return a-b;});
+    stepKeys.forEach(function(stepIdx){
+      var stepName = STEPS_LOCAL[stepIdx] ? (STEPS_LOCAL[stepIdx].s || ('Étape '+(stepIdx+1))) : ('Étape '+(stepIdx+1));
+      html += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.3px;padding:8px 8px 4px 8px;font-weight:500">Étape '+(stepIdx+1)+' — '+stepName+'</div>';
+      byStep[stepIdx].forEach(function(item){
+        html += renderDocsPanelItem(item.doc, item.idx);
+      });
+    });
+    if (noStep.length) {
+      html += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.3px;padding:8px 8px 4px 8px;font-weight:500">Sans étape</div>';
+      noStep.forEach(function(item){
+        html += renderDocsPanelItem(item.doc, item.idx);
+      });
+    }
+  }
+
+  html += '</div></div>';
+  return html;
+}
+
+function renderDocsPanelItem(doc, idx) {
+  var ext = ((doc.name||'').split('.').pop()||'').toUpperCase();
+  // Couleur du badge selon le type
+  var badge = {bg:'#F1EFE8', fg:'#5F5E5A', label: ext||'?'};
+  if (ext === 'PDF') badge = {bg:'#FAECE7', fg:'#993C1D', label:'PDF'};
+  else if (['PNG','JPG','JPEG','GIF','WEBP'].indexOf(ext)>=0) badge = {bg:'#E1F5EE', fg:'#0F6E56', label:ext};
+  else if (['DOC','DOCX'].indexOf(ext)>=0) badge = {bg:'#E6F1FB', fg:'#0C447C', label:ext};
+  else if (['XLS','XLSX'].indexOf(ext)>=0) badge = {bg:'#EAF3DE', fg:'#3B6D11', label:ext};
+  else if (['PPT','PPTX'].indexOf(ext)>=0) badge = {bg:'#FBEAF0', fg:'#993556', label:ext};
+
+  var name = doc.name || 'fichier';
+  var meta = [];
+  if (doc.uploadedBy) meta.push(doc.uploadedBy);
+  if (doc.size) meta.push(doc.size);
+
+  var canView = doc.driveId && doc.itemId;
+  var clickAttr = canView ? 'onclick="openDocViewer(getAudData(CA).docs['+idx+'])" style="cursor:pointer"' : 'style="cursor:default;opacity:0.7"';
+
+  var html = '<div class="docs-panel-item" data-name="'+_escQ((name||'').toLowerCase())+'" '+clickAttr+' style="display:flex;align-items:center;gap:7px;padding:6px 8px;border-radius:4px;margin-bottom:1px" onmouseover="this.style.background=\'#f5f5f5\'" onmouseout="this.style.background=\'transparent\'">';
+  html += '<div style="width:22px;height:22px;background:'+badge.bg+';color:'+badge.fg+';border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;flex-shrink:0">'+badge.label+'</div>';
+  html += '<div style="flex:1;min-width:0">';
+  html += '<div style="font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text-1)" title="'+_escQ(name)+'">'+name+'</div>';
+  if (meta.length) {
+    html += '<div style="font-size:9px;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+meta.join(' · ')+'</div>';
+  }
+  html += '</div>';
+  if (canView) {
+    html += '<span style="font-size:11px;color:var(--text-3);flex-shrink:0">👁</span>';
+  }
+  html += '</div>';
+  return html;
+}
+
+function filterDocsPanel(q) {
+  q = (q||'').toLowerCase().trim();
+  var items = document.querySelectorAll('.docs-panel-item');
+  items.forEach(function(it){
+    var name = it.getAttribute('data-name') || '';
+    it.style.display = (!q || name.indexOf(q)>=0) ? '' : 'none';
+  });
+  // Cacher les sections vides
+  var sections = document.querySelectorAll('#docs-panel-list > div[style*="text-transform"]');
+  sections.forEach(function(sec){
+    // Sibling cards visibles ?
+    var sib = sec.nextElementSibling;
+    var hasVisible = false;
+    while (sib && !sib.style.cssText.includes('text-transform')) {
+      if (sib.style.display !== 'none') { hasVisible = true; break; }
+      sib = sib.nextElementSibling;
+    }
+    sec.style.display = hasVisible ? '' : 'none';
+  });
+}
+
+// Rafraîchit le panel docs et le compteur dans la topbar (à appeler après tout changement de docs)
+function refreshDocsPanel() {
+  // Compteur dans la topbar
+  var topbarBtn = document.querySelector('#step-actions button[onclick="toggleDocsPanel()"]');
+  if (topbarBtn) {
+    var d = getAudData(CA);
+    var n = (d.docs || []).length;
+    topbarBtn.innerHTML = '📁 Documents ('+n+')';
+  }
+  // Panel content (si ouvert)
+  var panel = document.getElementById('docs-panel');
+  if (panel) panel.innerHTML = renderDocsPanel();
+}
 
 function getStepTabs(){return ['main'];} // gardé pour compat (plus utilisé avec onglets)
 const TLBL={'main':'Détail'};
@@ -3743,6 +3896,9 @@ function renderDetContent(){
 
   // ── 5. NOTES (préparer + reviewer) ───────────────────────
   html += renderNotesSection();
+
+  // Rafraîchir le panel docs (compteur + contenu) après le re-render de det-content
+  setTimeout(function(){ if (typeof refreshDocsPanel === 'function') refreshDocsPanel(); }, 0);
 
   return html;
 }
