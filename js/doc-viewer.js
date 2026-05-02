@@ -170,7 +170,7 @@ async function openDocViewer(doc) {
     } else if (kind === 'text') {
       await dvRenderText(doc);
     } else if (kind === 'office') {
-      dvRenderOffice(doc);
+      await dvRenderOffice(doc);
     } else if (kind === 'video') {
       await dvRenderVideo(doc);
     } else if (kind === 'audio') {
@@ -314,30 +314,78 @@ async function dvRenderText(doc) {
 }
 
 // ─── OFFICE (DOCX/XLSX/PPTX) ───────────────────────────────────────────────
-function dvRenderOffice(doc) {
-  // Pas de rendu natif possible côté client. Solution : iframe Office Online.
-  // L'iframe nécessite que le webUrl soit accessible. Pour SharePoint, on utilise
-  // l'URL SharePoint directement (qui ouvre Office Online dans l'iframe avec auth).
+// Solution : on utilise l'API Graph "driveItem: preview" qui retourne un
+// getUrl pré-authentifié vers onedrive.com/embed — cette URL est embeddable
+// (pas de X-Frame-Options bloquant comme sur SharePoint direct).
+// Doc : https://learn.microsoft.com/en-us/graph/api/driveitem-preview
+async function dvRenderOffice(doc) {
   var body = document.getElementById('dv-body');
-  if (!DV_STATE.webUrl) {
-    body.innerHTML = '<div style="color:#666;font-size:13px;text-align:center;padding:2rem">Aperçu non disponible. <button class="bs" onclick="dvDownload()">⬇ Télécharger</button></div>';
+  document.getElementById('dv-subtitle').textContent = 'Office Online';
+
+  // Affichage temporaire pendant le chargement du preview
+  body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#666;font-size:13px">Chargement de l\'aperçu…</div>';
+  body.style.padding = '0';
+
+  // Fallback si on n'a pas les infos nécessaires
+  if (!doc.driveId || !doc.itemId) {
+    dvRenderOfficeFallback(body, 'Identifiants Graph manquants pour cet item.');
     return;
   }
-  // Construire l'URL Office embed (action=embedview)
-  // Pour SharePoint : webUrl + ?action=embedview ou utiliser /_layouts/15/Doc.aspx
-  // Plus simple : utiliser viewer Microsoft Office
-  // var officeUrl = 'https://view.officeapps.live.com/op/embed.aspx?src=' + encodeURIComponent(DV_STATE.webUrl);
-  // Note : ça ne marche que si l'URL est publique. Pour SharePoint privé, on embed directement.
-  var embedUrl = DV_STATE.webUrl;
-  // Ajouter le param embed si pas déjà là
-  if (embedUrl.indexOf('action=embedview') < 0 && embedUrl.indexOf('?') >= 0) {
-    embedUrl += '&action=embedview';
-  } else if (embedUrl.indexOf('?') < 0) {
-    embedUrl += '?action=embedview';
+
+  try {
+    if (typeof getGraphToken !== 'function') throw new Error('Graph non initialisé');
+    var token = await getGraphToken();
+    var res = await fetch(
+      'https://graph.microsoft.com/v1.0/drives/' + doc.driveId + '/items/' + doc.itemId + '/preview',
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + token,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({}),
+      }
+    );
+    if (!res.ok) {
+      var errText = await res.text();
+      throw new Error('Graph preview ' + res.status + ': ' + errText.slice(0, 200));
+    }
+    var data = await res.json();
+    var embedUrl = data.getUrl;
+    if (!embedUrl) throw new Error('Aucun getUrl retourné par Graph');
+
+    // Ajouter ?nb=true pour supprimer la bannière "Open in Office"
+    embedUrl += (embedUrl.indexOf('?') >= 0 ? '&' : '?') + 'nb=true';
+
+    body.innerHTML = '<iframe src="' + embedUrl.replace(/"/g, '&quot;') + '" '
+      + 'style="width:100%;height:100%;border:none;background:#fff" '
+      + 'allow="clipboard-read; clipboard-write" '
+      + 'sandbox="allow-scripts allow-same-origin allow-popups allow-forms"></iframe>';
+  } catch (e) {
+    console.warn('[dvRenderOffice] preview API failed:', e);
+    dvRenderOfficeFallback(body, e.message || 'Erreur inconnue');
   }
-  body.style.padding = '0';
-  body.innerHTML = '<iframe src="'+embedUrl.replace(/"/g,'&quot;')+'" style="width:100%;height:100%;border:none;background:#fff"></iframe>';
-  document.getElementById('dv-subtitle').textContent = 'Office Online';
+}
+
+// Fallback : afficher un bouton "Ouvrir dans onglet" + "Télécharger" quand
+// l'aperçu intégré n'a pas pu être généré.
+function dvRenderOfficeFallback(body, errorMsg) {
+  body.style.padding = '2rem';
+  var html = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;text-align:center;color:#444;gap:14px">';
+  html += '<div style="font-size:48px;opacity:.4">📄</div>';
+  html += '<div style="font-size:14px;font-weight:500">Aperçu intégré indisponible</div>';
+  html += '<div style="font-size:12px;color:#777;max-width:420px">Le document peut être ouvert directement dans Office Online ou téléchargé.</div>';
+  html += '<div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap;justify-content:center">';
+  if (DV_STATE.webUrl) {
+    html += '<button class="bp" onclick="window.open(\'' + DV_STATE.webUrl.replace(/'/g, "\\'") + '\',\'_blank\')">↗ Ouvrir dans Office Online</button>';
+  }
+  html += '<button class="bs" onclick="dvDownload()">⬇ Télécharger</button>';
+  html += '</div>';
+  if (errorMsg) {
+    html += '<details style="margin-top:14px;font-size:11px;color:#999"><summary style="cursor:pointer">Détails techniques</summary><div style="margin-top:6px;font-family:monospace;text-align:left;padding:8px;background:#f5f5f5;border-radius:4px">' + errorMsg.replace(/</g, '&lt;') + '</div></details>';
+  }
+  html += '</div>';
+  body.innerHTML = html;
 }
 
 // ─── VIDEO ─────────────────────────────────────────────────────────────────
