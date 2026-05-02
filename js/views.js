@@ -184,6 +184,66 @@ async function removeProcRisk(procId,ri){
 }
 
 // ══════════════════════════════════════════════════════════════
+//  HELPER GLOBAL — Récupérer tous les risques d'un audit
+//  (URD via processus + ad hoc dans d.auditRisks)
+// ══════════════════════════════════════════════════════════════
+function getAuditRisks(auditId) {
+  var ap = (AUDIT_PLAN||[]).find(function(a){return a.id===auditId;});
+  if (!ap) return [];
+  var d = (typeof AUD_DATA !== 'undefined' && AUD_DATA[auditId]) ? AUD_DATA[auditId] : {};
+
+  var pids = (Array.isArray(ap.processIds) && ap.processIds.length)
+    ? ap.processIds
+    : (ap.processId ? [ap.processId] : []);
+
+  var probToNum = {'Rare':1,'Unlikely':2,'Possible':3,'Certain':4};
+  var impToNum  = {'Minor':1,'Limited':2,'Major':3,'Severe':4};
+
+  var risks = [];
+  var seen = {};
+
+  // 1. Risques URD via les processus de l'audit
+  pids.forEach(function(pid){
+    var procObj = (PROCESSES||[]).find(function(p){return p.id===pid;});
+    if (!procObj) return;
+    (procObj.riskRefs||[]).forEach(function(rid){
+      if (seen[rid]) return;
+      seen[rid] = true;
+      var r = (RISK_UNIVERSE||[]).find(function(x){return x.id===rid;});
+      if (!r) return;
+      risks.push({
+        id: r.id,
+        title: r.title,
+        label: r.title,
+        description: r.description || '',
+        probability: probToNum[r.probability] || 1,
+        impact: impToNum[r.impact] || 1,
+        impactRaw: r.impact || '',
+        probabilityRaw: r.probability || '',
+        impactTypes: r.impactTypes || [],
+        source: 'urd',
+        _fromProc: procObj.proc,
+      });
+    });
+  });
+
+  // 2. Risques ad hoc spécifiques à l'audit
+  (d.auditRisks||[]).forEach(function(r){
+    risks.push({
+      id: r.id,
+      title: r.label || r.title || '',
+      label: r.label || r.title || '',
+      description: r.description || '',
+      probability: r.probability || 1,
+      impact: r.impact || 1,
+      source: 'adhoc',
+    });
+  });
+
+  return risks;
+}
+
+// ══════════════════════════════════════════════════════════════
 //  MATRICE RISQUES — Step 5
 // ══════════════════════════════════════════════════════════════
 function renderRiskMatrix(){
@@ -1493,8 +1553,8 @@ function renderPlanAuditTable(){
       var dateStr=ap.dateDebut||ap.dateFin
         ?'<div style="font-size:10px;color:#888">'+((ap.dateDebut?mns[parseInt(ap.dateDebut)-1]:'?')+' → '+(ap.dateFin?mns[parseInt(ap.dateFin)-1]:'?'))+'</div>':'';
       var adminBtn=CU&&CU.role==='admin'
-        ?'<td style="white-space:nowrap"><button class="bs" style="font-size:10px;padding:2px 7px" onclick="showEditAuditModal('+idx+')">Modifier</button> <button class="bd" style="font-size:10px;padding:2px 7px" onclick="deleteAudit('+idx+')">Supprimer</button></td>':'';
-      h+='<tr>'
+        ?'<td style="white-space:nowrap" ondblclick="event.stopPropagation()"><button class="bs" style="font-size:10px;padding:2px 7px" onclick="showEditAuditModal('+idx+')">Modifier</button> <button class="bd" style="font-size:10px;padding:2px 7px" onclick="deleteAudit('+idx+')">Supprimer</button></td>':'';
+      h+='<tr ondblclick="openAudit(\''+ap.id+'\')" style="cursor:pointer" title="Double-cliquer pour ouvrir l\'audit">'
         +'<td>'+typeBadgeHtml+'</td>'
         +'<td style="font-weight:500;font-size:12px">'+ap.titre+'</td>'
         +'<td>'+detail+'</td>'
@@ -1938,7 +1998,7 @@ function renderPlanProcessTable(){
         });
         if (!matches.length) return '<span style="color:var(--text-3)">—</span>';
         return matches.map(function(m){
-          return '<div style="display:flex;flex-direction:column;gap:2px;margin-bottom:2px">'
+          return '<div ondblclick="openAudit(\''+m.id+'\')" style="display:flex;flex-direction:column;gap:2px;margin-bottom:2px;cursor:pointer;padding:2px 4px;border-radius:3px" title="Double-cliquer pour ouvrir l\'audit" onmouseover="this.style.background=\'var(--purple-lt)\'" onmouseout="this.style.background=\'\'">'
             + '<span style="font-size:10px;font-weight:500;color:var(--purple-dk)">'+m.titre+'</span>'
             + '<div style="display:flex;gap:3px">'+((m.auditeurs||[]).map(function(id){return avEl(id,16);}).join(''))+'</div>'
             + '</div>';
@@ -2271,7 +2331,7 @@ function renderBUTable(){
     // Si filtre pays : pas de regroupement par région (on est déjà dans un seul pays)
     rows.forEach(function(b){
       var avs=(b.auditeurs||[]).map(function(id){return avEl(id,20);}).join('');
-      h+='<tr style="cursor:pointer" onclick="openAudit(\''+b.id+'\')">'
+      h+='<tr style="cursor:pointer" ondblclick="openAudit(\''+b.id+'\')" title="Double-cliquer pour ouvrir l\'audit">'
         +'<td><span class="badge bsbs">'+(b.entite||'')+'</span></td>'
         +'<td style="color:var(--text-2);font-size:11px">'+(b.region||'')+'</td>'
         +'<td style="font-weight:500;font-size:11px">'+((b.pays||[]).join(', '))+'</td>'
@@ -2286,7 +2346,7 @@ function renderBUTable(){
       h+='<tr class="sr"><td colspan="7">'+reg+'</td></tr>';
       rows.filter(function(b){return b.region===reg;}).forEach(function(b){
         var avs=(b.auditeurs||[]).map(function(id){return avEl(id,20);}).join('');
-        h+='<tr>'
+        h+='<tr style="cursor:pointer" ondblclick="openAudit(\''+b.id+'\')" title="Double-cliquer pour ouvrir l\'audit">'
           +'<td><span class="badge bsbs">'+(b.entite||'')+'</span></td>'
           +'<td style="color:var(--text-2);font-size:11px">'+(b.region||'')+'</td>'
           +'<td style="font-weight:500;font-size:11px">'+((b.pays||[]).join(', '))+'</td>'
@@ -4204,6 +4264,10 @@ function renderKickoffPrepSection() {
       html += '</div>';
     });
   }
+
+  // ── Sous-section : Risques de l'audit (URD + ad hoc) ──────
+  html += renderAuditRisksSubsection();
+
   html += '</div>';
 
   // ── SECTION 2 : Interviews planifiées (inchangée) ──────────
@@ -4268,6 +4332,66 @@ function renderKickoffPrepSection() {
   html += '</div>';
   html += '</div>';
 
+  return html;
+}
+
+// ─── Sous-section "Risques de l'audit" (dans Périmètre & Scope) ──────
+// Affiche les risques URD du processus + risques ad hoc, avec possibilité
+// d'ajouter/supprimer des risques ad hoc. Utilisée dans l'étape Work Program.
+function renderAuditRisksSubsection() {
+  var risks = getAuditRisks(CA);
+  var probLabels = {1:'Rare',2:'Peu probable',3:'Probable',4:'Quasi-certain'};
+  var impLabels  = {1:'Mineur',2:'Modéré',3:'Majeur',4:'Critique'};
+
+  var html = '';
+  html += '<div style="margin-top:1rem;padding-top:.875rem;border-top:.5px solid var(--border)">';
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">';
+  html += '<span style="font-size:12px;font-weight:600;color:var(--text-2)">Risques de l\'audit <span style="font-size:10px;font-weight:400;color:var(--text-3)">('+risks.length+' risque'+(risks.length>1?'s':'')+')</span></span>';
+  html += '<button class="bs" style="font-size:11px;padding:3px 9px" onclick="showAddAuditRiskModal()">+ Ajouter un risque</button>';
+  html += '</div>';
+  html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:10px;font-style:italic">Risques URD associés au processus (lecture seule, gérés dans Audit Universe) + risques ad hoc spécifiques à cet audit. Apparaîtront dans les slides du Kick Off et seront sélectionnables dans les WCGW à l\'étape Testings.</div>';
+
+  if (!risks.length) {
+    html += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:.75rem;text-align:center;border:1px dashed var(--border);border-radius:4px">';
+    html += 'Aucun risque pour cet audit. Associez des risques URD au processus dans <strong>Audit Universe</strong>, ou cliquez sur « + Ajouter un risque » pour ajouter un risque ad hoc.';
+    html += '</div>';
+  } else {
+    html += '<div style="border:.5px solid var(--border);border-radius:6px;overflow:hidden">';
+    html += '<div style="display:grid;grid-template-columns:90px 2fr 1fr 1fr 80px 50px;gap:0;font-size:10px;color:var(--text-3);font-weight:500;background:#fafafa;padding:6px 10px;border-bottom:.5px solid var(--border)">';
+    html += '<span>Source</span><span>Risque</span><span>Probabilité</span><span>Impact</span><span style="text-align:center">Score</span><span></span>';
+    html += '</div>';
+    risks.forEach(function(r){
+      var isAdhoc = r.source === 'adhoc';
+      var sourceBadge = isAdhoc
+        ? '<span class="badge bpc" style="font-size:9px;padding:2px 6px">Ad hoc</span>'
+        : '<span class="badge bpl" style="font-size:9px;padding:2px 6px" title="Risque URD du processus '+(r._fromProc||'')+'">URD</span>';
+      var score = (r.probability||1) * (r.impact||1);
+      var scoreColor = score>=12 ? '#DC2626' : (score>=8 ? '#B45309' : (score>=4 ? '#0C447C' : '#085041'));
+      var probDisp = isAdhoc
+        ? (r.probability + ' — ' + (probLabels[r.probability]||''))
+        : (r.probabilityRaw ? r.probabilityRaw + ' ('+r.probability+')' : r.probability);
+      var impDisp = isAdhoc
+        ? (r.impact + ' — ' + (impLabels[r.impact]||''))
+        : (r.impactRaw ? r.impactRaw + ' ('+r.impact+')' : r.impact);
+      html += '<div style="display:grid;grid-template-columns:90px 2fr 1fr 1fr 80px 50px;gap:0;font-size:11px;padding:8px 10px;border-bottom:.5px solid var(--border);align-items:center;background:#fff">';
+      html += '<span>'+sourceBadge+'</span>';
+      html += '<span><div style="font-weight:500;color:var(--text)">'+(r.title||r.label||'').replace(/</g,'&lt;')+'</div>';
+      if (r.description) html += '<div style="font-size:10px;color:var(--text-3);margin-top:2px">'+r.description.replace(/</g,'&lt;')+'</div>';
+      html += '</span>';
+      html += '<span style="font-size:11px">'+probDisp+'</span>';
+      html += '<span style="font-size:11px">'+impDisp+'</span>';
+      html += '<span style="text-align:center;font-weight:700;color:'+scoreColor+'">'+score+'</span>';
+      html += '<span style="text-align:right">';
+      if (isAdhoc) {
+        html += '<button class="bd" style="font-size:11px;padding:3px 7px" onclick="removeAuditRisk(\''+r.id+'\')" title="Supprimer ce risque ad hoc">×</button>';
+      }
+      html += '</span>';
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+
+  html += '</div>';
   return html;
 }
 
@@ -4395,9 +4519,14 @@ function renderWCGWSection() {
     html += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:.5rem;text-align:center;border:1px dashed var(--border);border-radius:4px">Aucun WCGW défini. Commencez par cliquer sur « + Ajouter un WCGW » pour identifier un scénario à risque.</div>';
   } else {
     wcgwList.forEach(function(w, idx){
+      // Résoudre les noms des risques liés : d'abord chercher dans RISK_UNIVERSE (URD),
+      // puis dans d.auditRisks (ad hoc)
       var linkedRisks = (w.riskIds||[]).map(function(rid){
         var r = (RISK_UNIVERSE||[]).find(function(x){return x.id===rid;});
-        return r ? r.title : '';
+        if (r) return {title: r.title, source: 'urd'};
+        var ar = (d.auditRisks||[]).find(function(x){return x.id===rid;});
+        if (ar) return {title: ar.label || ar.title || '—', source: 'adhoc'};
+        return null;
       }).filter(Boolean);
       var wcgwCtrls = ctrls.filter(function(c){return c.wcgwId === w.id;});
 
@@ -4417,8 +4546,10 @@ function renderWCGWSection() {
       if (linkedRisks.length) {
         html += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:10px;padding:4px 0 6px;margin-left:38px">';
         html += '<span style="color:var(--text-3)"><strong>Risques liés :</strong></span>';
-        linkedRisks.forEach(function(rt){
-          html += '<span class="badge bpl" style="font-size:9px;padding:1px 5px">'+rt+'</span>';
+        linkedRisks.forEach(function(lr){
+          var badgeClass = lr.source === 'adhoc' ? 'bpc' : 'bpl';
+          var sourcePrefix = lr.source === 'adhoc' ? '<span style="opacity:.7;margin-right:3px">[Ad hoc]</span>' : '';
+          html += '<span class="badge '+badgeClass+'" style="font-size:9px;padding:1px 5px">'+sourcePrefix+lr.title+'</span>';
         });
         html += '</div>';
       }
@@ -4505,36 +4636,36 @@ function showEditWCGWModal(idx) {
 }
 
 function showWCGWModal(existing) {
-  // Récupérer les risques URD du processus de l'audit
-  // IMPORTANT : on lit depuis AUDIT_PLAN directement (pas getAudits qui simplifie l'objet)
-  var a = (AUDIT_PLAN||[]).find(function(x){return x.id===CA;});
-  var pids = (Array.isArray(a&&a.processIds) && a.processIds.length) ? a.processIds : (a&&a.processId ? [a.processId] : []);
-  var seen = {};
-  var risks = [];
-  pids.forEach(function(pid){
-    var p = PROCESSES.find(function(x){return x.id===pid;});
-    if (!p) return;
-    (p.riskRefs||[]).forEach(function(rid){
-      if (seen[rid]) return;
-      seen[rid] = true;
-      var r = (RISK_UNIVERSE||[]).find(function(x){return x.id===rid;});
-      if (r) risks.push(r);
-    });
-  });
+  // Récupérer tous les risques de l'audit (URD via processus + ad hoc)
+  // via le helper getAuditRisks() qui consolide les deux sources.
+  var risks = (typeof getAuditRisks === 'function') ? getAuditRisks(CA) : [];
 
   var currentRiskIds = (existing && existing.wcgw.riskIds) || [];
   var risksHtml = '';
   if (risks.length) {
     risksHtml = '<div><label>Risques liés (cochez ceux que ce WCGW concerne)</label>'
-      + '<div class="cb-list" style="display:flex;flex-direction:column;gap:3px;max-height:160px;overflow-y:auto;border:.5px solid var(--border);border-radius:var(--radius);padding:8px 10px;background:var(--bg-card)">'
+      + '<div class="cb-list" style="display:flex;flex-direction:column;gap:3px;max-height:200px;overflow-y:auto;border:.5px solid var(--border);border-radius:var(--radius);padding:8px 10px;background:var(--bg-card)">'
       + risks.map(function(r){
           var checked = currentRiskIds.indexOf(r.id)>=0 ? ' checked' : '';
-          var colors = (typeof RISK_IMPACT_COLORS!=='undefined' && RISK_IMPACT_COLORS[r.impact]) ? RISK_IMPACT_COLORS[r.impact] : {bg:'#F3F4F6',color:'#374151'};
-          return '<label><input type="checkbox" class="wcgw-risk-cb" value="'+r.id+'"'+checked+'><span><span class="badge" style="background:'+colors.bg+';color:'+colors.color+';font-size:9px;margin-right:5px">'+(r.impact||'—')+'</span>'+r.title+'</span></label>';
+          var isAdhoc = r.source === 'adhoc';
+          var sourceBadge = isAdhoc
+            ? '<span class="badge bpc" style="font-size:9px;margin-right:5px">Ad hoc</span>'
+            : '<span class="badge bpl" style="font-size:9px;margin-right:5px">URD</span>';
+          // Pour les risques URD on utilise impactRaw (Minor/Limited/Major/Severe)
+          // Pour les risques ad hoc on utilise impact numérique
+          var impactDisp = isAdhoc ? ('I'+r.impact) : (r.impactRaw||'—');
+          var impactColors = (!isAdhoc && typeof RISK_IMPACT_COLORS!=='undefined' && RISK_IMPACT_COLORS[r.impactRaw])
+            ? RISK_IMPACT_COLORS[r.impactRaw]
+            : {bg:'#F3F4F6',color:'#374151'};
+          return '<label><input type="checkbox" class="wcgw-risk-cb" value="'+r.id+'"'+checked+'><span>'
+            + sourceBadge
+            + '<span class="badge" style="background:'+impactColors.bg+';color:'+impactColors.color+';font-size:9px;margin-right:5px">'+impactDisp+'</span>'
+            + (r.title || r.label || '—')
+            + '</span></label>';
         }).join('')
       + '</div></div>';
   } else {
-    risksHtml = '<div style="font-size:11px;color:var(--text-3);padding:8px;background:var(--bg);border-radius:6px">ℹ️ Aucun risque associé au processus. Va dans Audit Universe pour associer des risques URD aux processus.</div>';
+    risksHtml = '<div style="font-size:11px;color:var(--text-3);padding:8px;background:var(--bg);border-radius:6px">ℹ️ Aucun risque pour cet audit. Associez des risques URD aux processus dans Audit Universe, ou ajoutez des risques ad hoc dans l\'étape Work Program.</div>';
   }
 
   var body = '<div><label>Code <span style="color:var(--red)">*</span></label><input id="wcgw-code" value="'+((existing&&existing.wcgw.code)||'')+'" placeholder="ex : WCGW-1"/></div>'
