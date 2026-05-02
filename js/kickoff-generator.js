@@ -1,4 +1,3 @@
-
 // ════════════════════════════════════════════════════════════════════════════
 //  kickoff-generator.js — Génération du Kick Off Presentation (PowerPoint)
 //
@@ -132,12 +131,17 @@ async function generateKickoffPptx(auditId) {
   }).filter(Boolean);
   const processName = procNames.join(' / ') || ap.titre || '—';
 
-  // Récupérer les risques liés
-  const allRisks = _RISK_UNIVERSE;
-  const linkedRisks = allRisks.filter(r => {
-    if (!Array.isArray(r.processIds)) return false;
-    return r.processIds.some(pid => procIds.includes(pid));
-  });
+  // Récupérer les risques de l'audit (URD via processus + ad hoc)
+  // Utilise le helper getAuditRisks() défini dans views.js
+  let linkedRisks = [];
+  if (typeof getAuditRisks === 'function') {
+    try {
+      linkedRisks = getAuditRisks(auditId) || [];
+    } catch(e) {
+      console.warn('[KICKOFF] getAuditRisks error:', e);
+      linkedRisks = [];
+    }
+  }
 
   // Récupérer les auditeurs (TM est un objet {id: {name, role, photoFilename, experience, academics}})
   const auditeurIds = Array.isArray(ap.auditeurs) ? ap.auditeurs : [];
@@ -399,15 +403,27 @@ async function generateKickoffPptx(auditId) {
   // Risques liés au process (depuis Risk Universe) en bas de slide
   if (linkedRisks.length) {
     const yRisks = Math.min(2.05 + (subProcesses.length + 1) * rowHeight + 0.4, 5.7);
-    s5.addText(`Key risks for this process (${linkedRisks.length}):`, {
+    s5.addText(`Key risks for this audit (${linkedRisks.length}):`, {
       x: 0.5, y: yRisks, w: 12, h: 0.35,
       fontSize: 12, bold: true, color: KO_COLORS.navy, fontFace: "Calibri",
     });
-    const riskParas = linkedRisks.slice(0, 4).map(r => ({
-      text: r.title || r.name || '—',
-      options: { bullet: true, fontSize: 11, color: KO_COLORS.textDark, fontFace: "Calibri" },
-    }));
-    s5.addText(riskParas, { x: 0.7, y: yRisks + 0.4, w: 12, h: 0.9 });
+    // Affiche jusqu'à 6 risques, tronque si plus
+    const displayRisks = linkedRisks.slice(0, 6);
+    const riskParas = displayRisks.map(r => {
+      const title = r.title || r.name || r.label || '—';
+      const sourceTag = r.source === 'adhoc' ? ' [Ad hoc]' : '';
+      return {
+        text: title + sourceTag,
+        options: { bullet: true, fontSize: 11, color: KO_COLORS.textDark, fontFace: "Calibri" },
+      };
+    });
+    if (linkedRisks.length > 6) {
+      riskParas.push({
+        text: `… and ${linkedRisks.length - 6} more`,
+        options: { bullet: true, fontSize: 10, italic: true, color: KO_COLORS.textGray, fontFace: "Calibri" },
+      });
+    }
+    s5.addText(riskParas, { x: 0.7, y: yRisks + 0.4, w: 12, h: 1.4 });
   }
 
   if (!subProcesses.length) {
