@@ -254,14 +254,14 @@ async function generateKickoffPptx(auditId) {
   });
   s3.addText(
     "Provide the Audit Committee, Executive Management, and the audited departments with reasonable assurance that the control environment ensures proper management of the risks faced by the Group:",
-    { x: 0.7, y: 2.5, w: 4.6, h: 1.5, fontSize: 12, color: KO_COLORS.textDark, fontFace: "Calibri" }
+    { x: 0.7, y: 2.5, w: 4.6, h: 1.7, fontSize: 14, color: KO_COLORS.textDark, fontFace: "Calibri" }
   );
   s3.addText([
-    { text: "Economic", options: { bullet: { code: "25CF" }, fontSize: 13, bold: true, color: KO_COLORS.navy, fontFace: "Calibri", paraSpaceAfter: 4 } },
-    { text: "Legal & Regulatory", options: { bullet: { code: "25CF" }, fontSize: 13, bold: true, color: KO_COLORS.navy, fontFace: "Calibri", paraSpaceAfter: 4 } },
-    { text: "Reputational", options: { bullet: { code: "25CF" }, fontSize: 13, bold: true, color: KO_COLORS.navy, fontFace: "Calibri", paraSpaceAfter: 4 } },
-    { text: "Operational", options: { bullet: { code: "25CF" }, fontSize: 13, bold: true, color: KO_COLORS.navy, fontFace: "Calibri" } },
-  ], { x: 1.0, y: 4.2, w: 4.3, h: 2.3 });
+    { text: "Economic", options: { bullet: { code: "25CF" }, fontSize: 16, bold: true, color: KO_COLORS.navy, fontFace: "Calibri", paraSpaceAfter: 6 } },
+    { text: "Legal & Regulatory", options: { bullet: { code: "25CF" }, fontSize: 16, bold: true, color: KO_COLORS.navy, fontFace: "Calibri", paraSpaceAfter: 6 } },
+    { text: "Reputational", options: { bullet: { code: "25CF" }, fontSize: 16, bold: true, color: KO_COLORS.navy, fontFace: "Calibri", paraSpaceAfter: 6 } },
+    { text: "Operational", options: { bullet: { code: "25CF" }, fontSize: 16, bold: true, color: KO_COLORS.navy, fontFace: "Calibri" } },
+  ], { x: 1.0, y: 4.4, w: 4.3, h: 2.3 });
 
   // Colonne droite : Methodology
   s3.addShape(pres.ShapeType.rect, {
@@ -283,7 +283,7 @@ async function generateKickoffPptx(auditId) {
   });
   s3.addText(
     "The audit will be performed in accordance with international standards set by the Institute of Internal Auditors (IIA), structured in 3 stages:",
-    { x: 6.0, y: 2.5, w: 6.8, h: 0.7, fontSize: 12, italic: true, color: KO_COLORS.textGray, fontFace: "Calibri" }
+    { x: 6.0, y: 2.5, w: 6.8, h: 0.9, fontSize: 14, italic: true, color: KO_COLORS.textGray, fontFace: "Calibri" }
   );
   const methSteps = [
     {title: "Understanding", desc: "Risk Matrix, Controls Matrix, Flowcharts via interviews"},
@@ -291,7 +291,7 @@ async function generateKickoffPptx(auditId) {
     {title: "Assessment", desc: "Inherent risks + key controls + overall process"},
   ];
   methSteps.forEach((step, i) => {
-    const y = 3.4 + i * 1.05;
+    const y = 3.6 + i * 1.05;
     s3.addShape(pres.ShapeType.rect, {
       x: 6.0, y: y, w: 0.6, h: 0.85,
       fill: {color: KO_COLORS.navy}, line: {type: "none"},
@@ -303,11 +303,11 @@ async function generateKickoffPptx(auditId) {
     });
     s3.addText(step.title, {
       x: 6.8, y: y, w: 5.9, h: 0.4,
-      fontSize: 15, bold: true, color: KO_COLORS.navy, fontFace: "Calibri",
+      fontSize: 17, bold: true, color: KO_COLORS.navy, fontFace: "Calibri",
     });
     s3.addText(step.desc, {
       x: 6.8, y: y + 0.4, w: 5.9, h: 0.5,
-      fontSize: 11, color: KO_COLORS.textDark, fontFace: "Calibri",
+      fontSize: 13, color: KO_COLORS.textDark, fontFace: "Calibri",
     });
   });
   ko_addFooter(pres, s3);
@@ -319,7 +319,7 @@ async function generateKickoffPptx(auditId) {
   ko_addTitleBar(pres, s4, auditTitleShort, "Engagement Timeline");
   s4.addText("The audit will be conducted over 6 phases:", {
     x: 0.5, y: 1.6, w: 12, h: 0.4,
-    fontSize: 14, color: KO_COLORS.textDark, fontFace: "Calibri",
+    fontSize: 16, color: KO_COLORS.textDark, fontFace: "Calibri",
   });
   s4.addShape(pres.ShapeType.line, {
     x: 0.7, y: 2.6, w: 11.9, h: 0,
@@ -340,24 +340,24 @@ async function generateKickoffPptx(auditId) {
       fill: {color: p.color}, line: {color: KO_COLORS.white, width: 2},
     });
     s4.addShape(pres.ShapeType.rect, {
-      x: x - 0.4, y: 2.95, w: 1.7, h: 0.45,
+      x: x - 0.4, y: 2.95, w: 1.7, h: 0.55,
       fill: {color: p.color}, line: {type: "none"},
     });
     s4.addText(p.label, {
-      x: x - 0.4, y: 2.95, w: 1.7, h: 0.45,
-      fontSize: 12, bold: true, color: KO_COLORS.white,
+      x: x - 0.4, y: 2.95, w: 1.7, h: 0.55,
+      fontSize: 14, bold: true, color: KO_COLORS.white,
       fontFace: "Calibri", align: "center", valign: "middle",
     });
     s4.addText(p.desc, {
-      x: x - 0.4, y: 3.55, w: 1.85, h: 2.5,
-      fontSize: 9, color: KO_COLORS.textDark,
+      x: x - 0.4, y: 3.65, w: 1.85, h: 3.2,
+      fontSize: 12, color: KO_COLORS.textDark,
       fontFace: "Calibri", valign: "top",
     });
   });
   ko_addFooter(pres, s4);
 
   // ════════════════════════════════════════════════════════════════════
-  // SLIDE 5 — AUDIT SCOPE (sous-processus en tableau)
+  // SLIDE 5 — AUDIT SCOPE (sous-processus + risques en tableau 2 colonnes)
   // ════════════════════════════════════════════════════════════════════
   const s5 = pres.addSlide();
   ko_addTitleBar(pres, s5, auditTitleShort, "Audit Scope");
@@ -367,64 +367,100 @@ async function generateKickoffPptx(auditId) {
     fontSize: 13, bold: true, color: KO_COLORS.navy, fontFace: "Calibri",
   });
 
-  // Tableau des sous-processus
+  // Tableau à 2 colonnes : Sub-process (titre+desc+owners en méta) | Associated risks
   const subHeader = [
     {text: "Sub-process", options: {bold: true, color: KO_COLORS.white, fill: {color: KO_COLORS.navy}, valign: "middle"}},
-    {text: "Description", options: {bold: true, color: KO_COLORS.white, fill: {color: KO_COLORS.navy}, valign: "middle"}},
-    {text: "Owner(s)", options: {bold: true, color: KO_COLORS.white, fill: {color: KO_COLORS.navy}, valign: "middle"}},
+    {text: "Associated risks", options: {bold: true, color: KO_COLORS.white, fill: {color: KO_COLORS.navy}, valign: "middle"}},
   ];
+
+  // Préparer la colonne risques : tous les risques de l'audit sont au niveau process,
+  // on les affiche tous dans la cellule de la 1ère ligne et — pour les suivantes.
+  // Construit en text array (paragraphes) pour mettre les pucces.
+  let risksCellContent;
+  if (linkedRisks.length) {
+    const displayRisks = linkedRisks.slice(0, 8);
+    const riskParas = [];
+    riskParas.push({
+      text: "All process risks",
+      options: { fontSize: 9, italic: true, color: KO_COLORS.textGray, fontFace: "Calibri", paraSpaceAfter: 4 },
+    });
+    displayRisks.forEach((r, i) => {
+      const title = r.title || r.name || r.label || '—';
+      const sourceTag = r.source === 'adhoc' ? ' [Ad hoc]' : '';
+      riskParas.push({
+        text: title + sourceTag,
+        options: {
+          bullet: { code: "25CF" },
+          fontSize: 11,
+          color: KO_COLORS.textDark,
+          fontFace: "Calibri",
+          paraSpaceAfter: i === displayRisks.length - 1 ? 0 : 3,
+        },
+      });
+    });
+    if (linkedRisks.length > 8) {
+      riskParas.push({
+        text: `… and ${linkedRisks.length - 8} more`,
+        options: { fontSize: 10, italic: true, color: KO_COLORS.textGray, fontFace: "Calibri" },
+      });
+    }
+    risksCellContent = riskParas;
+  } else {
+    risksCellContent = [{ text: "—", options: { fontSize: 11, color: KO_COLORS.textGray, fontFace: "Calibri" } }];
+  }
+
   let subRows;
   if (subProcesses.length) {
-    subRows = [subHeader].concat(subProcesses.map(sp => {
-      const ownerText = sp.email
-        ? `${sp.owners || '—'}\n${sp.email}`
-        : (sp.owners || '—');
+    subRows = [subHeader].concat(subProcesses.map((sp, idx) => {
+      // Construire la cellule "sous-process" : titre gras + description + owners en méta
+      const cellParas = [
+        {
+          text: sp.name || '—',
+          options: { bold: true, fontSize: 13, color: KO_COLORS.navy, fontFace: "Calibri", paraSpaceAfter: 3 },
+        },
+      ];
+      if (sp.description) {
+        cellParas.push({
+          text: sp.description,
+          options: { fontSize: 11, color: KO_COLORS.textDark, fontFace: "Calibri", paraSpaceAfter: 3 },
+        });
+      }
+      const ownerLine = sp.owners
+        ? (sp.email ? `Owner: ${sp.owners} (${sp.email})` : `Owner: ${sp.owners}`)
+        : null;
+      if (ownerLine) {
+        cellParas.push({
+          text: ownerLine,
+          options: { fontSize: 9, italic: true, color: KO_COLORS.textGray, fontFace: "Calibri" },
+        });
+      }
+      // Cellule risques : remplie sur la 1ère ligne, vide sur les suivantes
+      const risksCell = (idx === 0)
+        ? { text: risksCellContent, options: { valign: "top", color: KO_COLORS.textDark } }
+        : { text: '', options: { valign: "top" } };
       return [
-        {text: sp.name || '—', options: {bold: true, valign: "middle", color: KO_COLORS.textDark}},
-        {text: sp.description || '—', options: {valign: "middle", color: KO_COLORS.textDark, fontSize: 11}},
-        {text: ownerText, options: {valign: "middle", color: KO_COLORS.textDark, fontSize: 11}},
+        { text: cellParas, options: { valign: "top" } },
+        risksCell,
       ];
     }));
   } else {
     subRows = [subHeader,
-      [{text: '—', options: {valign: "middle"}}, {text: '—', options: {valign: "middle"}}, {text: '—', options: {valign: "middle"}}],
+      [
+        { text: '—', options: { valign: "middle" } },
+        { text: risksCellContent, options: { valign: "top" } },
+      ],
     ];
   }
+
   // Hauteur de ligne adaptée au nombre de sous-processus
-  const rowHeight = subProcesses.length > 4 ? 0.55 : 0.75;
+  const rowHeight = subProcesses.length > 4 ? 0.7 : 0.9;
   s5.addTable(subRows, {
     x: 0.5, y: 2.05, w: 12.3,
-    fontSize: 12, fontFace: "Calibri",
+    fontSize: 11, fontFace: "Calibri",
     border: {type: "solid", pt: 0.5, color: KO_COLORS.grayMed},
     rowH: rowHeight,
-    colW: [3.0, 6.3, 3.0],
+    colW: [7.3, 5.0],
   });
-
-  // Risques liés au process (depuis Risk Universe) en bas de slide
-  if (linkedRisks.length) {
-    const yRisks = Math.min(2.05 + (subProcesses.length + 1) * rowHeight + 0.4, 5.7);
-    s5.addText(`Key risks for this audit (${linkedRisks.length}):`, {
-      x: 0.5, y: yRisks, w: 12, h: 0.35,
-      fontSize: 12, bold: true, color: KO_COLORS.navy, fontFace: "Calibri",
-    });
-    // Affiche jusqu'à 6 risques, tronque si plus
-    const displayRisks = linkedRisks.slice(0, 6);
-    const riskParas = displayRisks.map(r => {
-      const title = r.title || r.name || r.label || '—';
-      const sourceTag = r.source === 'adhoc' ? ' [Ad hoc]' : '';
-      return {
-        text: title + sourceTag,
-        options: { bullet: true, fontSize: 11, color: KO_COLORS.textDark, fontFace: "Calibri" },
-      };
-    });
-    if (linkedRisks.length > 6) {
-      riskParas.push({
-        text: `… and ${linkedRisks.length - 6} more`,
-        options: { bullet: true, fontSize: 10, italic: true, color: KO_COLORS.textGray, fontFace: "Calibri" },
-      });
-    }
-    s5.addText(riskParas, { x: 0.7, y: yRisks + 0.4, w: 12, h: 1.4 });
-  }
 
   if (!subProcesses.length) {
     s5.addText("Sub-processes to be defined during the kick-off meeting.", {
