@@ -4073,6 +4073,12 @@ function renderDocumentRow(label, doc, isExpected, isAdmin) {
   var reviewed = doc && doc.reviewStatus === 'reviewed';
   var pendingReview = doc && doc.reviewStatus === 'pending';
 
+  // Migration douce : s'assurer que les anciens docs (uploadés avant le fix
+  // qui ajoute l'id dans uploadDoc) aient un id pour que les boutons fonctionnent.
+  if (hasDoc && !doc.id) {
+    doc.id = 'doc_'+(doc.itemId || (doc.name||'unknown').replace(/[^a-zA-Z0-9]/g,''));
+  }
+
   var html = '<div style="display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;padding:8px 0;border-top:.5px solid var(--border)">';
   // Colonne label + détails fichier
   html += '<div style="min-width:0">';
@@ -5200,32 +5206,32 @@ function attachExpectedDocument(expectedName) {
     var file = inp.files[0];
     var d = getAudData(CA);
     if (!d.docs) d.docs = [];
-    var newDoc = {
-      id: 'doc_'+Date.now(),
-      name: file.name,
-      expectedName: expectedName,
-      step: CS,
-      size: formatFileSize(file.size),
-      uploadedBy: CU ? CU.name : '—',
-      uploadedAt: new Date().toISOString(),
-      reviewStatus: 'none',
-    };
-    // Tenter l'upload réel via la mécanique existante (uploadDoc → SharePoint Drive)
+
+    var newDoc = null;
     if (typeof uploadDoc === 'function') {
       try {
         toast('Upload en cours...');
-        var uploaded = await uploadDoc(CA, file, CS, CU?CU.name:'Inconnu');
-        // uploadDoc renvoie un objet avec id, name, url, size, etc.
-        if (uploaded) {
-          // Fusionner avec nos métadonnées (expectedName, reviewStatus)
-          Object.assign(newDoc, uploaded);
-          newDoc.expectedName = expectedName;
-          newDoc.reviewStatus = 'none';
-        }
+        newDoc = await uploadDoc(CA, file, CS, CU?CU.name:'Inconnu');
       } catch(e){
-        console.warn('[Doc] upload échoué, stockage métadonnées seules:', e.message);
+        console.warn('[Doc] upload échoué:', e.message);
+        toast('Upload échoué : '+e.message);
+        return;
       }
     }
+    // Fallback si uploadDoc indisponible (mode dégradé) : créer un objet local
+    if (!newDoc) {
+      newDoc = {
+        id: 'doc_'+Date.now(),
+        name: file.name,
+        step: CS,
+        size: formatFileSize(file.size),
+        uploadedBy: CU ? CU.name : '—',
+        uploadedAt: new Date().toISOString(),
+        reviewStatus: 'none',
+      };
+    }
+    // Métadonnée propre à ce flux : nom attendu pour cette étape
+    newDoc.expectedName = expectedName;
     d.docs.push(newDoc);
     await saveAuditData(CA);
     document.getElementById('det-content').innerHTML = renderDetContent();
@@ -5248,25 +5254,25 @@ function addFreeDocument() {
     toast('Upload en cours...');
     for (var i=0; i<files.length; i++) {
       var file = files[i];
-      var newDoc = {
-        id: 'doc_'+Date.now()+'_'+i,
-        name: file.name,
-        step: CS,
-        size: formatFileSize(file.size),
-        uploadedBy: CU ? CU.name : '—',
-        uploadedAt: new Date().toISOString(),
-        reviewStatus: 'none',
-      };
+      var newDoc = null;
       if (typeof uploadDoc === 'function') {
         try {
-          var uploaded = await uploadDoc(CA, file, CS, CU?CU.name:'Inconnu');
-          if (uploaded) {
-            Object.assign(newDoc, uploaded);
-            newDoc.reviewStatus = 'none';
-          }
+          newDoc = await uploadDoc(CA, file, CS, CU?CU.name:'Inconnu');
         } catch(e){
           console.warn('[Doc] upload échoué:', e.message);
         }
+      }
+      // Fallback si uploadDoc indisponible
+      if (!newDoc) {
+        newDoc = {
+          id: 'doc_'+Date.now()+'_'+i,
+          name: file.name,
+          step: CS,
+          size: formatFileSize(file.size),
+          uploadedBy: CU ? CU.name : '—',
+          uploadedAt: new Date().toISOString(),
+          reviewStatus: 'none',
+        };
       }
       d.docs.push(newDoc);
     }
@@ -5295,15 +5301,30 @@ async function markDocPendingReview(docId) {
 }
 
 async function markDocReviewed(docId) {
+  if (!CU || CU.role!=='admin') { toast('Seul l\'admin peut valider'); return; }
   var d = getAudData(CA);
   var doc = (d.docs||[]).find(function(x){return x.id===docId;});
   if (!doc) return;
   doc.reviewStatus = 'reviewed';
-  doc.reviewedBy = CU ? CU.name : '—';
+  doc.reviewedBy = CU.name;
   doc.reviewedAt = new Date().toISOString();
   await saveAuditData(CA);
+  if (typeof addHist === 'function') addHist('edit', 'Document revu : '+doc.name);
   document.getElementById('det-content').innerHTML = renderDetContent();
   toast('Document validé ✓');
+}
+
+async function unmarkDocReviewed(docId) {
+  if (!CU || CU.role!=='admin') { toast('Seul l\'admin peut modifier'); return; }
+  var d = getAudData(CA);
+  var doc = (d.docs||[]).find(function(x){return x.id===docId;});
+  if (!doc) return;
+  doc.reviewStatus = 'pending';
+  delete doc.reviewedBy;
+  delete doc.reviewedAt;
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+  toast('Revue annulée');
 }
 
 async function removeDoc(docId) {
@@ -5734,33 +5755,6 @@ function showPrepReviewerModal(files) {
   });
 }
 
-// Marquer un document comme revu (admin seulement)
-async function markDocReviewed(docIndex) {
-  if (!CU || CU.role!=='admin') { toast('Seul l\'admin peut valider'); return; }
-  var d = getAudData(CA);
-  var doc = d.docs[docIndex];
-  if (!doc) return;
-  doc.reviewStatus = 'reviewed';
-  doc.reviewedBy = CU.name;
-  doc.reviewedAt = new Date().toISOString();
-  await saveAuditData(CA);
-  addHist('edit', 'Document revu : '+doc.name);
-  document.getElementById('det-content').innerHTML = renderDetContent();
-  toast('Document marqué comme revu ✓');
-}
-
-async function unmarkDocReviewed(docIndex) {
-  if (!CU || CU.role!=='admin') { toast('Seul l\'admin peut modifier'); return; }
-  var d = getAudData(CA);
-  var doc = d.docs[docIndex];
-  if (!doc) return;
-  doc.reviewStatus = 'pending';
-  delete doc.reviewedBy;
-  delete doc.reviewedAt;
-  await saveAuditData(CA);
-  document.getElementById('det-content').innerHTML = renderDetContent();
-  toast('Revue annulée');
-}
 // Helper visionneuse : ouvre un doc par ses driveId/itemId (pour boutons inline)
 function openDocByDriveItem(driveId, itemId, name, url) {
   if (typeof openDocViewer === 'function') {
@@ -5912,12 +5906,18 @@ function buildDocList(docs){
       viewBtn = '<button class="bs" style="font-size:10px;padding:2px 7px;background:#EEEDFE;color:#3C3489;border-color:#CECBF6" onclick="openDocViewer(getAudData(CA).docs['+fi+'])">👁 Voir</button>';
     }
 
+    // Migration douce : si un ancien doc n'a pas d'id, on lui en crée un (basé sur itemId/name)
+    // pour que les boutons puissent le retrouver. Le saveAuditData() suivant le persistera.
+    if (!f.id) {
+      f.id = 'doc_'+(f.itemId || (f.name||'unknown').replace(/[^a-zA-Z0-9]/g,'')) + '_' + fi;
+    }
+
     // Boutons action : bouton "Marquer revu" seulement pour admin si pas déjà revu
     var reviewBtn = '';
     if (isAdmin && reviewStatus!=='reviewed') {
-      reviewBtn = '<button class="bp" style="font-size:10px;padding:2px 7px" onclick="markDocReviewed('+fi+')">Marquer comme revu</button>';
+      reviewBtn = '<button class="bp" style="font-size:10px;padding:2px 7px" onclick="markDocReviewed(\''+f.id+'\')">Marquer comme revu</button>';
     } else if (isAdmin && reviewStatus==='reviewed') {
-      reviewBtn = '<button class="bs" style="font-size:10px;padding:2px 7px" onclick="unmarkDocReviewed('+fi+')">Annuler revue</button>';
+      reviewBtn = '<button class="bs" style="font-size:10px;padding:2px 7px" onclick="unmarkDocReviewed(\''+f.id+'\')">Annuler revue</button>';
     }
 
     return '<div style="background:#f8f8f8;border-radius:6px;padding:8px 10px;margin-bottom:6px;border:.5px solid #e0e0e0">'
