@@ -156,9 +156,7 @@ async function checkSSOSession() {
 
 // ── Écrans de chargement / erreur ───────────────────────────
 function showLoadingScreen(msg) {
-  var ls = document.getElementById('ls');
   var app = document.getElementById('app');
-  if (ls) ls.style.display = 'none';
   if (app) app.style.display = 'none';
 
   var loader = document.getElementById('af-loader');
@@ -181,9 +179,7 @@ function hideLoadingScreen() {
 
 function showErrorScreen(title, msg, showRetry) {
   hideLoadingScreen();
-  var ls = document.getElementById('ls');
   var app = document.getElementById('app');
-  if (ls) ls.style.display = 'none';
   if (app) app.style.display = 'none';
 
   var err = document.getElementById('af-error');
@@ -230,7 +226,6 @@ function showUnauthorizedScreen(email) {
 async function launchApp() {
   hideLoadingScreen();
 
-  document.getElementById('ls').style.display  = 'none';
   document.getElementById('app').style.display = 'flex';
 
   var app = document.getElementById('app');
