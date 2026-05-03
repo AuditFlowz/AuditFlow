@@ -4246,26 +4246,19 @@ function renderKickoffPrepSection() {
     html += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:.5rem;text-align:center;border:1px dashed var(--border);border-radius:4px">Aucun sous-processus défini. Cliquez sur « + Ajouter un sous-processus ».</div>';
   } else {
     p.subProcesses.forEach(function(sp, idx){
-      html += '<div style="border:.5px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px;background:#fafafa">';
-      html += '<div style="display:grid;grid-template-columns:1.5fr 2fr 1.5fr auto;gap:8px;align-items:start">';
-      // Nom
-      html += '<div>';
-      html += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Sous-processus</label>';
-      html += '<input value="'+(sp.name||'').replace(/"/g,'&quot;')+'" placeholder="ex : Order entry" onchange="setSubProcess('+idx+',\'name\',this.value)" style="width:100%;font-size:11px;padding:5px 7px;border:1px solid var(--border);border-radius:3px"/>';
-      html += '</div>';
-      // Description
-      html += '<div>';
-      html += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Description</label>';
-      html += '<textarea onchange="setSubProcess('+idx+',\'description\',this.value)" placeholder="ex : Saisie commandes clients dans SAP" style="width:100%;min-height:48px;font-size:11px;padding:5px 7px;border:1px solid var(--border);border-radius:3px;resize:vertical">'+(sp.description||'').replace(/</g,'&lt;')+'</textarea>';
-      html += '</div>';
-      // Owner(s) + email
-      html += '<div>';
-      html += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Owner(s)</label>';
-      html += '<input value="'+(sp.owners||'').replace(/"/g,'&quot;')+'" placeholder="ex : J. Smith, M. Dupont" onchange="setSubProcess('+idx+',\'owners\',this.value)" style="width:100%;font-size:11px;padding:5px 7px;border:1px solid var(--border);border-radius:3px;margin-bottom:4px"/>';
-      html += '<input value="'+(sp.email||'').replace(/"/g,'&quot;')+'" type="email" placeholder="email facultatif" onchange="setSubProcess('+idx+',\'email\',this.value)" style="width:100%;font-size:10px;padding:4px 7px;border:1px solid var(--border);border-radius:3px;color:var(--text-2)"/>';
-      html += '</div>';
-      // Bouton supprimer
-      html += '<button class="bd" style="font-size:11px;padding:4px 8px;align-self:start;margin-top:14px" onclick="removeSubProcess('+idx+')" title="Supprimer">×</button>';
+      html += '<div style="border:.5px solid var(--border);border-radius:6px;padding:12px 14px;margin-bottom:10px;background:#fafafa;position:relative">';
+      // Bouton supprimer discret en haut à droite
+      html += '<button onclick="removeSubProcess('+idx+')" title="Supprimer" style="position:absolute;top:8px;right:8px;background:#fff;border:.5px solid var(--border);color:var(--text-3);border-radius:4px;width:22px;height:22px;cursor:pointer;font-size:13px;padding:0;line-height:1">×</button>';
+      // Label commun
+      html += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:3px">Sous-processus & description</label>';
+      // Titre (gras)
+      html += '<input value="'+(sp.name||'').replace(/"/g,'&quot;')+'" placeholder="ex : Order entry" onchange="setSubProcess('+idx+',\'name\',this.value)" style="width:100%;font-size:12px;font-weight:500;padding:6px 9px;border:1px solid var(--border);border-radius:3px;margin-bottom:5px;box-sizing:border-box"/>';
+      // Description (textarea sous le titre)
+      html += '<textarea onchange="setSubProcess('+idx+',\'description\',this.value)" placeholder="ex : Saisie commandes clients dans SAP" style="width:100%;min-height:54px;font-size:11px;padding:6px 9px;border:1px solid var(--border);border-radius:3px;resize:vertical;margin-bottom:7px;box-sizing:border-box;font-family:inherit">'+(sp.description||'').replace(/</g,'&lt;')+'</textarea>';
+      // Owner(s) + email côte à côte
+      html += '<div style="display:grid;grid-template-columns:1.4fr 2fr;gap:6px">';
+      html += '<input value="'+(sp.owners||'').replace(/"/g,'&quot;')+'" placeholder="Owner(s) — ex : J. Smith" onchange="setSubProcess('+idx+',\'owners\',this.value)" style="font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box"/>';
+      html += '<input value="'+(sp.email||'').replace(/"/g,'&quot;')+'" type="email" placeholder="email facultatif" onchange="setSubProcess('+idx+',\'email\',this.value)" style="font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;color:var(--text-2);box-sizing:border-box"/>';
       html += '</div>';
       html += '</div>';
     });
@@ -4349,21 +4342,30 @@ function renderAuditRisksSubsection() {
   var probLabels = {1:'Rare',2:'Peu probable',3:'Probable',4:'Quasi-certain'};
   var impLabels  = {1:'Mineur',2:'Modéré',3:'Majeur',4:'Critique'};
 
+  // Liste des sous-processus pour les badges (depuis kickoffPrep.subProcesses)
+  var d_aud = getAudData(CA);
+  var subProcs = (d_aud.kickoffPrep && Array.isArray(d_aud.kickoffPrep.subProcesses))
+    ? d_aud.kickoffPrep.subProcesses : [];
+  // Liens risque ↔ sous-processus : { riskId: [subProcessName, ...] }
+  if (!d_aud.subProcessRiskLinks) d_aud.subProcessRiskLinks = {};
+
   var html = '';
   html += '<div style="margin-top:1rem;padding-top:.875rem;border-top:.5px solid var(--border)">';
   html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">';
   html += '<span style="font-size:12px;font-weight:600;color:var(--text-2)">Risques de l\'audit <span style="font-size:10px;font-weight:400;color:var(--text-3)">('+risks.length+' risque'+(risks.length>1?'s':'')+')</span></span>';
   html += '<button class="bs" style="font-size:11px;padding:3px 9px" onclick="showAddAuditRiskModal()">+ Ajouter un risque</button>';
   html += '</div>';
-  html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:10px;font-style:italic">Risques URD associés au processus (lecture seule, gérés dans Audit Universe) + risques ad hoc spécifiques à cet audit. Apparaîtront dans les slides du Kick Off et seront sélectionnables dans les WCGW à l\'étape Testings.</div>';
+  html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:10px;font-style:italic">Risques URD associés au processus (lecture seule, gérés dans Audit Universe) + risques ad hoc spécifiques à cet audit. Cliquer sur les badges pour associer chaque risque à un ou plusieurs sous-processus. Apparaîtront dans les slides du Kick Off et seront sélectionnables dans les WCGW à l\'étape Testings.</div>';
 
   if (!risks.length) {
     html += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:.75rem;text-align:center;border:1px dashed var(--border);border-radius:4px">';
     html += 'Aucun risque pour cet audit. Associez des risques URD au processus dans <strong>Audit Universe</strong>, ou cliquez sur « + Ajouter un risque » pour ajouter un risque ad hoc.';
     html += '</div>';
   } else {
+    var gridCols = '90px 2fr 1fr 1fr 80px 50px';
     html += '<div style="border:.5px solid var(--border);border-radius:6px;overflow:hidden">';
-    html += '<div style="display:grid;grid-template-columns:90px 2fr 1fr 1fr 80px 50px;gap:0;font-size:10px;color:var(--text-3);font-weight:500;background:#fafafa;padding:6px 10px;border-bottom:.5px solid var(--border)">';
+    // En-tête
+    html += '<div style="display:grid;grid-template-columns:'+gridCols+';gap:0;font-size:10px;color:var(--text-3);font-weight:500;background:#fafafa;padding:6px 10px;border-bottom:.5px solid var(--border)">';
     html += '<span>Source</span><span>Risque</span><span>Probabilité</span><span>Impact</span><span style="text-align:center">Score</span><span></span>';
     html += '</div>';
     risks.forEach(function(r){
@@ -4379,7 +4381,11 @@ function renderAuditRisksSubsection() {
       var impDisp = isAdhoc
         ? (r.impact + ' — ' + (impLabels[r.impact]||''))
         : (r.impactRaw ? r.impactRaw + ' ('+r.impact+')' : r.impact);
-      html += '<div style="display:grid;grid-template-columns:90px 2fr 1fr 1fr 80px 50px;gap:0;font-size:11px;padding:8px 10px;border-bottom:.5px solid var(--border);align-items:center;background:#fff">';
+
+      // Bloc englobant pour le risque (ligne principale + ligne badges sous-process)
+      html += '<div style="padding:8px 10px;border-bottom:.5px solid var(--border);background:#fff">';
+      // Ligne principale
+      html += '<div style="display:grid;grid-template-columns:'+gridCols+';gap:0;font-size:11px;align-items:center">';
       html += '<span>'+sourceBadge+'</span>';
       html += '<span><div style="font-weight:500;color:var(--text)">'+(r.title||r.label||'').replace(/</g,'&lt;')+'</div>';
       if (r.description) html += '<div style="font-size:10px;color:var(--text-3);margin-top:2px">'+r.description.replace(/</g,'&lt;')+'</div>';
@@ -4392,6 +4398,28 @@ function renderAuditRisksSubsection() {
         html += '<button class="bd" style="font-size:11px;padding:3px 7px" onclick="removeAuditRisk(\''+r.id+'\')" title="Supprimer ce risque ad hoc">×</button>';
       }
       html += '</span>';
+      html += '</div>';
+
+      // Ligne des badges sous-processus
+      var linkedSubProcs = d_aud.subProcessRiskLinks[r.id] || [];
+      if (subProcs.length) {
+        html += '<div style="margin-top:7px;padding-left:90px;display:flex;flex-wrap:wrap;gap:5px;align-items:center">';
+        html += '<span style="font-size:10px;color:var(--text-3)">Lié à :</span>';
+        subProcs.forEach(function(sp){
+          var spName = sp.name || '';
+          if (!spName) return;
+          var isLinked = linkedSubProcs.indexOf(spName) >= 0;
+          var spNameEsc = spName.replace(/'/g,"\\'").replace(/"/g,'&quot;');
+          var pillStyle = isLinked
+            ? 'background:var(--purple-lt);color:var(--purple-dk);border:1px solid var(--purple);font-size:10px;padding:3px 9px;border-radius:11px;cursor:pointer;user-select:none;line-height:1.2'
+            : 'background:#fff;color:var(--text-3);border:.5px solid var(--border);font-size:10px;padding:3px 9px;border-radius:11px;cursor:pointer;user-select:none;line-height:1.2';
+          var prefix = isLinked ? '✓ ' : '+ ';
+          html += '<span onclick="toggleSubProcessRiskLink(\''+r.id+'\',\''+spNameEsc+'\')" style="'+pillStyle+'">'+prefix+(spName.length>26?spName.slice(0,24)+'…':spName).replace(/</g,'&lt;')+'</span>';
+        });
+        html += '</div>';
+      } else {
+        html += '<div style="margin-top:6px;padding-left:90px;font-size:10px;color:var(--text-3);font-style:italic">Aucun sous-processus défini — ajoutez-en au-dessus pour pouvoir lier ce risque.</div>';
+      }
       html += '</div>';
     });
     html += '</div>';
@@ -4414,13 +4442,54 @@ async function setSubProcess(idx, field, val) {
   var d = getAudData(CA);
   if (!d.kickoffPrep || !Array.isArray(d.kickoffPrep.subProcesses)) return;
   if (!d.kickoffPrep.subProcesses[idx]) return;
+  var oldVal = d.kickoffPrep.subProcesses[idx][field];
   d.kickoffPrep.subProcesses[idx][field] = val;
+  // Migration : si on renomme un sous-process, mettre à jour les liens existants
+  // pour qu'ils pointent vers le nouveau nom (sinon les pills cochées seraient perdues).
+  if (field === 'name' && oldVal && oldVal !== val && d.subProcessRiskLinks) {
+    Object.keys(d.subProcessRiskLinks).forEach(function(riskId){
+      var arr = d.subProcessRiskLinks[riskId] || [];
+      var i = arr.indexOf(oldVal);
+      if (i >= 0) arr[i] = val;
+    });
+  }
   await saveAuditData(CA);
+  // Re-render seulement si on change le nom (les pills doivent refléter le nouveau nom)
+  if (field === 'name') {
+    document.getElementById('det-content').innerHTML = renderDetContent();
+  }
 }
 async function removeSubProcess(idx) {
   var d = getAudData(CA);
   if (!d.kickoffPrep || !Array.isArray(d.kickoffPrep.subProcesses)) return;
+  // Récupérer le nom du sous-process avant suppression pour nettoyer les liens
+  var removedName = (d.kickoffPrep.subProcesses[idx] && d.kickoffPrep.subProcesses[idx].name) || '';
   d.kickoffPrep.subProcesses.splice(idx, 1);
+  // Nettoyer les liens risque ↔ sous-processus pointant vers ce nom
+  if (removedName && d.subProcessRiskLinks) {
+    Object.keys(d.subProcessRiskLinks).forEach(function(riskId){
+      d.subProcessRiskLinks[riskId] = (d.subProcessRiskLinks[riskId]||[]).filter(function(n){return n!==removedName;});
+      if (!d.subProcessRiskLinks[riskId].length) delete d.subProcessRiskLinks[riskId];
+    });
+  }
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+// Toggle d'association risque ↔ sous-processus.
+// Stocké dans d.subProcessRiskLinks = { [riskId]: [subProcessName, ...] }
+async function toggleSubProcessRiskLink(riskId, subProcessName) {
+  var d = getAudData(CA);
+  if (!d.subProcessRiskLinks) d.subProcessRiskLinks = {};
+  if (!Array.isArray(d.subProcessRiskLinks[riskId])) d.subProcessRiskLinks[riskId] = [];
+  var arr = d.subProcessRiskLinks[riskId];
+  var idx = arr.indexOf(subProcessName);
+  if (idx >= 0) {
+    arr.splice(idx, 1);
+    if (!arr.length) delete d.subProcessRiskLinks[riskId];
+  } else {
+    arr.push(subProcessName);
+  }
   await saveAuditData(CA);
   document.getElementById('det-content').innerHTML = renderDetContent();
 }
