@@ -961,11 +961,10 @@ function dbSetStatut(v){window._dbStatut=v;nav('dashboard');}
 
 
 // ══════════════════════════════════════════════════════════════
-//  AUDIT UNIVERSE (ex Plan Process) — Layout master/detail
-//  Panel gauche : Process groupés par Domaine
-//  Panel droite : détails du Process sélectionné + ses sous-processus
+//  AUDIT UNIVERSE (Plan Process) — restauré à l'état d'origine
+//  Process + risques uniquement. Les sous-processus + tests
+//  ont été déplacés vers le BU Work Program (référentiel séparé).
 // ══════════════════════════════════════════════════════════════
-var _auCurrentProcId = null; // ID du Process actuellement sélectionné
 
 V['plan-process']=()=>`
   <div class="topbar">
@@ -976,122 +975,174 @@ V['plan-process']=()=>`
     </div>
   </div>
   <div class="content">
-    <div id="au-container" style="display:grid;grid-template-columns:300px 1fr;gap:12px;align-items:start">
-      <div id="au-master" style="border:.5px solid var(--border);border-radius:6px;background:#fff;overflow:hidden;max-height:calc(100vh - 180px);overflow-y:auto"></div>
-      <div id="au-detail" style="border:.5px solid var(--border);border-radius:6px;background:#fff;padding:14px;min-height:400px"></div>
-    </div>
+    <div class="tw"><table id="pp-tbl"></table></div>
   </div>`;
 
-I['plan-process']=()=>{
-  // Sélection par défaut : 1er process non-archivé
-  if (!_auCurrentProcId) {
-    var first = (PROCESSES||[]).find(function(p){return !p.archived;});
-    if (first) _auCurrentProcId = first.id;
-  }
-  renderAuMaster();
-  renderAuDetail();
-};
+I['plan-process']=()=>renderProcTable();
 
-function renderAuMaster() {
-  var doms = [...new Set(PROCESSES.map(function(p){return p.dom;}))].sort(function(a,b){
+function renderProcTable(){
+  var doms=[...new Set(PROCESSES.map(function(p){return p.dom;}))].sort(function(a,b){
     return (a||'').localeCompare(b||'', 'fr', {sensitivity:'base'});
   });
-  var h = '';
-  if (!doms.length) {
-    h += '<div style="padding:1.5rem;text-align:center;color:var(--text-3);font-size:11px">Aucun processus.<br>Cliquez sur « + Domaine » pour commencer.</div>';
+  var h='<thead><tr>'
+    +'<th style="width:340px">Domaine / Processus</th>'
+    +'<th style="width:120px">Niveau de risque</th>'
+    +'<th style="width:180px">'+(CU&&CU.role==='admin'?'Actions':'Risques')+'</th>'
+    +'</tr></thead><tbody>';
+
+  if(!doms.length){
+    h+='<tr><td colspan="3" style="text-align:center;color:var(--text-3);padding:2rem">Aucun processus. Cliquez sur "+ Domaine" pour commencer.</td></tr>';
   } else {
     doms.forEach(function(dom){
-      var rows = PROCESSES.filter(function(p){return p.dom===dom && !p.archived;});
-      if (!rows.length) return;
-      rows.sort(function(a,b){return (a.proc||'').localeCompare(b.proc||'', 'fr', {sensitivity:'base'});});
-      // En-tête de domaine
-      h += '<div style="background:#EEEDFE;color:#3C3489;font-weight:600;padding:7px 10px;font-size:11px;display:flex;justify-content:space-between;align-items:center">';
-      h += '<span>'+(''+dom).replace(/</g,'&lt;')+'</span>';
-      if (CU && CU.role==='admin') {
-        h += '<button class="bs" style="font-size:9px;padding:1px 6px" onclick="showRenameDomainModal(\''+_escQ(dom)+'\')" title="Renommer le domaine">✎</button>';
+      var rows=PROCESSES.filter(function(p){return p.dom===dom&&!p.archived;});
+      if(!rows.length) return;
+      rows.sort(function(a,b){
+        return (a.proc||'').localeCompare(b.proc||'', 'fr', {sensitivity:'base'});
+      });
+      h+='<tr class="sr">';
+      h+='<td colspan="3" style="background:#EEEDFE;color:#3C3489;font-weight:600;padding:8px 12px;white-space:nowrap;display:flex;align-items:center;justify-content:space-between;width:100%">';
+      h+='<span style="font-size:12px">'+dom+'</span>';
+      if(CU&&CU.role==='admin'){
+        h+='<button class="bs" style="font-size:10px;padding:2px 7px" onclick="showRenameDomainModal(\''+_escQ(dom)+'\')">Renommer</button>';
       }
-      h += '</div>';
-      // Process du domaine
+      h+='</td></tr>';
+
       rows.forEach(function(p){
-        var isSelected = p.id === _auCurrentProcId;
-        var subCount = (p.subProcesses||[]).length;
+        var idx=PROCESSES.indexOf(p);
+        var effectiveLevel = (p.riskRefs && p.riskRefs.length)
+          ? computeProcRiskLevelFromRefs(p.riskRefs)
+          : (p.riskLevel || 'faible');
+        var riskCell = riskLabel(effectiveLevel);
         var refCount = (p.riskRefs||[]).length;
-        var cardStyle = isSelected
-          ? 'background:var(--purple);color:#fff;cursor:pointer;border-bottom:.5px solid var(--border)'
-          : 'background:#fff;color:var(--text);cursor:pointer;border-bottom:.5px solid var(--border)';
-        var subColor = isSelected ? 'color:#CECBF6' : 'color:var(--text-3)';
-        h += '<div onclick="auSelectProc(\''+p.id+'\')" style="'+cardStyle+';padding:8px 10px">';
-        h += '<div style="font-size:11px;font-weight:500">'+(''+p.proc).replace(/</g,'&lt;')+'</div>';
-        h += '<div style="'+subColor+';font-size:10px;margin-top:1px">'
-          + (subCount?subCount+' sous-process':'aucun sous-process')
-          + ' · ' + (refCount?refCount+' risques':'0 risque')
-          + '</div>';
-        h += '</div>';
+        var refCountBadge = refCount
+          ? '<span class="badge bpc" style="font-size:9px;margin-left:4px">'+refCount+'</span>'
+          : '<span class="badge bpl" style="font-size:9px;margin-left:4px">0</span>';
+        var adminCell=CU&&CU.role==='admin'
+          ?'<td style="white-space:nowrap">'
+            +'<button class="bs" style="font-size:10px;padding:2px 7px" onclick="showProcRisksModal(\''+p.id+'\')">⚠ Risques'+refCountBadge+'</button> '
+            +'<button class="bs" style="font-size:10px;padding:2px 7px" onclick="showEditProcModal('+idx+')">Modifier</button> '
+            +'<button class="bd" style="font-size:10px;padding:2px 7px" onclick="archiveProc('+idx+')">Archiver</button>'
+            +'</td>'
+          :'<td><button class="bs" style="font-size:10px;padding:2px 7px" onclick="showProcRisksModal(\''+p.id+'\')">⚠ Risques'+refCountBadge+'</button></td>';
+        h+='<tr>';
+        h+='<td style="font-weight:500;font-size:12px;padding-left:18px">'+p.proc+'</td>';
+        h+='<td>'+riskCell+'</td>';
+        h+=adminCell;
+        h+='</tr>';
       });
     });
   }
-  document.getElementById('au-master').innerHTML = h;
+  document.getElementById('pp-tbl').innerHTML=h+'</tbody>';
 }
 
-function auSelectProc(procId) {
-  _auCurrentProcId = procId;
-  renderAuMaster();
-  renderAuDetail();
-}
+// ══════════════════════════════════════════════════════════════
+//  HELPERS PARTAGÉS (utilisés par le BU Work Program)
+// ══════════════════════════════════════════════════════════════
+// Échappe une string pour usage en attribut HTML
+function _escAttr(s) { return (''+(s||'')).replace(/"/g,'&quot;').replace(/'/g,"&#39;"); }
+// Échappe pour usage dans un onclick="..."
+function _escJsArg(s) { return (''+(s||'')).replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
 
-// Wrapper rétro-compatible : les anciens appels à renderProcTable() après modif
-// d'un Process (ajout/édition/suppression de domaine, etc.) re-rendent la nouvelle vue.
-function renderProcTable() {
-  // Si la vue Audit Universe est active, refresh le master/detail.
-  if (document.getElementById('au-master')) {
-    // Vérifier que le process sélectionné existe encore
-    var stillExists = (PROCESSES||[]).find(function(p){return p.id===_auCurrentProcId;});
-    if (!stillExists) _auCurrentProcId = null;
-    if (typeof I['plan-process'] === 'function') I['plan-process']();
-    else { renderAuMaster(); renderAuDetail(); }
+// ══════════════════════════════════════════════════════════════
+//  BU WORK PROGRAM — Référentiel séparé pour les audits BU
+//  Structure : Process > Sous-processus > Tests (avec PBC)
+//  Stocké dans BU_PROCESSES (variable globale chargée depuis SharePoint)
+// ══════════════════════════════════════════════════════════════
+
+var TEST_TYPES = ['Test of Design', 'Test of Effectiveness', 'Substantive'];
+var _buwpCurrentProcId = null; // ID du Process BU actuellement sélectionné
+
+V['bu-work-program']=()=>`
+  <div class="topbar">
+    <div class="tbtitle">BU Work Program</div>
+    <div style="display:flex;gap:7px">
+      ${CU&&CU.role==='admin' ? '<button class="bp ao" onclick="showAddBuProcessModal()">+ Processus</button>' : ''}
+    </div>
+  </div>
+  <div class="content">
+    <div style="font-size:11px;color:var(--text-2);margin-bottom:10px;font-style:italic">Référentiel des processus locaux et de leurs tests substantifs standardisés. Utilisé pour les audits de type BU. Chaque test peut être pré-rempli avec sa liste de PBC (Prepared By Client).</div>
+    <div id="buwp-container" style="display:grid;grid-template-columns:300px 1fr;gap:12px;align-items:start">
+      <div id="buwp-master" style="border:.5px solid var(--border);border-radius:6px;background:#fff;overflow:hidden;max-height:calc(100vh - 200px);overflow-y:auto"></div>
+      <div id="buwp-detail" style="border:.5px solid var(--border);border-radius:6px;background:#fff;padding:14px;min-height:400px"></div>
+    </div>
+  </div>`;
+
+I['bu-work-program']=()=>{
+  // Sélection par défaut : 1er process non-archivé
+  if (!_buwpCurrentProcId || !(BU_PROCESSES||[]).find(function(p){return p.id===_buwpCurrentProcId;})) {
+    var first = (BU_PROCESSES||[]).find(function(p){return !p.archived;});
+    _buwpCurrentProcId = first ? first.id : null;
   }
+  renderBuwpMaster();
+  renderBuwpDetail();
+};
+
+function renderBuwpMaster() {
+  var procs = (BU_PROCESSES||[]).filter(function(p){return !p.archived;});
+  procs.sort(function(a,b){return (a.name||'').localeCompare(b.name||'', 'fr', {sensitivity:'base'});});
+  var h = '';
+  if (!procs.length) {
+    h += '<div style="padding:1.5rem;text-align:center;color:var(--text-3);font-size:11px">Aucun processus.<br>'+(CU&&CU.role==='admin'?'Cliquez sur « + Processus » pour commencer.':'Demandez à un admin d\'en ajouter.')+'</div>';
+  } else {
+    procs.forEach(function(p){
+      var isSelected = p.id === _buwpCurrentProcId;
+      var subCount = (p.subProcesses||[]).length;
+      var totalTests = (p.subProcesses||[]).reduce(function(acc,sp){return acc+((sp.tests||[]).length);},0);
+      var cardStyle = isSelected
+        ? 'background:var(--purple);color:#fff;cursor:pointer;border-bottom:.5px solid var(--border)'
+        : 'background:#fff;color:var(--text);cursor:pointer;border-bottom:.5px solid var(--border)';
+      var subColor = isSelected ? 'color:#CECBF6' : 'color:var(--text-3)';
+      h += '<div onclick="buwpSelectProc(\''+_escJsArg(p.id)+'\')" style="'+cardStyle+';padding:8px 10px">';
+      h += '<div style="font-size:11px;font-weight:500">'+(''+(p.name||'')).replace(/</g,'&lt;')+'</div>';
+      h += '<div style="'+subColor+';font-size:10px;margin-top:1px">'
+        + (subCount?subCount+' sous-process':'aucun sous-process')
+        + ' · ' + (totalTests?totalTests+(totalTests>1?' tests':' test'):'0 test')
+        + '</div>';
+      h += '</div>';
+    });
+  }
+  document.getElementById('buwp-master').innerHTML = h;
 }
 
-function renderAuDetail() {
-  var p = (PROCESSES||[]).find(function(x){return x.id===_auCurrentProcId;});
-  var box = document.getElementById('au-detail');
+function buwpSelectProc(procId) {
+  _buwpCurrentProcId = procId;
+  renderBuwpMaster();
+  renderBuwpDetail();
+}
+
+function renderBuwpDetail() {
+  var p = (BU_PROCESSES||[]).find(function(x){return x.id===_buwpCurrentProcId;});
+  var box = document.getElementById('buwp-detail');
   if (!p) {
-    box.innerHTML = '<div style="text-align:center;color:var(--text-3);padding:2rem;font-size:11px">Sélectionnez un processus à gauche.</div>';
+    box.innerHTML = '<div style="text-align:center;color:var(--text-3);padding:2rem;font-size:11px">'
+      + (BU_PROCESSES&&BU_PROCESSES.length?'Sélectionnez un processus à gauche.':'Aucun processus dans le référentiel BU Work Program.')+'</div>';
     return;
   }
   if (!Array.isArray(p.subProcesses)) p.subProcesses = [];
-
-  var effectiveLevel = (p.riskRefs && p.riskRefs.length)
-    ? computeProcRiskLevelFromRefs(p.riskRefs)
-    : (p.riskLevel || 'faible');
-  var refCount = (p.riskRefs||[]).length;
-  var idx = PROCESSES.indexOf(p);
   var isAdmin = CU && CU.role==='admin';
 
   var h = '';
   // Header
   h += '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;padding-bottom:12px;border-bottom:.5px solid var(--border)">';
   h += '<div>';
-  h += '<div style="font-size:14px;font-weight:600">'+(''+p.proc).replace(/</g,'&lt;')+'</div>';
-  h += '<div style="font-size:11px;color:var(--text-3);margin-top:2px">Domaine : '+(''+p.dom).replace(/</g,'&lt;')+' · Niveau de risque : '+riskLabel(effectiveLevel)+'</div>';
+  h += '<div style="font-size:14px;font-weight:600">'+(''+(p.name||'')).replace(/</g,'&lt;')+'</div>';
+  if (p.description) h += '<div style="font-size:11px;color:var(--text-3);margin-top:2px">'+(''+p.description).replace(/</g,'&lt;')+'</div>';
   h += '</div>';
-  h += '<div style="display:flex;gap:5px">';
-  h += '<button class="bs" style="font-size:11px;padding:3px 9px" onclick="showProcRisksModal(\''+p.id+'\')">⚠ Risques <span class="badge bpc" style="font-size:9px;margin-left:3px">'+refCount+'</span></button>';
   if (isAdmin) {
-    h += '<button class="bs" style="font-size:11px;padding:3px 9px" onclick="showEditProcModal('+idx+')">Modifier</button>';
-    h += '<button class="bd" style="font-size:11px;padding:3px 9px" onclick="archiveProc('+idx+')">Archiver</button>';
+    h += '<div style="display:flex;gap:5px">';
+    h += '<button class="bs" style="font-size:11px;padding:3px 9px" onclick="showEditBuProcessModal(\''+_escJsArg(p.id)+'\')">Modifier</button>';
+    h += '<button class="bd" style="font-size:11px;padding:3px 9px" onclick="archiveBuProcess(\''+_escJsArg(p.id)+'\')">Archiver</button>';
+    h += '</div>';
   }
-  h += '</div>';
   h += '</div>';
 
   // Sous-processus
   h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
   h += '<span style="font-size:12px;font-weight:600;color:var(--text-2)">Sous-processus <span style="font-size:10px;font-weight:400;color:var(--text-3)">('+p.subProcesses.length+')</span></span>';
   if (isAdmin) {
-    h += '<button class="bs" style="font-size:11px;padding:3px 9px" onclick="showAddSubProcessModal(\''+p.id+'\')">+ Ajouter un sous-process</button>';
+    h += '<button class="bs" style="font-size:11px;padding:3px 9px" onclick="showAddBuSubProcessModal(\''+_escJsArg(p.id)+'\')">+ Ajouter un sous-process</button>';
   }
   h += '</div>';
-  h += '<div style="font-size:10px;color:var(--text-3);margin-bottom:10px;font-style:italic">Découpage du process en sous-processus standardisés. Chaque sous-process porte son programme de tests, qui sera pré-chargé lors des audits couvrant ce process.</div>';
 
   if (!p.subProcesses.length) {
     h += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:.75rem;text-align:center;border:1px dashed var(--border);border-radius:4px">Aucun sous-process défini. '+(isAdmin?'Cliquez sur « + Ajouter un sous-process ».':'Demandez à un admin d\'en ajouter.')+'</div>';
@@ -1109,10 +1160,10 @@ function renderAuDetail() {
       }
       h += '</div>';
       h += '<div style="display:flex;gap:3px;flex-shrink:0">';
-      h += '<button class="bs" style="font-size:10px;padding:2px 7px" onclick="showSubProcessTestsModal(\''+p.id+'\',\''+sp.id+'\')">📋 Tests</button>';
+      h += '<button class="bs" style="font-size:10px;padding:2px 7px" onclick="showBuSubProcessTestsModal(\''+_escJsArg(p.id)+'\',\''+_escJsArg(sp.id)+'\')">📋 Tests</button>';
       if (isAdmin) {
-        h += '<button class="bs" style="font-size:10px;padding:2px 7px" onclick="showEditSubProcessModal(\''+p.id+'\',\''+sp.id+'\')">Modifier</button>';
-        h += '<button class="bd" style="font-size:10px;padding:2px 7px" onclick="removeSubProcessFromUniverse(\''+p.id+'\',\''+sp.id+'\')" title="Supprimer">×</button>';
+        h += '<button class="bs" style="font-size:10px;padding:2px 7px" onclick="showEditBuSubProcessModal(\''+_escJsArg(p.id)+'\',\''+_escJsArg(sp.id)+'\')">Modifier</button>';
+        h += '<button class="bd" style="font-size:10px;padding:2px 7px" onclick="removeBuSubProcess(\''+_escJsArg(p.id)+'\',\''+_escJsArg(sp.id)+'\')" title="Supprimer">×</button>';
       }
       h += '</div>';
       h += '</div>';
@@ -1123,162 +1174,205 @@ function renderAuDetail() {
   box.innerHTML = h;
 }
 
-// Créer un domaine
 // ──────────────────────────────────────────────────────────────
-//  SOUS-PROCESSUS DE L'AUDIT UNIVERSE (Phase 1)
-//  Stockés dans p.subProcesses = [{ id, name, description, tests: [...] }]
-//  Persistés dans SharePoint via saveProcessFull() (graph.js)
+//  CRUD Process BU
 // ──────────────────────────────────────────────────────────────
 
-// Échappe une string pour usage en attribut HTML
-function _escAttr(s) { return (''+(s||'')).replace(/"/g,'&quot;').replace(/'/g,"&#39;"); }
-// Échappe pour usage dans un onclick="..."
-function _escJsArg(s) { return (''+(s||'')).replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
+function showAddBuProcessModal() {
+  if (!CU || CU.role!=='admin') { toast('Réservé aux admins'); return; }
+  openModal('Nouveau processus BU',
+    '<div><label>Nom du processus</label><input id="bup-name" placeholder="ex : Sales, RH, IT, Compliance..."/></div>'
+    +'<div><label>Description (facultatif)</label><textarea id="bup-desc" placeholder="Brève description" style="min-height:60px;resize:vertical"></textarea></div>',
+    async function(){
+      var name = document.getElementById('bup-name').value.trim();
+      var desc = document.getElementById('bup-desc').value.trim();
+      if (!name) { toast('Nom obligatoire'); return; }
+      if (!Array.isArray(BU_PROCESSES)) BU_PROCESSES = [];
+      var newP = {
+        id: 'bup_'+Date.now()+'_'+Math.floor(Math.random()*1000),
+        name: name,
+        description: desc,
+        archived: false,
+        subProcesses: [],
+      };
+      BU_PROCESSES.push(newP);
+      try {
+        if (typeof saveBuProcessFull === 'function') await saveBuProcessFull(newP);
+      } catch(e) { console.warn(e); }
+      addHist('add', 'BU Process ajouté : '+name);
+      _buwpCurrentProcId = newP.id;
+      renderBuwpMaster();
+      renderBuwpDetail();
+      toast('Processus BU créé ✓');
+    });
+}
 
-// ➕ Ajouter un sous-processus
-function showAddSubProcessModal(procId) {
+function showEditBuProcessModal(procId) {
+  if (!CU || CU.role!=='admin') { toast('Réservé aux admins'); return; }
+  var p = (BU_PROCESSES||[]).find(function(x){return x.id===procId;});
+  if (!p) return;
+  openModal('Modifier le processus',
+    '<div><label>Nom</label><input id="bup-name" value="'+_escAttr(p.name)+'"/></div>'
+    +'<div><label>Description</label><textarea id="bup-desc" style="min-height:60px;resize:vertical">'+(''+(p.description||'')).replace(/</g,'&lt;')+'</textarea></div>',
+    async function(){
+      var name = document.getElementById('bup-name').value.trim();
+      var desc = document.getElementById('bup-desc').value.trim();
+      if (!name) { toast('Nom obligatoire'); return; }
+      p.name = name;
+      p.description = desc;
+      try {
+        if (typeof saveBuProcessFull === 'function') await saveBuProcessFull(p);
+      } catch(e) { console.warn(e); }
+      renderBuwpMaster();
+      renderBuwpDetail();
+      toast('Processus modifié ✓');
+    });
+}
+
+async function archiveBuProcess(procId) {
+  if (!CU || CU.role!=='admin') { toast('Réservé aux admins'); return; }
+  var p = (BU_PROCESSES||[]).find(function(x){return x.id===procId;});
+  if (!p) return;
+  if (!confirm('Archiver le processus « '+p.name+' » ?')) return;
+  p.archived = true;
+  try {
+    if (typeof saveBuProcessFull === 'function') await saveBuProcessFull(p);
+  } catch(e) { console.warn(e); }
+  addHist('del', 'BU Process archivé : '+p.name);
+  _buwpCurrentProcId = null;
+  renderBuwpMaster();
+  renderBuwpDetail();
+  toast('Processus archivé');
+}
+
+// ──────────────────────────────────────────────────────────────
+//  CRUD Sous-processus BU
+// ──────────────────────────────────────────────────────────────
+
+function showAddBuSubProcessModal(procId) {
   if (!CU || CU.role!=='admin') { toast('Réservé aux admins'); return; }
   openModal('Nouveau sous-processus',
-    '<div><label>Nom du sous-processus</label><input id="sp-name" placeholder="ex : Payroll, Recruitment, Onboarding..."/></div>'
-    +'<div><label>Description (facultatif)</label><textarea id="sp-desc" placeholder="Brève description du sous-process" style="min-height:60px;resize:vertical"></textarea></div>',
+    '<div><label>Nom du sous-processus</label><input id="bsp-name" placeholder="ex : Customer onboarding, Payroll..."/></div>'
+    +'<div><label>Description (facultatif)</label><textarea id="bsp-desc" placeholder="Brève description" style="min-height:60px;resize:vertical"></textarea></div>',
     async function(){
-      var name = document.getElementById('sp-name').value.trim();
-      var desc = document.getElementById('sp-desc').value.trim();
+      var name = document.getElementById('bsp-name').value.trim();
+      var desc = document.getElementById('bsp-desc').value.trim();
       if (!name) { toast('Nom obligatoire'); return; }
-      var p = (PROCESSES||[]).find(function(x){return x.id===procId;});
-      if (!p) { toast('Process introuvable'); return; }
+      var p = (BU_PROCESSES||[]).find(function(x){return x.id===procId;});
+      if (!p) return;
       if (!Array.isArray(p.subProcesses)) p.subProcesses = [];
       p.subProcesses.push({
-        id: 'sp_'+Date.now()+'_'+Math.floor(Math.random()*1000),
+        id: 'bsp_'+Date.now()+'_'+Math.floor(Math.random()*1000),
         name: name,
         description: desc,
         tests: [],
       });
       try {
-        if (typeof saveProcessFull === 'function') await saveProcessFull(p);
+        if (typeof saveBuProcessFull === 'function') await saveBuProcessFull(p);
       } catch(e) { console.warn(e); }
-      addHist('add', 'Sous-process ajouté à '+p.proc+' : '+name);
-      renderAuDetail();
-      renderAuMaster();
+      renderBuwpMaster();
+      renderBuwpDetail();
       toast('Sous-processus ajouté ✓');
     });
 }
 
-// ✎ Modifier un sous-processus (nom + description)
-function showEditSubProcessModal(procId, subProcId) {
+function showEditBuSubProcessModal(procId, subProcId) {
   if (!CU || CU.role!=='admin') { toast('Réservé aux admins'); return; }
-  var p = (PROCESSES||[]).find(function(x){return x.id===procId;});
-  if (!p || !Array.isArray(p.subProcesses)) return;
-  var sp = p.subProcesses.find(function(x){return x.id===subProcId;});
+  var p = (BU_PROCESSES||[]).find(function(x){return x.id===procId;});
+  if (!p) return;
+  var sp = (p.subProcesses||[]).find(function(x){return x.id===subProcId;});
   if (!sp) return;
   openModal('Modifier le sous-processus',
-    '<div><label>Nom du sous-processus</label><input id="sp-name" value="'+_escAttr(sp.name)+'"/></div>'
-    +'<div><label>Description</label><textarea id="sp-desc" style="min-height:60px;resize:vertical">'+(''+(sp.description||'')).replace(/</g,'&lt;')+'</textarea></div>',
+    '<div><label>Nom</label><input id="bsp-name" value="'+_escAttr(sp.name)+'"/></div>'
+    +'<div><label>Description</label><textarea id="bsp-desc" style="min-height:60px;resize:vertical">'+(''+(sp.description||'')).replace(/</g,'&lt;')+'</textarea></div>',
     async function(){
-      var name = document.getElementById('sp-name').value.trim();
-      var desc = document.getElementById('sp-desc').value.trim();
+      var name = document.getElementById('bsp-name').value.trim();
+      var desc = document.getElementById('bsp-desc').value.trim();
       if (!name) { toast('Nom obligatoire'); return; }
       sp.name = name;
       sp.description = desc;
       try {
-        if (typeof saveProcessFull === 'function') await saveProcessFull(p);
+        if (typeof saveBuProcessFull === 'function') await saveBuProcessFull(p);
       } catch(e) { console.warn(e); }
-      renderAuDetail();
+      renderBuwpDetail();
+      renderBuwpMaster();
       toast('Sous-processus modifié ✓');
     });
 }
 
-// ✗ Supprimer un sous-processus
-async function removeSubProcessFromUniverse(procId, subProcId) {
+async function removeBuSubProcess(procId, subProcId) {
   if (!CU || CU.role!=='admin') { toast('Réservé aux admins'); return; }
-  var p = (PROCESSES||[]).find(function(x){return x.id===procId;});
-  if (!p || !Array.isArray(p.subProcesses)) return;
-  var sp = p.subProcesses.find(function(x){return x.id===subProcId;});
+  var p = (BU_PROCESSES||[]).find(function(x){return x.id===procId;});
+  if (!p) return;
+  var sp = (p.subProcesses||[]).find(function(x){return x.id===subProcId;});
   if (!sp) return;
   var testCount = (sp.tests||[]).length;
   var msg = 'Supprimer le sous-processus « '+sp.name+' » ?'
     + (testCount ? '\n\nCela supprimera également ses '+testCount+' test(s) standardisé(s).' : '');
   if (!confirm(msg)) return;
-  p.subProcesses = p.subProcesses.filter(function(x){return x.id!==subProcId;});
+  p.subProcesses = (p.subProcesses||[]).filter(function(x){return x.id!==subProcId;});
   try {
-    if (typeof saveProcessFull === 'function') await saveProcessFull(p);
+    if (typeof saveBuProcessFull === 'function') await saveBuProcessFull(p);
   } catch(e) { console.warn(e); }
-  addHist('del', 'Sous-process retiré de '+p.proc+' : '+sp.name);
-  renderAuDetail();
-  renderAuMaster();
+  renderBuwpDetail();
+  renderBuwpMaster();
   toast('Sous-processus supprimé');
 }
 
 // ──────────────────────────────────────────────────────────────
-//  PROGRAMME DE TESTS D'UN SOUS-PROCESSUS (Phase 1)
-//  Modal qui liste / édite / supprime les tests standardisés.
-//  Chaque test : { id, code, statement, objective, testType, sampling, riskRefId }
+//  PROGRAMME DE TESTS BU (avec PBC dans le référentiel)
 // ──────────────────────────────────────────────────────────────
 
-var TEST_TYPES = ['Test of Design', 'Test of Effectiveness', 'Substantive'];
-
 // Génère un code de test du type T-{PROCSLUG}-{NN}
-function _genTestCode(p, sp, existingTests) {
-  // Slug = 3 lettres du nom du sous-process en majuscules
+function _genBuTestCode(p, sp, existingTests) {
   var slug = (sp.name||'SUB').replace(/[^A-Za-z]/g,'').slice(0,3).toUpperCase() || 'SUB';
   var existingCodes = (existingTests||[]).map(function(t){return t.code||'';});
-  // Trouver le prochain numéro libre
   var n = 1;
   while (existingCodes.indexOf('T-'+slug+'-'+(n<10?'0':'')+n) >= 0) n++;
   return 'T-'+slug+'-'+(n<10?'0':'')+n;
 }
 
-// Modal "Programme de tests" pour un sous-process donné
-function showSubProcessTestsModal(procId, subProcId) {
-  var p = (PROCESSES||[]).find(function(x){return x.id===procId;});
-  if (!p || !Array.isArray(p.subProcesses)) return;
-  var sp = p.subProcesses.find(function(x){return x.id===subProcId;});
+function showBuSubProcessTestsModal(procId, subProcId) {
+  var p = (BU_PROCESSES||[]).find(function(x){return x.id===procId;});
+  if (!p) return;
+  var sp = (p.subProcesses||[]).find(function(x){return x.id===subProcId;});
   if (!sp) return;
   if (!Array.isArray(sp.tests)) sp.tests = [];
 
-  var isAdmin = CU && CU.role==='admin';
+  var bodyHtml = renderBuTestsModalBody(p, sp);
 
-  // Ouvrir la modal — utilise openModal mais avec un layout custom (pas de boutons OK/Annuler classiques)
-  var bodyHtml = renderTestsModalBody(p, sp);
-
-  // On ouvre une modal "lecture-only" si pas admin, sinon on permet ajout/edit/delete
   openModal('Programme de tests — '+(sp.name||'').replace(/</g,'&lt;'),
-    '<div id="tests-modal-body">'+bodyHtml+'</div>',
-    null, // pas de callback de validation, on save au fil de l'eau
+    '<div id="bu-tests-modal-body">'+bodyHtml+'</div>',
+    null,
     { hideOk: true, cancelLabel: 'Fermer', wide: true }
   );
 }
 
-function renderTestsModalBody(p, sp) {
+function renderBuTestsModalBody(p, sp) {
   var isAdmin = CU && CU.role==='admin';
-  var risks = (RISK_UNIVERSE||[]);
   var h = '';
   h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">';
-  h += '<div style="font-size:11px;color:var(--text-3)">Tests qui seront pré-chargés à l\'étape Testings de chaque audit couvrant ce sous-process. <span style="font-weight:500">'+(sp.tests||[]).length+' test'+((sp.tests||[]).length>1?'s':'')+'</span> · '+p.proc+'</div>';
+  h += '<div style="font-size:11px;color:var(--text-3)">Tests substantifs standardisés. Pré-chargés à l\'étape Work Program de chaque audit BU couvrant ce sous-process. <span style="font-weight:500">'+(sp.tests||[]).length+' test'+((sp.tests||[]).length>1?'s':'')+'</span> · '+p.name+'</div>';
   if (isAdmin) {
-    h += '<button class="bp" style="font-size:11px;padding:4px 10px" onclick="addTestToSubProcess(\''+_escJsArg(p.id)+'\',\''+_escJsArg(sp.id)+'\')">+ Ajouter un test</button>';
+    h += '<button class="bp" style="font-size:11px;padding:4px 10px" onclick="addBuTest(\''+_escJsArg(p.id)+'\',\''+_escJsArg(sp.id)+'\')">+ Ajouter un test</button>';
   }
   h += '</div>';
 
   if (!sp.tests || !sp.tests.length) {
-    h += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:1.5rem;text-align:center;border:1px dashed var(--border);border-radius:4px">Aucun test standardisé pour ce sous-processus. '+(isAdmin?'Cliquez sur « + Ajouter un test ».':'Demandez à un admin d\'en ajouter.')+'</div>';
+    h += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:1.5rem;text-align:center;border:1px dashed var(--border);border-radius:4px">Aucun test pour ce sous-processus. '+(isAdmin?'Cliquez sur « + Ajouter un test ».':'Demandez à un admin d\'en ajouter.')+'</div>';
     return h;
   }
 
-  // Liste des tests
   sp.tests.forEach(function(t, ti){
     var typeColor = t.testType==='Test of Effectiveness' ? '#0C447C' :
                     t.testType==='Substantive' ? '#854F0B' : '#085041';
     var typeBg = t.testType==='Test of Effectiveness' ? '#E6F1FB' :
                  t.testType==='Substantive' ? '#FAEEDA' : '#E1F5EE';
-    var linkedRiskTitle = '';
-    if (t.riskRefId) {
-      var r = risks.find(function(x){return x.id===t.riskRefId;});
-      if (r) linkedRiskTitle = r.title;
-    }
+    if (!Array.isArray(t.pbc)) t.pbc = [];
+
     h += '<div style="border:.5px solid var(--border);border-radius:5px;padding:10px 12px;margin-bottom:6px;background:#fafafa;position:relative">';
     if (isAdmin) {
-      h += '<button onclick="removeTestFromSubProcess(\''+_escJsArg(p.id)+'\',\''+_escJsArg(sp.id)+'\',\''+_escJsArg(t.id)+'\')" title="Supprimer ce test" style="position:absolute;top:8px;right:8px;background:#fff;border:.5px solid var(--border);color:var(--text-3);border-radius:4px;width:22px;height:22px;cursor:pointer;font-size:13px;padding:0;line-height:1">×</button>';
+      h += '<button onclick="removeBuTest(\''+_escJsArg(p.id)+'\',\''+_escJsArg(sp.id)+'\',\''+_escJsArg(t.id)+'\')" title="Supprimer ce test" style="position:absolute;top:8px;right:8px;background:#fff;border:.5px solid var(--border);color:var(--text-3);border-radius:4px;width:22px;height:22px;cursor:pointer;font-size:13px;padding:0;line-height:1">×</button>';
     }
     // Code + Type
     h += '<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">';
@@ -1288,16 +1382,16 @@ function renderTestsModalBody(p, sp) {
     // Énoncé
     h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:3px">Énoncé du test</label>';
     if (isAdmin) {
-      h += '<textarea onchange="setTestField(\''+_escJsArg(p.id)+'\',\''+_escJsArg(sp.id)+'\',\''+_escJsArg(t.id)+'\',\'statement\',this.value)" style="width:100%;min-height:42px;font-size:11px;padding:6px 9px;border:1px solid var(--border);border-radius:3px;resize:vertical;font-family:inherit;box-sizing:border-box;margin-bottom:6px">'+(''+(t.statement||'')).replace(/</g,'&lt;')+'</textarea>';
+      h += '<textarea onchange="setBuTestField(\''+_escJsArg(p.id)+'\',\''+_escJsArg(sp.id)+'\',\''+_escJsArg(t.id)+'\',\'statement\',this.value)" style="width:100%;min-height:42px;font-size:11px;padding:6px 9px;border:1px solid var(--border);border-radius:3px;resize:vertical;font-family:inherit;box-sizing:border-box;margin-bottom:6px">'+(''+(t.statement||'')).replace(/</g,'&lt;')+'</textarea>';
     } else {
       h += '<div style="font-size:11px;padding:6px 9px;background:#fff;border-radius:3px;margin-bottom:6px">'+(''+(t.statement||'—')).replace(/</g,'&lt;')+'</div>';
     }
-    // Objectif + Type sur même ligne
+    // Objectif + Type
     h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:6px">';
     h += '<div>';
     h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:3px">Objectif</label>';
     if (isAdmin) {
-      h += '<input value="'+_escAttr(t.objective)+'" onchange="setTestField(\''+_escJsArg(p.id)+'\',\''+_escJsArg(sp.id)+'\',\''+_escJsArg(t.id)+'\',\'objective\',this.value)" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box"/>';
+      h += '<input value="'+_escAttr(t.objective)+'" onchange="setBuTestField(\''+_escJsArg(p.id)+'\',\''+_escJsArg(sp.id)+'\',\''+_escJsArg(t.id)+'\',\'objective\',this.value)" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box"/>';
     } else {
       h += '<div style="font-size:11px;padding:5px 8px">'+(''+(t.objective||'—')).replace(/</g,'&lt;')+'</div>';
     }
@@ -1305,7 +1399,7 @@ function renderTestsModalBody(p, sp) {
     h += '<div>';
     h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:3px">Type de test</label>';
     if (isAdmin) {
-      h += '<select onchange="setTestField(\''+_escJsArg(p.id)+'\',\''+_escJsArg(sp.id)+'\',\''+_escJsArg(t.id)+'\',\'testType\',this.value)" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;background:#fff">';
+      h += '<select onchange="setBuTestField(\''+_escJsArg(p.id)+'\',\''+_escJsArg(sp.id)+'\',\''+_escJsArg(t.id)+'\',\'testType\',this.value)" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;background:#fff">';
       TEST_TYPES.forEach(function(tt){
         h += '<option'+(t.testType===tt?' selected':'')+'>'+tt+'</option>';
       });
@@ -1315,29 +1409,37 @@ function renderTestsModalBody(p, sp) {
     }
     h += '</div>';
     h += '</div>';
-    // Échantillon + Risque sur même ligne
-    h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">';
-    h += '<div>';
-    h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:3px">Échantillon</label>';
+    // Sampling hint (orientation, sera affiné dans l'audit)
+    h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:3px">Orientation pour la sélection (sample)</label>';
     if (isAdmin) {
-      h += '<input value="'+_escAttr(t.sampling)+'" placeholder="ex : 5 mois sur les 12 derniers" onchange="setTestField(\''+_escJsArg(p.id)+'\',\''+_escJsArg(sp.id)+'\',\''+_escJsArg(t.id)+'\',\'sampling\',this.value)" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box"/>';
+      h += '<input value="'+_escAttr(t.samplingHint)+'" placeholder="ex : 25 transactions sur les 12 derniers mois" onchange="setBuTestField(\''+_escJsArg(p.id)+'\',\''+_escJsArg(sp.id)+'\',\''+_escJsArg(t.id)+'\',\'samplingHint\',this.value)" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box;margin-bottom:8px"/>';
     } else {
-      h += '<div style="font-size:11px;padding:5px 8px">'+(''+(t.sampling||'—')).replace(/</g,'&lt;')+'</div>';
+      h += '<div style="font-size:11px;padding:5px 8px;margin-bottom:8px">'+(''+(t.samplingHint||'—')).replace(/</g,'&lt;')+'</div>';
+    }
+
+    // PBC — liste de documents pré-définis
+    h += '<div style="border-top:.5px dashed var(--border);padding-top:8px;margin-top:4px">';
+    h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">';
+    h += '<span style="font-size:10px;font-weight:600;color:var(--text-2)">PBC (Prepared By Client) · '+t.pbc.length+' document'+(t.pbc.length>1?'s':'')+'</span>';
+    if (isAdmin) {
+      h += '<button class="bs" style="font-size:10px;padding:2px 7px" onclick="addBuPbcDoc(\''+_escJsArg(p.id)+'\',\''+_escJsArg(sp.id)+'\',\''+_escJsArg(t.id)+'\')">+ Document</button>';
     }
     h += '</div>';
-    h += '<div>';
-    h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:3px">Risque adressé (URD)</label>';
-    if (isAdmin) {
-      h += '<select onchange="setTestField(\''+_escJsArg(p.id)+'\',\''+_escJsArg(sp.id)+'\',\''+_escJsArg(t.id)+'\',\'riskRefId\',this.value)" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;background:#fff">';
-      h += '<option value=""'+(!t.riskRefId?' selected':'')+'>— Aucun —</option>';
-      risks.forEach(function(r){
-        h += '<option value="'+_escAttr(r.id)+'"'+(t.riskRefId===r.id?' selected':'')+'>'+(''+(r.title||'')).replace(/</g,'&lt;')+'</option>';
+    if (!t.pbc.length) {
+      h += '<div style="font-size:10px;color:var(--text-3);font-style:italic;padding:5px 0">Aucun document pré-défini.</div>';
+    } else {
+      t.pbc.forEach(function(doc){
+        h += '<div style="display:flex;align-items:center;gap:6px;padding:3px 0">';
+        h += '<span style="font-size:11px;color:var(--text-3)">📄</span>';
+        if (isAdmin) {
+          h += '<input value="'+_escAttr(doc.name)+'" placeholder="ex : Journal des ventes" onchange="setBuPbcDoc(\''+_escJsArg(p.id)+'\',\''+_escJsArg(sp.id)+'\',\''+_escJsArg(t.id)+'\',\''+_escJsArg(doc.id)+'\',this.value)" style="flex:1;font-size:11px;padding:3px 7px;border:1px solid var(--border);border-radius:3px"/>';
+          h += '<button onclick="removeBuPbcDoc(\''+_escJsArg(p.id)+'\',\''+_escJsArg(sp.id)+'\',\''+_escJsArg(t.id)+'\',\''+_escJsArg(doc.id)+'\')" title="Supprimer" style="background:#fff;border:.5px solid var(--border);color:var(--text-3);border-radius:3px;width:20px;height:20px;cursor:pointer;font-size:12px;padding:0;line-height:1">×</button>';
+        } else {
+          h += '<span style="font-size:11px;flex:1">'+(''+(doc.name||'')).replace(/</g,'&lt;')+'</span>';
+        }
+        h += '</div>';
       });
-      h += '</select>';
-    } else {
-      h += '<div style="font-size:11px;padding:5px 8px">'+(linkedRiskTitle?(''+linkedRiskTitle).replace(/</g,'&lt;'):'—')+'</div>';
     }
-    h += '</div>';
     h += '</div>';
     h += '</div>';
   });
@@ -1345,55 +1447,49 @@ function renderTestsModalBody(p, sp) {
   return h;
 }
 
-// Ajouter un test au sous-processus
-async function addTestToSubProcess(procId, subProcId) {
+async function addBuTest(procId, subProcId) {
   if (!CU || CU.role!=='admin') { toast('Réservé aux admins'); return; }
-  var p = (PROCESSES||[]).find(function(x){return x.id===procId;});
-  if (!p || !Array.isArray(p.subProcesses)) return;
-  var sp = p.subProcesses.find(function(x){return x.id===subProcId;});
+  var p = (BU_PROCESSES||[]).find(function(x){return x.id===procId;});
+  if (!p) return;
+  var sp = (p.subProcesses||[]).find(function(x){return x.id===subProcId;});
   if (!sp) return;
   if (!Array.isArray(sp.tests)) sp.tests = [];
-  var newTest = {
-    id: 't_'+Date.now()+'_'+Math.floor(Math.random()*1000),
-    code: _genTestCode(p, sp, sp.tests),
+  sp.tests.push({
+    id: 'but_'+Date.now()+'_'+Math.floor(Math.random()*1000),
+    code: _genBuTestCode(p, sp, sp.tests),
     statement: '',
     objective: '',
-    testType: 'Test of Design',
-    sampling: '',
-    riskRefId: '',
-  };
-  sp.tests.push(newTest);
+    testType: 'Substantive',
+    samplingHint: '',
+    pbc: [],
+  });
   try {
-    if (typeof saveProcessFull === 'function') await saveProcessFull(p);
+    if (typeof saveBuProcessFull === 'function') await saveBuProcessFull(p);
   } catch(e) { console.warn(e); }
-  // Re-render le body de la modale
-  var body = document.getElementById('tests-modal-body');
-  if (body) body.innerHTML = renderTestsModalBody(p, sp);
-  // Et refresh l'onglet Audit Universe en arrière-plan
-  if (document.getElementById('au-detail')) renderAuDetail();
+  var body = document.getElementById('bu-tests-modal-body');
+  if (body) body.innerHTML = renderBuTestsModalBody(p, sp);
+  if (document.getElementById('buwp-detail')) renderBuwpDetail();
 }
 
-// Retirer un test
-async function removeTestFromSubProcess(procId, subProcId, testId) {
+async function removeBuTest(procId, subProcId, testId) {
   if (!CU || CU.role!=='admin') { toast('Réservé aux admins'); return; }
   if (!confirm('Supprimer ce test ?')) return;
-  var p = (PROCESSES||[]).find(function(x){return x.id===procId;});
+  var p = (BU_PROCESSES||[]).find(function(x){return x.id===procId;});
   if (!p) return;
   var sp = (p.subProcesses||[]).find(function(x){return x.id===subProcId;});
   if (!sp) return;
   sp.tests = (sp.tests||[]).filter(function(x){return x.id!==testId;});
   try {
-    if (typeof saveProcessFull === 'function') await saveProcessFull(p);
+    if (typeof saveBuProcessFull === 'function') await saveBuProcessFull(p);
   } catch(e) { console.warn(e); }
-  var body = document.getElementById('tests-modal-body');
-  if (body) body.innerHTML = renderTestsModalBody(p, sp);
-  if (document.getElementById('au-detail')) renderAuDetail();
+  var body = document.getElementById('bu-tests-modal-body');
+  if (body) body.innerHTML = renderBuTestsModalBody(p, sp);
+  if (document.getElementById('buwp-detail')) renderBuwpDetail();
 }
 
-// Mettre à jour un champ d'un test (auto-save sur onchange)
-async function setTestField(procId, subProcId, testId, field, val) {
+async function setBuTestField(procId, subProcId, testId, field, val) {
   if (!CU || CU.role!=='admin') return;
-  var p = (PROCESSES||[]).find(function(x){return x.id===procId;});
+  var p = (BU_PROCESSES||[]).find(function(x){return x.id===procId;});
   if (!p) return;
   var sp = (p.subProcesses||[]).find(function(x){return x.id===subProcId;});
   if (!sp) return;
@@ -1401,14 +1497,70 @@ async function setTestField(procId, subProcId, testId, field, val) {
   if (!t) return;
   t[field] = val;
   try {
-    if (typeof saveProcessFull === 'function') await saveProcessFull(p);
+    if (typeof saveBuProcessFull === 'function') await saveBuProcessFull(p);
   } catch(e) { console.warn(e); }
-  // Si on a changé testType, on doit re-render pour mettre à jour le badge couleur
   if (field === 'testType') {
-    var body = document.getElementById('tests-modal-body');
-    if (body) body.innerHTML = renderTestsModalBody(p, sp);
+    var body = document.getElementById('bu-tests-modal-body');
+    if (body) body.innerHTML = renderBuTestsModalBody(p, sp);
   }
 }
+
+// ──────────────────────────────────────────────────────────────
+//  CRUD PBC dans le référentiel BU
+// ──────────────────────────────────────────────────────────────
+
+async function addBuPbcDoc(procId, subProcId, testId) {
+  if (!CU || CU.role!=='admin') return;
+  var p = (BU_PROCESSES||[]).find(function(x){return x.id===procId;});
+  if (!p) return;
+  var sp = (p.subProcesses||[]).find(function(x){return x.id===subProcId;});
+  if (!sp) return;
+  var t = (sp.tests||[]).find(function(x){return x.id===testId;});
+  if (!t) return;
+  if (!Array.isArray(t.pbc)) t.pbc = [];
+  t.pbc.push({
+    id: 'pbc_'+Date.now()+'_'+Math.floor(Math.random()*1000),
+    name: '',
+  });
+  try {
+    if (typeof saveBuProcessFull === 'function') await saveBuProcessFull(p);
+  } catch(e) { console.warn(e); }
+  var body = document.getElementById('bu-tests-modal-body');
+  if (body) body.innerHTML = renderBuTestsModalBody(p, sp);
+}
+
+async function setBuPbcDoc(procId, subProcId, testId, pbcId, name) {
+  if (!CU || CU.role!=='admin') return;
+  var p = (BU_PROCESSES||[]).find(function(x){return x.id===procId;});
+  if (!p) return;
+  var sp = (p.subProcesses||[]).find(function(x){return x.id===subProcId;});
+  if (!sp) return;
+  var t = (sp.tests||[]).find(function(x){return x.id===testId;});
+  if (!t) return;
+  var doc = (t.pbc||[]).find(function(x){return x.id===pbcId;});
+  if (!doc) return;
+  doc.name = name;
+  try {
+    if (typeof saveBuProcessFull === 'function') await saveBuProcessFull(p);
+  } catch(e) { console.warn(e); }
+}
+
+async function removeBuPbcDoc(procId, subProcId, testId, pbcId) {
+  if (!CU || CU.role!=='admin') return;
+  var p = (BU_PROCESSES||[]).find(function(x){return x.id===procId;});
+  if (!p) return;
+  var sp = (p.subProcesses||[]).find(function(x){return x.id===subProcId;});
+  if (!sp) return;
+  var t = (sp.tests||[]).find(function(x){return x.id===testId;});
+  if (!t) return;
+  t.pbc = (t.pbc||[]).filter(function(x){return x.id!==pbcId;});
+  try {
+    if (typeof saveBuProcessFull === 'function') await saveBuProcessFull(p);
+  } catch(e) { console.warn(e); }
+  var body = document.getElementById('bu-tests-modal-body');
+  if (body) body.innerHTML = renderBuTestsModalBody(p, sp);
+}
+
 
 function showAddDomainModal(){
   openModal('Nouveau domaine',
