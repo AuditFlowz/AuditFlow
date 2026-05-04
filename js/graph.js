@@ -234,7 +234,11 @@ var LIST_SCHEMAS = {
     {name:'risks_json',text:{}},{name:'y25_json',text:{}},{name:'y26_json',text:{}},
     {name:'y27_json',text:{}},{name:'y28_json',text:{}},
     {name:'risk_refs_json',text:{}},
-    {name:'sub_processes_json',text:{}},
+  ],
+  // BU Work Program — référentiel des process locaux et de leurs tests substantifs
+  BU_Processes: [
+    {name:'af_id',text:{}},{name:'name',text:{}},{name:'description',text:{}},
+    {name:'archived',boolean:{}},{name:'sub_processes_json',text:{}},
   ],
   AF_Actions: [
     {name:'af_id',text:{}},{name:'title',text:{}},{name:'audit',text:{}},
@@ -398,7 +402,6 @@ async function loadAllData() {
       riskLevel:f.risk_level||'faible', archived:f.archived||false,
       risks:tryParse(f.risks_json,[]),
       riskRefs: tryParse(f.risk_refs_json, []), // IDs de risques du Risk Universe
-      subProcesses: tryParse(f.sub_processes_json, []), // Sous-processus avec leur programme de tests (Phase 1)
       y25:tryParse(f.y25_json,null), y26:tryParse(f.y26_json,null),
       y27:tryParse(f.y27_json,null), y28:tryParse(f.y28_json,null),
     };});
@@ -493,6 +496,22 @@ async function loadAllData() {
       }).filter(function(c){return !c.archived;});
       console.log('[SP] ControlsLibrary loaded:', CONTROLS_LIBRARY.length, 'controls');
     } catch(e){ console.warn('[SP] AF_ControlsLibrary not found or empty:', e.message); CONTROLS_LIBRARY = []; }
+
+    // Charger le référentiel BU Work Program
+    try {
+      var buRaw = await listItems('BU_Processes');
+      BU_PROCESSES = buRaw.map(function(r){ var f=r.fields; return {
+        id: f.af_id,
+        name: f.name || f.Title || '',
+        description: f.description || '',
+        archived: f.archived === true || f.archived === 'true' || f.archived === 1,
+        subProcesses: tryParse(f.sub_processes_json, []),
+      };}).filter(function(p){return p.id;});
+      console.log('[SP] BU_Processes loaded:', BU_PROCESSES.length, 'process(es)');
+    } catch(e){
+      console.warn('[SP] BU_Processes not found or empty:', e.message);
+      BU_PROCESSES = [];
+    }
 
     // Charger Risk Assessment (1 seul item dans AF_RiskAssessment)
     try {
@@ -780,11 +799,42 @@ async function saveProcessFull(p) {
       archived: p.archived || false,
       risks_json: JSON.stringify(p.risks || []),
       risk_refs_json: JSON.stringify(p.riskRefs || []),
-      sub_processes_json: JSON.stringify(p.subProcesses || []),
       Title: p.proc || '',
     });
   } catch (e) {
     console.warn('[saveProcessFull] error for', p.id, ':', e.message);
+  }
+}
+
+// ──────────────────────────────────────────────────────────────
+//  BU WORK PROGRAM — référentiel séparé pour les audits BU
+//  Liste SharePoint : BU_Processes
+//  Structure JSON : { id, name, description, archived, subProcesses: [...] }
+// ──────────────────────────────────────────────────────────────
+
+// Helper de sauvegarde pour un BU Process complet
+async function saveBuProcessFull(p) {
+  if (!p || !p.id) return;
+  try {
+    await spUpsert('BU_Processes', p.id, {
+      name: p.name || '',
+      description: p.description || '',
+      archived: p.archived || false,
+      sub_processes_json: JSON.stringify(p.subProcesses || []),
+      Title: p.name || '',
+    });
+  } catch (e) {
+    console.warn('[saveBuProcessFull] error for', p.id, ':', e.message);
+  }
+}
+
+// Suppression d'un BU Process (soft via archived recommandé, mais hard delete dispo)
+async function deleteBuProcess(procId) {
+  if (!procId) return;
+  try {
+    await spDelete('BU_Processes', procId);
+  } catch (e) {
+    console.warn('[deleteBuProcess] error for', procId, ':', e.message);
   }
 }
 
