@@ -41,9 +41,11 @@ var RISK_IMPACTS = ['Minor', 'Limited', 'Major', 'Severe'];
 var RISK_IMPACT_TYPES = ['Réputation', 'Financier', 'Legal', 'Operations'];
 
 // ══════════════════════════════════════════════════════════════
-//  BU WORK PROGRAM — référentiel des process locaux et tests substantifs
-//  utilisé pour les audits de type BU
-//  Structure : [{id, name, description, archived, subProcesses: [
+//  BU WORK PROGRAM — entrées liées aux Process de l'Audit Universe
+//  Chaque entrée pointe vers un Process via auditProcessId.
+//  Le NOM du Process vient de PROCESSES (lien vivant : renommer
+//  dans Audit Universe se reflète automatiquement ici).
+//  Structure : [{id, auditProcessId, subProcesses: [
 //      {id, name, description, tests: [
 //          {id, code, statement, objective, testType, samplingHint,
 //           pbc: [{id, name}]}

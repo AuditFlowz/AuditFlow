@@ -235,10 +235,12 @@ var LIST_SCHEMAS = {
     {name:'y27_json',text:{}},{name:'y28_json',text:{}},
     {name:'risk_refs_json',text:{}},
   ],
-  // BU Work Program — référentiel des process locaux et de leurs tests substantifs
+  // BU Work Program — entrées liées aux Process de l'Audit Universe
+  // Chaque entrée = { auditProcessId, subProcesses: [...] }
+  // Le nom et le domaine viennent du Process référencé (Audit Universe).
   BU_Processes: [
-    {name:'af_id',text:{}},{name:'name',text:{}},{name:'description',text:{}},
-    {name:'archived',boolean:{}},{name:'sub_processes_json',text:{}},
+    {name:'af_id',text:{}},{name:'audit_process_id',text:{}},
+    {name:'sub_processes_json',text:{}},
   ],
   AF_Actions: [
     {name:'af_id',text:{}},{name:'title',text:{}},{name:'audit',text:{}},
@@ -498,16 +500,15 @@ async function loadAllData() {
     } catch(e){ console.warn('[SP] AF_ControlsLibrary not found or empty:', e.message); CONTROLS_LIBRARY = []; }
 
     // Charger le référentiel BU Work Program
+    // Chaque entrée pointe vers un Process de l'Audit Universe via auditProcessId
     try {
       var buRaw = await listItems('BU_Processes');
       BU_PROCESSES = buRaw.map(function(r){ var f=r.fields; return {
         id: f.af_id,
-        name: f.name || f.Title || '',
-        description: f.description || '',
-        archived: f.archived === true || f.archived === 'true' || f.archived === 1,
+        auditProcessId: f.audit_process_id || '',
         subProcesses: tryParse(f.sub_processes_json, []),
-      };}).filter(function(p){return p.id;});
-      console.log('[SP] BU_Processes loaded:', BU_PROCESSES.length, 'process(es)');
+      };}).filter(function(b){return b.id && b.auditProcessId;});
+      console.log('[SP] BU_Processes loaded:', BU_PROCESSES.length, 'entry(ies)');
     } catch(e){
       console.warn('[SP] BU_Processes not found or empty:', e.message);
       BU_PROCESSES = [];
@@ -812,19 +813,18 @@ async function saveProcessFull(p) {
 //  Structure JSON : { id, name, description, archived, subProcesses: [...] }
 // ──────────────────────────────────────────────────────────────
 
-// Helper de sauvegarde pour un BU Process complet
-async function saveBuProcessFull(p) {
-  if (!p || !p.id) return;
+// Helper de sauvegarde pour une entrée BU Work Program.
+// Une entrée = { id, auditProcessId, subProcesses: [...] }
+async function saveBuProcessFull(entry) {
+  if (!entry || !entry.id) return;
   try {
-    await spUpsert('BU_Processes', p.id, {
-      name: p.name || '',
-      description: p.description || '',
-      archived: p.archived || false,
-      sub_processes_json: JSON.stringify(p.subProcesses || []),
-      Title: p.name || '',
+    await spUpsert('BU_Processes', entry.id, {
+      audit_process_id: entry.auditProcessId || '',
+      sub_processes_json: JSON.stringify(entry.subProcesses || []),
+      Title: entry.auditProcessId || entry.id,
     });
   } catch (e) {
-    console.warn('[saveBuProcessFull] error for', p.id, ':', e.message);
+    console.warn('[saveBuProcessFull] error for', entry.id, ':', e.message);
   }
 }
 
