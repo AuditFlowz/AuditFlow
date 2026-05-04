@@ -40,6 +40,18 @@ var RISK_PROBABILITIES = ['Rare', 'Unlikely', 'Possible', 'Certain'];
 var RISK_IMPACTS = ['Minor', 'Limited', 'Major', 'Severe'];
 var RISK_IMPACT_TYPES = ['Réputation', 'Financier', 'Legal', 'Operations'];
 
+// ══════════════════════════════════════════════════════════════
+//  BU WORK PROGRAM — référentiel des process locaux et tests substantifs
+//  utilisé pour les audits de type BU
+//  Structure : [{id, name, description, archived, subProcesses: [
+//      {id, name, description, tests: [
+//          {id, code, statement, objective, testType, samplingHint,
+//           pbc: [{id, name}]}
+//      ]}
+//  ]}]
+// ══════════════════════════════════════════════════════════════
+var BU_PROCESSES = [];
+
 // Couleurs par niveau d'impact (pour l'affichage)
 var RISK_IMPACT_COLORS = {
   'Minor':   {bg:'#D1FAE5', color:'#065F46'},  // vert
