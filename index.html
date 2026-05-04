@@ -1,102 +1,187 @@
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-<meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>AuditFlow</title>
-<link rel="stylesheet" href="/css/app.css">
-<script src="/config.js"></script>
-<script src="/js/data.js"></script>
-<script src="/js/msal-browser.min.js"></script>
-<script src="/js/graph.js"></script>
-<script src="/js/control-library.js"></script>
-<script src="/js/views.js"></script>
-<script src="/js/doc-viewer.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
-<script src="/js/kickoff-generator.js"></script>
-<script src="/js/audit-report-generator.js"></script>
-<script src="/js/settings.js"></script>
-<script src="/js/app.js"></script>
-</head>
-<body>
+const MO=['Jan','Fév','Mar','Avr','Mai','Juin','Juil','Août','Sep','Oct','Nov','Déc'];
+const STEPS=[
+  {s:'Scope & Preparation',ph:1},{s:'Work Program',ph:1},{s:'Audit Kick Off',ph:1},
+  {s:'Interview / Flowcharts',ph:2},{s:'ITW : WCGW & Contrôles',ph:2},{s:'Testings',ph:2},
+  {s:'Report (Findings + Maturity)',ph:3},{s:'Report Restitution',ph:3},{s:'Management Responses',ph:3},
+  {s:'Exec. Committee Report',ph:3}
+];
+// Étapes "clés" qui nécessitent un workflow de revue (finalisation + revue par admin)
+// Les autres étapes gardent le fonctionnement simple (juste "Valider l'étape")
+const KEY_STEPS = [2, 4, 5, 6, 8]; // Kick Off, Test Strategy, Testings, Report, Mgt Responses
 
-<!-- APP -->
-<div id="app" class="app" style="display:none;flex-direction:column;">
+// ══════════════════════════════════════════════════════════════
+//  DOCUMENTS ATTENDUS PAR ÉTAPE (référentiel global - en dur)
+//  CS = step index (0-based)
+// ══════════════════════════════════════════════════════════════
+const EXPECTED_DOCS_BY_STEP = {
+  0: ['Audit Plan Memo'],
+  1: ['Work Program'],
+  2: ['Kick-Off Presentation', 'Meeting Invite'],
+  3: ['Narratifs', 'Flowcharts'],
+  4: ['Test Strategy'],
+  5: ['Working papers'],
+  6: ['Rapport d\'audit'],
+  7: ['Meeting Invite'],
+  8: [],
+  9: [],
+};
 
-  <!-- Bandeau notifications -->
-  <div id="notif-bar" style="display:none;align-items:center;gap:10px;
-    background:#DC2626;color:#fff;padding:8px 16px;font-size:12px;font-weight:500;
-    position:sticky;top:0;z-index:20;flex-shrink:0;font-family:inherit;"></div>
+// ══════════════════════════════════════════════════════════════
+//  RISK UNIVERSE : hiérarchie des risques du Groupe
+//  Format: [{id, level:'group'|'operational', parentId, title, description,
+//           probability:'Rare'|'Unlikely'|'Possible'|'Certain',
+//           impact:'Minor'|'Limited'|'Major'|'Severe',
+//           impactTypes:['Réputation','Financier','Legal','Operations']}]
+// ══════════════════════════════════════════════════════════════
+var RISK_UNIVERSE = [];
 
-  <div style="display:flex;flex:1;overflow:hidden;">
-    <div class="sidebar">
-      <div class="logo">
-        <img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj4KICA8cmVjdCB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgcng9IjE4IiBmaWxsPSIjMUMxQTJFIi8+CiAgPGNpcmNsZSBjeD0iNDciIGN5PSI0NyIgcj0iMzgiIGZpbGw9Im5vbmUiIHN0cm9rZT0id2hpdGUiIHN0cm9rZS13aWR0aD0iNSIvPgogIDxjaXJjbGUgY3g9IjQ3IiBjeT0iNDciIHI9IjI4IiBmaWxsPSJub25lIiBzdHJva2U9IndoaXRlIiBzdHJva2Utd2lkdGg9IjQiLz4KICA8Y2lyY2xlIGN4PSI0NyIgY3k9IjQ3IiByPSIxOCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSJ3aGl0ZSIgc3Ryb2tlLXdpZHRoPSIzLjUiLz4KICA8Y2lyY2xlIGN4PSI0NyIgY3k9IjQ3IiByPSI4IiBmaWxsPSJub25lIiBzdHJva2U9IndoaXRlIiBzdHJva2Utd2lkdGg9IjMiLz4KICA8Y2lyY2xlIGN4PSI0NyIgY3k9IjQ3IiByPSIzIiBmaWxsPSJ3aGl0ZSIvPgogIDxsaW5lIHgxPSI2MCIgeTE9IjYwIiB4Mj0iODAiIHkyPSI4MiIgc3Ryb2tlPSJ3aGl0ZSIgc3Ryb2tlLXdpZHRoPSI4IiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KICA8cmVjdCB4PSI0MCIgeT0iNSIgd2lkdGg9IjE0IiBoZWlnaHQ9IjEwIiBmaWxsPSIjMUMxQTJFIi8+Cjwvc3ZnPg==" style="height:28px;object-fit:contain" alt="logo"/>
-        <span>AuditFlow</span>
-      </div>
+// Valeurs autorisées
+var RISK_PROBABILITIES = ['Rare', 'Unlikely', 'Possible', 'Certain'];
+var RISK_IMPACTS = ['Minor', 'Limited', 'Major', 'Severe'];
+var RISK_IMPACT_TYPES = ['Réputation', 'Financier', 'Legal', 'Operations'];
 
-      <div class="ns">Plans Audit</div>
-      <div class="nav" data-view="plan-audit" id="nav-plan-audit"><span class="ni">◆</span>Plan Audit</div>
-      <div class="nav" data-view="plans-process" id="nav-plans-process"><span class="ni">◈</span>Plan Process</div>
-      <div class="nav" data-view="plans-bu" id="nav-plans-bu"><span class="ni">◉</span>Plan BU</div>
+// ══════════════════════════════════════════════════════════════
+//  BU WORK PROGRAM — référentiel des process locaux et tests substantifs
+//  utilisé pour les audits de type BU
+//  Structure : [{id, name, description, archived, subProcesses: [
+//      {id, name, description, tests: [
+//          {id, code, statement, objective, testType, samplingHint,
+//           pbc: [{id, name}]}
+//      ]}
+//  ]}]
+// ══════════════════════════════════════════════════════════════
+var BU_PROCESSES = [];
 
-      <div class="ns">Audit Flow</div>
-      <div class="nav active" data-view="dashboard" id="nav-dashboard"><span class="ni">◻</span>Tableau de bord</div>
-      <div class="nav" data-view="planification" id="nav-planification"><span class="ni">▦</span>Planification</div>
+// Couleurs par niveau d'impact (pour l'affichage)
+var RISK_IMPACT_COLORS = {
+  'Minor':   {bg:'#D1FAE5', color:'#065F46'},  // vert
+  'Limited': {bg:'#FEF3C7', color:'#854F0B'},  // jaune
+  'Major':   {bg:'#FED7AA', color:'#9A3412'},  // orange
+  'Severe':  {bg:'#FECACA', color:'#991B1B'},  // rouge
+};
 
-      <div class="ns">Suivi</div>
-      <div class="nav" data-view="plans-action" id="nav-plans-action"><span class="ni">✦</span>Plans d'action</div>
+// ══════════════════════════════════════════════════════════════
+//  PRODUCT LINES : [{id, name, society:'SBS'|'AXW', countries:[], description}]
+// ══════════════════════════════════════════════════════════════
+var PRODUCT_LINES = [];
 
-      <div class="ns">Référentiels</div>
-      <div class="nav" data-view="plan-process" id="nav-plan-process"><span class="ni">◈</span>Audit Universe</div>
-      <div class="nav" data-view="risk-universe" id="nav-risk-universe"><span class="ni">△</span>Risk Universe</div>
-      <div class="nav" data-view="risk-assessment" id="nav-risk-assessment"><span class="ni">⚖</span>Risk Assessment</div>
+// Catégories par défaut pour les missions "Other" (non-audit)
+// Les utilisateurs peuvent en ajouter de nouvelles à la volée dans le formulaire
+var OTHER_CATEGORIES_DEFAULT = [
+  'Reporting Comité Audit',
+  'Compliance',
+  'Risk Management',
+  'Autre mission',
+];
 
-      <div class="ns">Group Parameters</div>
-      <div class="nav" data-view="product-lines" id="nav-product-lines"><span class="ni">▲</span>Product Lines</div>
-      <div class="nav" data-view="plan-bu" id="nav-plan-bu"><span class="ni">◉</span>Group Structure</div>
+// Couleurs par catégorie (pour les badges et le Gantt)
+// Si une catégorie n'est pas listée, couleur par défaut "orange"
+var OTHER_CATEGORY_COLORS = {
+  'Reporting Comité Audit':     {bg:'#E0E7FF', color:'#3730A3', gantt:'#6366F1'},
+  'Compliance':                 {bg:'#FEF3C7', color:'#854F0B', gantt:'#F59E0B'},
+  'Risk Management':            {bg:'#DBEAFE', color:'#1E40AF', gantt:'#3B82F6'},
+  'Autre mission':              {bg:'#F3F4F6', color:'#374151', gantt:'#6B7280'},
+  // Anciennes catégories conservées pour compat (si déjà utilisées)
+  'Sapin 2 - Cartographie':     {bg:'#FEF3C7', color:'#854F0B', gantt:'#F59E0B'},
+  'URD - Facteurs de risques':  {bg:'#DBEAFE', color:'#1E40AF', gantt:'#3B82F6'},
+  'Comité d\'audit':             {bg:'#E0E7FF', color:'#3730A3', gantt:'#6366F1'},
+  'Formation / Conférence':     {bg:'#F3E8FF', color:'#6B21A8', gantt:'#A855F7'},
+  'Revue du plan d\'audit':      {bg:'#CFFAFE', color:'#155E75', gantt:'#06B6D4'},
+  'Autre':                       {bg:'#F3F4F6', color:'#374151', gantt:'#6B7280'},
+};
 
-      <div class="ns ao">Administration</div>
-      <div class="nav" data-view="team" id="nav-team"><span class="ni">👥</span>Team</div>
-      <div class="nav" data-view="historique" id="nav-historique"><span class="ni">◷</span>Historique</div>
-      <div class="nav ao" data-view="roles" id="nav-roles"><span class="ni">⊙</span>Rôles &amp; Accès</div>
-      <div class="nav" data-view="settings" id="nav-settings"><span class="ni">⚙</span>Paramètres</div>
+// Obtenir toutes les catégories connues (défaut + celles utilisées dans AUDIT_PLAN)
+function getAllOtherCategories() {
+  var set = new Set(OTHER_CATEGORIES_DEFAULT);
+  if (typeof AUDIT_PLAN !== 'undefined') {
+    AUDIT_PLAN.forEach(function(a){
+      if (a.type==='Other' && a.categorie) set.add(a.categorie);
+    });
+  }
+  return Array.from(set).sort(function(a,b){
+    return a.localeCompare(b, 'fr', {sensitivity:'base'});
+  });
+}
 
-      <div style="margin-top:auto">
-        <div style="height:1px;background:rgba(255,255,255,.08);margin:.5rem 0"></div>
-        <button onclick="doLogout()"
-          style="width:100%;display:flex;align-items:center;gap:8px;padding:7px 10px;
-                 border-radius:var(--radius);font-size:12px;color:#F87171;
-                 background:none;border:none;cursor:pointer;margin-bottom:6px;
-                 font-family:inherit;font-weight:500;">
-          <span>↗</span> Déconnexion
-        </button>
-        <div style="height:1px;background:rgba(255,255,255,.08);margin:.5rem 0"></div>
-        <div class="sf" style="cursor:pointer;" onclick="nav('profil')">
-          <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0">
-            <div class="uav" id="uav">?</div>
-            <div>
-              <div class="un" id="uname">—</div>
-              <div class="ur" id="urole">—</div>
-              <div id="sso-badge" style="display:none;font-size:9px;color:rgba(255,255,255,.4);margin-top:1px"></div>
-            </div>
-          </div>
-          <button class="lb" id="lbtn" style="display:none">↗</button>
-        </div>
-      </div>
-    </div>
-    <div class="main"><div id="vc"></div></div>
-  </div>
-</div>
+// Obtenir les couleurs d'une catégorie (avec fallback)
+function getOtherCategoryColors(cat) {
+  return OTHER_CATEGORY_COLORS[cat] || {bg:'#FED7AA', color:'#9A3412', gantt:'#F97316'};
+}
+const PRCT={'Préparation':10,'Exécution':50,'Revue':80,'Clôturé':100,'Fait':100,'Planifié':0,'Restitution':90};
+const BMAP={'Préparation':'bp2','Exécution':'be','Revue':'br2','Clôturé':'bdn','Fait':'bdn','Planifié':'bpl','Restitution':'br2','En retard':'blt','En cours':'be','Non démarré':'bpl'};
+const GC=['#AFA9EC','#85B7EB','#5DCAA5','#EF9F27','#F0997B','#97C459','#AFA9EC','#85B7EB','#5DCAA5','#EF9F27'];
+var AVC={pm:'background:#CECBF6;color:#3C3489',sh:'background:#9FE1CB;color:#085041',ne:'background:#B5D4F4;color:#0C447C'};
+var TM={pm:{name:'Philippe M.',short:'PM',role:'admin',title:'Directeur Audit Interne'},sh:{name:'Selma H.',short:'SH',role:'auditeur',title:'Auditrice'},ne:{name:'Nisrine E.',short:'NE',role:'auditeur',title:'Auditrice'}};
+const RS={1:'<span style="color:var(--green)">★</span>',2:'<span style="color:var(--amber)">★★</span>',3:'<span style="color:var(--red)">★★★</span>'};
+const ENT={sbs:'<span class="badge bsbs">SBS</span>',axw:'<span class="badge baxw">AXW</span>','74s':'<span class="badge bpc">74S</span>',both:'<span class="badge" style="background:var(--amber-lt);color:#633806">SBS/AXW</span>',grp:'<span class="badge bgrp">Groupe</span>'};
 
-<div class="toast" id="toast"></div>
-<div class="mo" id="modal">
-  <div class="md">
-    <div class="mh"><div class="mt" id="mtitle">—</div><button class="mc2" onclick="closeModal()">×</button></div>
-    <div class="mb" id="mbody"></div>
-    <div class="mf"><button class="bs" id="mcancel" onclick="closeModal()">Annuler</button><button class="bp" id="mok">Confirmer</button></div>
-  </div>
-</div>
+let CU=null,CV='dashboard',CA=null,CS=0,CT='roles';
 
-</body>
-</html>
+// USERS est rempli au chargement par loadAuthorizedUsers() depuis SharePoint (AF_Users).
+// Plus de mots de passe en dur : l'authentification passe entièrement par Entra ID (SSO).
+var USERS=[];
+let HISTORY_LOG=[];
+
+let AUDIT_PLAN=[
+  {id:'ap1',type:'Process',domaine:'Edition',process:'Product Development',processId:'p5',titre:'Product Development 2025',annee:2025,auditeurs:['sh'],statut:'En cours'},
+  {id:'ap2',type:'Process',domaine:'Deployment',process:'Product Deployment',processId:'p6',titre:'Product Deployment 2025',annee:2025,auditeurs:['ne'],statut:'En cours'},
+  {id:'ap3',type:'Process',domaine:'Support',process:'Budget / Forecast',processId:'p15',titre:'Budget / Forecast 2025',annee:2025,auditeurs:['sh'],statut:'Planifié'},
+  {id:'ap4',type:'BU',entite:'SBS',region:'AMEE',pays:['Maroc','Tunisie','Cameroun'],titre:'BU Maroc/Afrique 2025',annee:2025,auditeurs:['sh'],statut:'Clôturé'},
+  {id:'ap5',type:'BU',entite:'SBS',region:'AMEE',pays:['Liban'],titre:'BU Lebanon 2025',annee:2025,auditeurs:['ne'],statut:'En cours'},
+  {id:'ap6',type:'BU',entite:'SBS',region:'Europe',pays:['UK'],titre:'BU UK SBS 2025',annee:2025,auditeurs:['sh','ne'],statut:'Planifié'},
+  {id:'ap7',type:'Process',domaine:'Distribution',process:'Go-to-Market',processId:'p8',titre:'GTM Audit 2026',annee:2026,auditeurs:['sh'],statut:'En cours'},
+  {id:'ap8',type:'Process',domaine:'Support',process:'Cybersecurity & Data',processId:'p13',titre:'Cybersecurity Audit 2026',annee:2026,auditeurs:['ne'],statut:'Planifié'},
+  {id:'ap9',type:'BU',entite:'SBS',region:'AMEE',pays:['Liban'],titre:'BU Lebanon 2026',annee:2026,auditeurs:['sh'],statut:'Planifié'},
+  {id:'ap10',type:'BU',entite:'AXWAY',region:'Europe',pays:['Romania'],titre:'BU Romania 2026',annee:2026,auditeurs:['ne'],statut:'Clôturé'},
+  {id:'ap11',type:'Process',domaine:'Edition',process:'Product Development',processId:'p5',titre:'E2E Cross PL 2026',annee:2026,auditeurs:['sh','ne'],statut:'En cours'},
+];
+
+let PROCESSES=[
+  {id:'p1',dom:'Governance',proc:'Acquisitions',risk:3,riskLevel:'eleve',archived:false,y26:{l:'SBS Integration',e:'sbs'},y27:{l:'Product Strat.',e:'both'}},
+  {id:'p2',dom:'Governance',proc:'Compliance',risk:1,riskLevel:'faible',archived:false,y28:{l:'Compliance / IP',e:'grp'}},
+  {id:'p3',dom:'Edition',proc:'Products & Portfolio',risk:2,riskLevel:'modere',archived:false,y27:{l:'Product Strat.',e:'both'}},
+  {id:'p5',dom:'Edition',proc:'Product Development',risk:2,riskLevel:'modere',archived:false,y26:{l:'E2E Cross PL',e:'74s'},y27:{l:'Product Devt',e:'74s'},y28:{l:'Research Tax Credit',e:'grp'}},
+  {id:'p6',dom:'Deployment',proc:'Product Deployment',risk:2,riskLevel:'modere',archived:false,y27:{l:'Product Deployment',e:'74s'}},
+  {id:'p7',dom:'Deployment',proc:'Product Quality & Support',risk:2,riskLevel:'modere',archived:false,y27:{l:'Support',e:'74s'}},
+  {id:'p8',dom:'Distribution',proc:'Go-to-Market',risk:1,riskLevel:'faible',archived:false,y26:{l:'GTM',e:'74s'},y28:{l:'GTM',e:'74s'}},
+  {id:'p9',dom:'Distribution',proc:'Sales & Services',risk:1,riskLevel:'faible',archived:false,y27:{l:'Sales',e:'both'}},
+  {id:'p10',dom:'Distribution',proc:'Customer Experience',risk:2,riskLevel:'modere',archived:false,y26:{l:'Customer Success',e:'74s'}},
+  {id:'p11',dom:'Support',proc:'OTC',risk:1,riskLevel:'faible',archived:false,y28:{l:'OTC',e:'grp'}},
+  {id:'p12',dom:'Support',proc:'Treasury & Tax',risk:1,riskLevel:'faible',archived:false,y26:{l:'Cash',e:'grp'},y28:{l:'Research Tax Credit',e:'grp'}},
+  {id:'p13',dom:'Support',proc:'Cybersecurity & Data',risk:3,riskLevel:'critique',archived:false,y27:{l:'Cybersecurity',e:'grp'}},
+  {id:'p15',dom:'Support',proc:'Budget / Forecast',risk:1,riskLevel:'faible',archived:false},
+  // ─── Process ajoutés pour mapping bibliothèque de contrôles ─────────
+  {id:'p16',dom:'Support',proc:'Finance - Accounting and Tax',risk:2,riskLevel:'modere',archived:false},
+  {id:'p17',dom:'Support',proc:'Purchasing and Third Party Management',risk:2,riskLevel:'modere',archived:false},
+  {id:'p18',dom:'Support',proc:'HR - Talent Acquisition',risk:1,riskLevel:'faible',archived:false},
+  {id:'p19',dom:'Support',proc:'HR - Payroll',risk:2,riskLevel:'modere',archived:false},
+];
+
+let ACTIONS=[
+  {id:'ac1',title:"Contrôles d'accès SI",audit:'Cybersecurity',resp:'Nisrine E.',dept:'IT / Sécurité',ent:'Groupe',year:2025,quarter:'Q4',status:'En retard',pct:30,fromFinding:false},
+  {id:'ac2',title:'Séparation des tâches OTC',audit:'OTC',resp:'Selma H.',dept:'Finance',ent:'Groupe',year:2025,quarter:'Q4',status:'En retard',pct:10,fromFinding:false},
+  {id:'ac3',title:'Mise à jour procédure achats',audit:'P2P',resp:'Nisrine E.',dept:'Procurement',ent:'Groupe',year:2026,quarter:'Q1',status:'En cours',pct:60,fromFinding:false},
+];
+
+let AUD_DATA={};
+
+function getAudData(id){if(!AUD_DATA[id])AUD_DATA[id]={tasks:{},controls:{},findings:[],mgtResp:[],docs:[],notes:''};return AUD_DATA[id];}
+
+function getAudits(){
+  return AUDIT_PLAN.map(ap=>{
+    var s = ap.statut||'Planifié';
+    var base = s.includes('|') ? s.split('|')[0] : s;
+    var step = 0;
+    if(s.includes('|')) step = parseInt(s.split('|')[1]);
+    else if(base==='Clôturé') step = 10;
+    else if(base==='En cours') step = 2;
+    return {
+      id:ap.id, name:ap.titre, type:ap.type,
+      ent:ap.type==='BU'?ap.entite:'74S',
+      start:0, dur:ap.annee===2025?6:3,
+      status:s, step:step,
+      assignedTo:ap.auditeurs||[],
+      planRef:ap.id
+    };
+  });
+}
