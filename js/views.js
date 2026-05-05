@@ -103,15 +103,8 @@ function showProcRisksModal(procId){
     // Recalculer le niveau de risque à partir des impacts des risques associés
     proc.riskLevel = computeProcRiskLevelFromRefs(newRefs);
     proc.risk = riskLevelToNum(proc.riskLevel);
-    // Sauvegarder (avec risk_refs_json et les champs recalculés)
-    await spUpsert('AF_Processes', proc.id, {
-      dom: proc.dom, proc: proc.proc,
-      risk: proc.risk, risk_level: proc.riskLevel,
-      archived: proc.archived||false,
-      risks_json: JSON.stringify(proc.risks||[]),
-      risk_refs_json: JSON.stringify(newRefs),
-      Title: proc.proc,
-    });
+    // Sauvegarder via le helper centralisé (gère univers/dom/proc/etc.)
+    await saveProcessFull(proc);
     addHist('edit', newRefs.length+' risque(s) associé(s) à "'+proc.proc+'"');
     renderProcTable();
     toast('Risques associés ✓');
@@ -170,7 +163,7 @@ async function addProcRisk(procId){
   if(!proc){toast('Processus introuvable');return;}
   if(!proc.risks)proc.risks=[];
   proc.risks.push({id:'r'+Date.now(),label:label,probability:prob,impact:imp});
-  await spUpsert('AF_Processes',proc.id,{dom:proc.dom,proc:proc.proc,risk:proc.risk,risk_level:proc.riskLevel||'faible',archived:proc.archived||false,risks_json:JSON.stringify(proc.risks),Title:proc.proc});
+  await saveProcessFull(proc);
   toast('Risque ajouté ✓');
 }
 
@@ -179,7 +172,7 @@ async function removeProcRisk(procId,ri){
   var proc=PROCESSES.find(function(p){return p.id===procId;});
   if(!proc||!proc.risks)return;
   proc.risks.splice(ri,1);
-  await spUpsert('AF_Processes',proc.id,{dom:proc.dom,proc:proc.proc,risk:proc.risk,risk_level:proc.riskLevel||'faible',archived:proc.archived||false,risks_json:JSON.stringify(proc.risks),Title:proc.proc});
+  await saveProcessFull(proc);
   toast('Risque supprimé ✓');
 }
 
@@ -981,54 +974,72 @@ V['plan-process']=()=>`
 I['plan-process']=()=>renderProcTable();
 
 function renderProcTable(){
-  var doms=[...new Set(PROCESSES.map(function(p){return p.dom;}))].sort(function(a,b){
-    return (a||'').localeCompare(b||'', 'fr', {sensitivity:'base'});
+  // Construire la hiérarchie : { universName: { domainName: [process, ...] } }
+  var hierarchy = {};
+  PROCESSES.filter(function(p){return !p.archived;}).forEach(function(p){
+    var u = p.univers || '(Sans univers)';
+    var d = p.dom || '(Sans domaine)';
+    if (!hierarchy[u]) hierarchy[u] = {};
+    if (!hierarchy[u][d]) hierarchy[u][d] = [];
+    hierarchy[u][d].push(p);
   });
+  // Ordre fixe pour les Univers (selon ton référentiel)
+  var UNIVERS_ORDER = ['GOVERNANCE', 'EDITION (Factory)', 'DISTRIBUTION', 'SUPPORT FUNCTIONS'];
+  var universList = Object.keys(hierarchy).sort(function(a,b){
+    var ia=UNIVERS_ORDER.indexOf(a), ib=UNIVERS_ORDER.indexOf(b);
+    if (ia<0) ia=999; if (ib<0) ib=999;
+    if (ia!==ib) return ia-ib;
+    return a.localeCompare(b, 'fr', {sensitivity:'base'});
+  });
+
   var h='<thead><tr>'
-    +'<th style="width:340px">Domaine / Processus</th>'
+    +'<th style="width:340px">Univers / Domaine / Processus</th>'
     +'<th style="width:120px">Niveau de risque</th>'
     +'<th style="width:180px">'+(CU&&CU.role==='admin'?'Actions':'Risques')+'</th>'
     +'</tr></thead><tbody>';
 
-  if(!doms.length){
+  if(!universList.length){
     h+='<tr><td colspan="3" style="text-align:center;color:var(--text-3);padding:2rem">Aucun processus. Cliquez sur "+ Domaine" pour commencer.</td></tr>';
   } else {
-    doms.forEach(function(dom){
-      var rows=PROCESSES.filter(function(p){return p.dom===dom&&!p.archived;});
-      if(!rows.length) return;
-      rows.sort(function(a,b){
-        return (a.proc||'').localeCompare(b.proc||'', 'fr', {sensitivity:'base'});
-      });
-      h+='<tr class="sr">';
-      h+='<td colspan="3" style="background:#EEEDFE;color:#3C3489;font-weight:600;padding:8px 12px;white-space:nowrap;display:flex;align-items:center;justify-content:space-between;width:100%">';
-      h+='<span style="font-size:12px">'+dom+'</span>';
-      if(CU&&CU.role==='admin'){
-        h+='<button class="bs" style="font-size:10px;padding:2px 7px" onclick="showRenameDomainModal(\''+_escQ(dom)+'\')">Renommer</button>';
-      }
-      h+='</td></tr>';
+    universList.forEach(function(univ){
+      // En-tête Univers (foncé)
+      h+='<tr><td colspan="3" style="background:#3C3489;color:#fff;font-weight:700;padding:8px 12px;font-size:12px;letter-spacing:.5px;text-transform:uppercase">'+(''+univ).replace(/</g,'&lt;')+'</td></tr>';
+      var domains = Object.keys(hierarchy[univ]).sort(function(a,b){return a.localeCompare(b, 'fr', {sensitivity:'base'});});
+      domains.forEach(function(dom){
+        var rows = hierarchy[univ][dom].slice().sort(function(a,b){
+          return (a.proc||'').localeCompare(b.proc||'', 'fr', {sensitivity:'base'});
+        });
+        // En-tête Domaine
+        h+='<tr><td colspan="3" style="background:#EEEDFE;color:#3C3489;font-weight:600;padding:6px 12px 6px 24px;font-size:11px;display:flex;align-items:center;justify-content:space-between;width:100%">';
+        h+='<span>'+(''+dom).replace(/</g,'&lt;')+'</span>';
+        if(CU&&CU.role==='admin'){
+          h+='<button class="bs" style="font-size:10px;padding:2px 7px" onclick="showRenameDomainModal(\''+_escQ(dom)+'\')">Renommer</button>';
+        }
+        h+='</td></tr>';
 
-      rows.forEach(function(p){
-        var idx=PROCESSES.indexOf(p);
-        var effectiveLevel = (p.riskRefs && p.riskRefs.length)
-          ? computeProcRiskLevelFromRefs(p.riskRefs)
-          : (p.riskLevel || 'faible');
-        var riskCell = riskLabel(effectiveLevel);
-        var refCount = (p.riskRefs||[]).length;
-        var refCountBadge = refCount
-          ? '<span class="badge bpc" style="font-size:9px;margin-left:4px">'+refCount+'</span>'
-          : '<span class="badge bpl" style="font-size:9px;margin-left:4px">0</span>';
-        var adminCell=CU&&CU.role==='admin'
-          ?'<td style="white-space:nowrap">'
-            +'<button class="bs" style="font-size:10px;padding:2px 7px" onclick="showProcRisksModal(\''+p.id+'\')">⚠ Risques'+refCountBadge+'</button> '
-            +'<button class="bs" style="font-size:10px;padding:2px 7px" onclick="showEditProcModal('+idx+')">Modifier</button> '
-            +'<button class="bd" style="font-size:10px;padding:2px 7px" onclick="archiveProc('+idx+')">Archiver</button>'
-            +'</td>'
-          :'<td><button class="bs" style="font-size:10px;padding:2px 7px" onclick="showProcRisksModal(\''+p.id+'\')">⚠ Risques'+refCountBadge+'</button></td>';
-        h+='<tr>';
-        h+='<td style="font-weight:500;font-size:12px;padding-left:18px">'+p.proc+'</td>';
-        h+='<td>'+riskCell+'</td>';
-        h+=adminCell;
-        h+='</tr>';
+        rows.forEach(function(p){
+          var idx=PROCESSES.indexOf(p);
+          var effectiveLevel = (p.riskRefs && p.riskRefs.length)
+            ? computeProcRiskLevelFromRefs(p.riskRefs)
+            : (p.riskLevel || 'faible');
+          var riskCell = riskLabel(effectiveLevel);
+          var refCount = (p.riskRefs||[]).length;
+          var refCountBadge = refCount
+            ? '<span class="badge bpc" style="font-size:9px;margin-left:4px">'+refCount+'</span>'
+            : '<span class="badge bpl" style="font-size:9px;margin-left:4px">0</span>';
+          var adminCell=CU&&CU.role==='admin'
+            ?'<td style="white-space:nowrap">'
+              +'<button class="bs" style="font-size:10px;padding:2px 7px" onclick="showProcRisksModal(\''+p.id+'\')">⚠ Risques'+refCountBadge+'</button> '
+              +'<button class="bs" style="font-size:10px;padding:2px 7px" onclick="showEditProcModal('+idx+')">Modifier</button> '
+              +'<button class="bd" style="font-size:10px;padding:2px 7px" onclick="archiveProc('+idx+')">Archiver</button>'
+              +'</td>'
+            :'<td><button class="bs" style="font-size:10px;padding:2px 7px" onclick="showProcRisksModal(\''+p.id+'\')">⚠ Risques'+refCountBadge+'</button></td>';
+          h+='<tr>';
+          h+='<td style="font-weight:500;font-size:12px;padding-left:36px">'+(''+p.proc).replace(/</g,'&lt;')+'</td>';
+          h+='<td>'+riskCell+'</td>';
+          h+=adminCell;
+          h+='</tr>';
+        });
       });
     });
   }
@@ -1095,38 +1106,55 @@ function _buCounts(auditProcessId) {
 }
 
 function renderBuwpMaster() {
-  // On affiche les Process de l'Audit Universe groupés par Domaine
+  // On affiche les Process de l'Audit Universe groupés par Univers > Domaine
   var procs = (PROCESSES||[]).filter(function(p){return !p.archived;});
-  var doms = [...new Set(procs.map(function(p){return p.dom;}))].sort(function(a,b){
-    return (a||'').localeCompare(b||'', 'fr', {sensitivity:'base'});
+  // Construire la hiérarchie : { universName: { domainName: [process, ...] } }
+  var hierarchy = {};
+  procs.forEach(function(p){
+    var u = p.univers || '(Sans univers)';
+    var d = p.dom || '(Sans domaine)';
+    if (!hierarchy[u]) hierarchy[u] = {};
+    if (!hierarchy[u][d]) hierarchy[u][d] = [];
+    hierarchy[u][d].push(p);
   });
+  var UNIVERS_ORDER = ['GOVERNANCE', 'EDITION (Factory)', 'DISTRIBUTION', 'SUPPORT FUNCTIONS'];
+  var universList = Object.keys(hierarchy).sort(function(a,b){
+    var ia=UNIVERS_ORDER.indexOf(a), ib=UNIVERS_ORDER.indexOf(b);
+    if (ia<0) ia=999; if (ib<0) ib=999;
+    if (ia!==ib) return ia-ib;
+    return a.localeCompare(b, 'fr', {sensitivity:'base'});
+  });
+
   var h = '';
   if (!procs.length) {
     h += '<div style="padding:1.5rem;text-align:center;color:var(--text-3);font-size:11px">Aucun processus dans l\'Audit Universe.<br>Ajoute des Processes côté Audit Universe pour les voir ici.</div>';
   } else {
-    doms.forEach(function(dom){
-      var rows = procs.filter(function(p){return p.dom===dom;});
-      if (!rows.length) return;
-      rows.sort(function(a,b){return (a.proc||'').localeCompare(b.proc||'', 'fr', {sensitivity:'base'});});
-      // En-tête de domaine
-      h += '<div style="background:#EEEDFE;color:#3C3489;font-weight:600;padding:7px 10px;font-size:11px">'+(''+dom).replace(/</g,'&lt;')+'</div>';
-      // Process du domaine
-      rows.forEach(function(p){
-        var isSelected = p.id === _buwpCurrentProcId;
-        var counts = _buCounts(p.id);
-        var hasContent = counts.sub > 0 || counts.tests > 0;
-        var cardStyle = isSelected
-          ? 'background:var(--purple);color:#fff;cursor:pointer;border-bottom:.5px solid var(--border)'
-          : 'background:#fff;color:var(--text);cursor:pointer;border-bottom:.5px solid var(--border)'
-            + (hasContent ? '' : ';opacity:.65');
-        var subColor = isSelected ? 'color:#CECBF6' : 'color:var(--text-3)';
-        var contentLabel = hasContent
-          ? counts.sub+' sous-process · '+counts.tests+(counts.tests>1?' tests':' test')
-          : 'aucun contenu BU';
-        h += '<div onclick="buwpSelectProc(\''+_escJsArg(p.id)+'\')" style="'+cardStyle+';padding:8px 10px">';
-        h += '<div style="font-size:11px;font-weight:500">'+(''+(p.proc||'')).replace(/</g,'&lt;')+'</div>';
-        h += '<div style="'+subColor+';font-size:10px;margin-top:1px">'+contentLabel+'</div>';
-        h += '</div>';
+    universList.forEach(function(univ){
+      // En-tête Univers (foncé)
+      h += '<div style="background:#3C3489;color:#fff;font-weight:700;padding:6px 10px;font-size:10px;letter-spacing:.5px;text-transform:uppercase">'+(''+univ).replace(/</g,'&lt;')+'</div>';
+      var domains = Object.keys(hierarchy[univ]).sort(function(a,b){return a.localeCompare(b, 'fr', {sensitivity:'base'});});
+      domains.forEach(function(dom){
+        var rows = hierarchy[univ][dom].slice().sort(function(a,b){return (a.proc||'').localeCompare(b.proc||'', 'fr', {sensitivity:'base'});});
+        // En-tête Domaine (clair)
+        h += '<div style="background:#EEEDFE;color:#3C3489;font-weight:600;padding:5px 10px 5px 16px;font-size:10px">'+(''+dom).replace(/</g,'&lt;')+'</div>';
+        // Process du domaine
+        rows.forEach(function(p){
+          var isSelected = p.id === _buwpCurrentProcId;
+          var counts = _buCounts(p.id);
+          var hasContent = counts.sub > 0 || counts.tests > 0;
+          var cardStyle = isSelected
+            ? 'background:var(--purple);color:#fff;cursor:pointer;border-bottom:.5px solid var(--border)'
+            : 'background:#fff;color:var(--text);cursor:pointer;border-bottom:.5px solid var(--border)'
+              + (hasContent ? '' : ';opacity:.65');
+          var subColor = isSelected ? 'color:#CECBF6' : 'color:var(--text-3)';
+          var contentLabel = hasContent
+            ? counts.sub+' sous-process · '+counts.tests+(counts.tests>1?' tests':' test')
+            : 'aucun contenu BU';
+          h += '<div onclick="buwpSelectProc(\''+_escJsArg(p.id)+'\')" style="'+cardStyle+';padding:7px 10px 7px 18px">';
+          h += '<div style="font-size:11px;font-weight:500">'+(''+(p.proc||'')).replace(/</g,'&lt;')+'</div>';
+          h += '<div style="'+subColor+';font-size:10px;margin-top:1px">'+contentLabel+'</div>';
+          h += '</div>';
+        });
       });
     });
   }
@@ -1552,9 +1580,9 @@ function showAddDomainModal(){
       var name=document.getElementById('m-dom-name').value.trim();
       if(!name){toast('Nom obligatoire');return;}
       // Créer un processus placeholder pour initialiser le domaine
-      var newP={id:'p'+Date.now(),dom:name,proc:'(Nouveau processus)',riskLevel:'faible',risk:1,archived:false};
+      var newP={id:'p'+Date.now(),univers:'',dom:name,proc:'(Nouveau processus)',riskLevel:'faible',risk:1,archived:false};
       PROCESSES.push(newP);
-      spUpsert('AF_Processes',newP.id,{dom:name,proc:newP.proc,risk:1,risk_level:'faible',archived:false,Title:newP.proc}).catch(console.warn);
+      saveProcessFull(newP).catch(console.warn);
       addHist('add','Domaine "'+name+'" créé');
       renderProcTable();
       toast('Domaine "'+name+'" créé ✓');
@@ -1571,7 +1599,7 @@ function showRenameDomainModal(dom){
       PROCESSES.forEach(function(p){
         if(p.dom===dom){
           p.dom=newName;
-          spUpsert('AF_Processes',p.id,{dom:newName,proc:p.proc,risk:p.risk,risk_level:p.riskLevel||'faible',archived:p.archived||false,Title:p.proc}).catch(console.warn);
+          saveProcessFull(p).catch(console.warn);
         }
       });
       addHist('edit','Domaine "'+dom+'" renommé en "'+newName+'"');
@@ -1585,7 +1613,7 @@ function editRiskLevel(idx,val){
   PROCESSES[idx].riskLevel=val;
   PROCESSES[idx].risk=RISK_LEVELS.findIndex(function(r){return r.key===val;})+1||1;
   var p=PROCESSES[idx];
-  spUpsert('AF_Processes',p.id,{dom:p.dom,proc:p.proc,risk:p.risk,risk_level:val,archived:p.archived||false,risks_json:JSON.stringify(p.risks||[]),risk_refs_json:JSON.stringify(p.riskRefs||[]),Title:p.proc}).catch(console.warn);
+  saveProcessFull(p).catch(console.warn);
   addHist('edit','Risque "'+p.proc+'" modifié → '+val);
   toast('Risque mis à jour ✓');
 }
@@ -1593,18 +1621,28 @@ function editRiskLevel(idx,val){
 function archiveProc(idx){
   PROCESSES[idx].archived=true;
   var p=PROCESSES[idx];
-  spUpsert('AF_Processes',p.id,{dom:p.dom,proc:p.proc,risk:p.risk,risk_level:p.riskLevel||'faible',archived:true,risks_json:JSON.stringify(p.risks||[]),risk_refs_json:JSON.stringify(p.riskRefs||[]),Title:p.proc}).catch(console.warn);
+  saveProcessFull(p).catch(console.warn);
   addHist('arch','Process "'+p.proc+'" archivé');
   renderProcTable();
   toast('Archivé ✓');
 }
 
 function showAddProcModal(){
-  var doms=[...new Set(PROCESSES.map(function(p){return p.dom;}))];
-  if(!doms.length){toast('Créez d\'abord un domaine.');return;}
+  var pairs=[]; // [{univ, dom}]
+  var seen={};
+  PROCESSES.forEach(function(p){
+    var key=(p.univers||'')+'|'+p.dom;
+    if(!seen[key]&&p.dom){seen[key]=true;pairs.push({univ:p.univers||'',dom:p.dom});}
+  });
+  if(!pairs.length){toast('Créez d\'abord un domaine.');return;}
+  // Construit les options "Univers > Domaine"
+  var domOpts = pairs.map(function(pa){
+    var label = pa.univ ? pa.univ+' > '+pa.dom : pa.dom;
+    return '<option value="'+_escAttr(pa.univ+'|'+pa.dom)+'">'+label.replace(/</g,'&lt;')+'</option>';
+  }).join('');
   openModal('Nouveau processus',
-    '<div><label>Domaine <span style="color:var(--red)">*</span></label>'
-    +'<select id="m-dom">'+doms.map(function(d){return'<option>'+d+'</option>';}).join('')+'</select></div>'
+    '<div><label>Univers > Domaine <span style="color:var(--red)">*</span></label>'
+    +'<select id="m-domkey">'+domOpts+'</select></div>'
     +'<div><label>Nom du processus <span style="color:var(--red)">*</span></label>'
     +'<input id="m-proc" placeholder="ex : Gestion de la paie"/></div>'
     +'<div><label>Niveau de risque</label>'
@@ -1614,12 +1652,15 @@ function showAddProcModal(){
     function(){
       var proc=document.getElementById('m-proc').value.trim();
       if(!proc){toast('Nom obligatoire');return;}
-      var dom=document.getElementById('m-dom').value;
+      var domkey=document.getElementById('m-domkey').value;
+      var parts=domkey.split('|');
+      var univ=parts[0]||'';
+      var dom=parts[1]||'';
       var riskKey=document.getElementById('m-risk').value;
       var riskNum=RISK_LEVELS.findIndex(function(r){return r.key===riskKey;})+1||1;
-      var newP={id:'p'+Date.now(),dom:dom,proc:proc,riskLevel:riskKey,risk:riskNum,archived:false};
+      var newP={id:'p'+Date.now(),univers:univ,dom:dom,proc:proc,riskLevel:riskKey,risk:riskNum,archived:false};
       PROCESSES.push(newP);
-      spUpsert('AF_Processes',newP.id,{dom:dom,proc:proc,risk:riskNum,risk_level:riskKey,archived:false,Title:proc}).catch(console.warn);
+      saveProcessFull(newP).catch(console.warn);
       addHist('add','Process "'+proc+'" ajouté dans "'+dom+'"');
       renderProcTable();
       toast('Processus créé ✓');
@@ -1628,22 +1669,34 @@ function showAddProcModal(){
 
 function showEditProcModal(idx){
   var p=PROCESSES[idx];
-  var doms=[...new Set(PROCESSES.map(function(x){return x.dom;}))];
+  var pairs=[]; var seen={};
+  PROCESSES.forEach(function(x){
+    var key=(x.univers||'')+'|'+x.dom;
+    if(!seen[key]&&x.dom){seen[key]=true;pairs.push({univ:x.univers||'',dom:x.dom});}
+  });
+  var currentKey=(p.univers||'')+'|'+p.dom;
+  var domOpts = pairs.map(function(pa){
+    var key = pa.univ+'|'+pa.dom;
+    var label = pa.univ ? pa.univ+' > '+pa.dom : pa.dom;
+    return '<option value="'+_escAttr(key)+'"'+(key===currentKey?' selected':'')+'>'+label.replace(/</g,'&lt;')+'</option>';
+  }).join('');
   openModal('Modifier "'+p.proc+'"',
-    '<div><label>Domaine</label>'
-    +'<select id="m-dom">'+doms.map(function(d){return'<option'+(d===p.dom?' selected':'')+'>'+d+'</option>';}).join('')+'</select></div>'
-    +'<div><label>Nom du processus</label><input id="m-proc" value="'+p.proc+'"/></div>'
+    '<div><label>Univers > Domaine</label>'
+    +'<select id="m-domkey">'+domOpts+'</select></div>'
+    +'<div><label>Nom du processus</label><input id="m-proc" value="'+_escAttr(p.proc)+'"/></div>'
     +'<div><label>Niveau de risque</label>'
     +'<select id="m-risk">'
     +RISK_LEVELS.map(function(r){return'<option value="'+r.key+'"'+(p.riskLevel===r.key?' selected':'')+'>'+r.label+'</option>';}).join('')
     +'</select></div>',
     function(){
       p.proc=document.getElementById('m-proc').value.trim();
-      p.dom=document.getElementById('m-dom').value;
+      var parts=document.getElementById('m-domkey').value.split('|');
+      p.univers=parts[0]||'';
+      p.dom=parts[1]||'';
       var riskKey=document.getElementById('m-risk').value;
       p.riskLevel=riskKey;
       p.risk=RISK_LEVELS.findIndex(function(r){return r.key===riskKey;})+1||1;
-      spUpsert('AF_Processes',p.id,{dom:p.dom,proc:p.proc,risk:p.risk,risk_level:p.riskLevel,archived:p.archived||false,risks_json:JSON.stringify(p.risks||[]),risk_refs_json:JSON.stringify(p.riskRefs||[]),Title:p.proc}).catch(console.warn);
+      saveProcessFull(p).catch(console.warn);
       addHist('edit','Process "'+p.proc+'" modifié');
       renderProcTable();
       toast('Mis à jour ✓');

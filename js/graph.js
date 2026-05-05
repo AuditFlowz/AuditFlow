@@ -229,7 +229,7 @@ var LIST_SCHEMAS = {
     {name:'product_line_ids_json',text:{}},{name:'pl_scope_enabled',text:{}},
   ],
   AF_Processes: [
-    {name:'af_id',text:{}},{name:'dom',text:{}},{name:'proc',text:{}},
+    {name:'af_id',text:{}},{name:'univers',text:{}},{name:'dom',text:{}},{name:'proc',text:{}},
     {name:'risk',number:{}},{name:'risk_level',text:{}},{name:'archived',boolean:{}},
     {name:'risks_json',text:{}},{name:'y25_json',text:{}},{name:'y26_json',text:{}},
     {name:'y27_json',text:{}},{name:'y28_json',text:{}},
@@ -400,7 +400,7 @@ async function loadAllData() {
     });
 
     DB.processes = procRaw.map(function(r){ var f=r.fields; return {
-      id:f.af_id, dom:f.dom, proc:f.proc||f.Title, risk:parseInt(f.risk)||1,
+      id:f.af_id, univers:f.univers||'', dom:f.dom, proc:f.proc||f.Title, risk:parseInt(f.risk)||1,
       riskLevel:f.risk_level||'faible', archived:f.archived||false,
       risks:tryParse(f.risks_json,[]),
       riskRefs: tryParse(f.risk_refs_json, []), // IDs de risques du Risk Universe
@@ -793,6 +793,7 @@ async function saveProcessFull(p) {
   if (!p || !p.id) return;
   try {
     await spUpsert('AF_Processes', p.id, {
+      univers: p.univers || '',
       dom: p.dom || '',
       proc: p.proc || '',
       risk: p.risk || 1,
@@ -805,6 +806,66 @@ async function saveProcessFull(p) {
   } catch (e) {
     console.warn('[saveProcessFull] error for', p.id, ':', e.message);
   }
+}
+
+// ──────────────────────────────────────────────────────────────
+//  SEED AUDIT UNIVERSE — Crée les 23 Process référentiels
+//  Déclenché si PROCESSES est vide au démarrage (admin a vidé la
+//  liste SharePoint manuellement pour réinitialiser).
+// ──────────────────────────────────────────────────────────────
+async function seedAuditUniverse() {
+  var SEED = [
+    // GOVERNANCE
+    {u:'GOVERNANCE',d:'Regulatory compliance',p:'Corp. Control & Compliance'},
+    {u:'GOVERNANCE',d:'Ext factors/Corp. sustainability',p:'ESRs'},
+    {u:'GOVERNANCE',d:'Integ° of acquisitions',p:'Acquisitions'},
+    // EDITION (Factory)
+    {u:'EDITION (Factory)',d:'Innovation & Offering',p:'Products & Portfolio'},
+    {u:'EDITION (Factory)',d:'Quality of product devt',p:'Product Development'},
+    {u:'EDITION (Factory)',d:'Quality of product°/support',p:'Production & Support'},
+    // DISTRIBUTION
+    {u:'DISTRIBUTION',d:'GTM & Sale of products and services',p:'Marketing & Brand'},
+    {u:'DISTRIBUTION',d:'GTM & Sale of products and services',p:'Go-to-Market'},
+    {u:'DISTRIBUTION',d:'GTM & Sale of products and services',p:'Sales & Services'},
+    {u:'DISTRIBUTION',d:'Cust. Exp. & Renewal',p:'Subscription'},
+    {u:'DISTRIBUTION',d:'Cust. Exp. & Renewal',p:'Renewal'},
+    {u:'DISTRIBUTION',d:'Cust. Exp. & Renewal',p:'Customer Experience'},
+    // SUPPORT FUNCTIONS
+    {u:'SUPPORT FUNCTIONS',d:'Financial Information',p:'Order to cash'},
+    {u:'SUPPORT FUNCTIONS',d:'Financial Information',p:'Accountg/Consolid°'},
+    {u:'SUPPORT FUNCTIONS',d:'Financial Information',p:'Reporting & Forecasting'},
+    {u:'SUPPORT FUNCTIONS',d:'Financial Information',p:'Treasury & Tax'},
+    {u:'SUPPORT FUNCTIONS',d:'Compliance & Intel. property',p:'Intellectual Property'},
+    {u:'SUPPORT FUNCTIONS',d:'Purchasing & third-party Mgt',p:'Purchasing & Contracts'},
+    {u:'SUPPORT FUNCTIONS',d:'Key talent Mgt',p:'Talent management'},
+    {u:'SUPPORT FUNCTIONS',d:'Key talent Mgt',p:'Enablement'},
+    {u:'SUPPORT FUNCTIONS',d:'Cybersecurity & Mgt of systems/data',p:'Systems & Applications'},
+    {u:'SUPPORT FUNCTIONS',d:'Cybersecurity & Mgt of systems/data',p:'Infrastructure'},
+    {u:'SUPPORT FUNCTIONS',d:'Cybersecurity & Mgt of systems/data',p:'Security'},
+  ];
+  console.log('[Seed] Creating', SEED.length, 'Audit Universe processes...');
+  var created = 0;
+  for (var i=0; i<SEED.length; i++) {
+    var s = SEED[i];
+    var newP = {
+      id: 'p'+Date.now()+'_'+i,
+      univers: s.u,
+      dom: s.d,
+      proc: s.p,
+      risk: 1,
+      riskLevel: 'faible',
+      archived: false,
+      risks: [],
+      riskRefs: [],
+    };
+    try {
+      await saveProcessFull(newP);
+      created++;
+    } catch(e) {
+      console.warn('[Seed] error for', s.p, ':', e.message);
+    }
+  }
+  console.log('[Seed] Created', created, '/', SEED.length, 'processes ✓');
 }
 
 // ──────────────────────────────────────────────────────────────

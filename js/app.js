@@ -111,6 +111,19 @@ async function bootstrapApp() {
       }
     }
 
+    // 5bis. Auto-init du référentiel Audit Universe si la liste est vide
+    // (typiquement après que l'admin ait vidé manuellement la liste SharePoint
+    // pour passer à la nouvelle structure 4 Univers / 13 Domaines / 23 Process)
+    if (PROCESSES && PROCESSES.length === 0 && typeof seedAuditUniverse === 'function') {
+      try {
+        showLoadingScreen('Initialisation du référentiel Audit Universe...');
+        await seedAuditUniverse();
+        await loadAllData(); // recharger pour avoir les ids définitifs
+      } catch(e) {
+        console.warn('[App] Seed Audit Universe failed:', e);
+      }
+    }
+
     // 6. Lancer l'appli
     launchApp();
 
