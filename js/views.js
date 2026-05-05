@@ -4441,7 +4441,13 @@ function renderDetContent(){
     // Étape 7 (index 6) : Report — Header + Maturity (côte-à-côte) puis Findings
     html += renderAuditReportGenerateBanner();
     html += renderHeaderAndMaturitySection();
-    html += renderFindingsSection();
+    // Pour les audits BU : refonte avec Findings agrégeant des Issues + bloc Issues non agrégées
+    // Pour les audits Process : section Findings classique inchangée
+    if (a.type === 'BU') {
+      html += renderFindingsBuSection();
+    } else {
+      html += renderFindingsSection();
+    }
   } else if (CS === 8) {
     // Étape 9 (index 8) : Management Responses
     html += renderMgtRespSection();
@@ -6750,6 +6756,480 @@ function prefillBuIssueDescription(wppId, testId) {
   // Mettre à jour le textarea + sauvegarder
   if (ta) ta.value = newDesc;
   setBuIssueDescription(wppId, testId, newDesc);
+}
+
+// ════════════════════════════════════════════════════════════════════
+//  ÉTAPE 7 (BU) — Findings agrégeant des Issues
+//
+//  Pour les audits BU : à l'étape Report, l'auditeur voit :
+//   1. Les Findings existants (groupés par Process)
+//   2. Les Issues non agrégées (qui ne sont dans aucun finding) — pour
+//      ne rien oublier dans le rapport
+//   3. Un bouton "+ Créer un finding" qui ouvre une modale permettant
+//      de sélectionner un Process principal + cocher 1+ Issues à inclure
+//
+//  Modèle finding (étendu) : ajout du champ `issueIds: ['iss_xxx', ...]`
+//  qui référence les issues incluses dans ce finding.
+//  Le `processId` du finding référence un wpProc id (Process couvert).
+// ════════════════════════════════════════════════════════════════════
+
+// Helpers
+
+function _allIssues() {
+  var d = getAudData(CA);
+  return Array.isArray(d.issues) ? d.issues : [];
+}
+
+// Ids des issues qui sont déjà dans au moins 1 finding
+function _aggregatedIssueIds() {
+  var d = getAudData(CA);
+  var s = {};
+  (d.findings||[]).forEach(function(f){
+    if (Array.isArray(f.issueIds)) f.issueIds.forEach(function(id){s[id]=true;});
+  });
+  return s;
+}
+
+function _getWppById(wppId) {
+  var d = getAudData(CA);
+  var wp = (d.workProgramBU && Array.isArray(d.workProgramBU.processes))
+    ? d.workProgramBU.processes : [];
+  return wp.find(function(x){return x.id===wppId;}) || null;
+}
+
+function _getProcNameForWpp(wppId) {
+  var wpp = _getWppById(wppId);
+  if (!wpp) return '(Process introuvable)';
+  var p = (PROCESSES||[]).find(function(x){return x.id===wpp.auditProcessId;});
+  return p ? p.proc : '(Process introuvable)';
+}
+
+// Construit un libellé court d'issue pour les listes
+function _issueShortLabel(iss) {
+  if (iss.source === 'design') {
+    return (iss.title || '(sans titre)') + (iss.description ? ' — '+iss.description.split('\n')[0].slice(0,80) : '');
+  }
+  // operating : code du test + début de description
+  var code = _getIssueTestCode(iss) || '?';
+  var desc = (iss.description || '').split('\n')[0].slice(0, 100);
+  return code + ' : ' + (desc || '(sans description)');
+}
+
+// ────────────────────────────────────────────────────────────────────
+//  RENDU PRINCIPAL — Section Findings BU
+// ────────────────────────────────────────────────────────────────────
+
+function renderFindingsBuSection() {
+  var d = getAudData(CA);
+  if (!Array.isArray(d.findings)) d.findings = [];
+  _ensureIssues(d);
+  var a = AUDIT_PLAN.find(function(x){return x.id===CA;});
+  var isAdmin = CU && CU.role==='admin';
+  var isPreparer = (a.assignedTo||a.auditeurs||[]).indexOf(CU&&CU.id)>=0 || isAdmin;
+
+  var allIssues = d.issues;
+  var aggregated = _aggregatedIssueIds();
+  var unaggregatedIssues = allIssues.filter(function(iss){return !aggregated[iss.id];});
+
+  var html = '';
+
+  // ─── Bloc 1 : Findings ─────────────────────────────────────
+  html += '<div class="cd" style="margin-bottom:1rem">';
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">';
+  html += '<span style="font-size:13px;font-weight:500">Findings <span style="color:var(--text-3);font-weight:400">('+d.findings.length+')</span></span>';
+  if (isPreparer) {
+    html += '<button class="bp" style="font-size:11px;padding:4px 10px" onclick="showBuFindingModal(null)">+ Créer un finding</button>';
+  }
+  html += '</div>';
+  html += '<div style="font-size:11px;color:var(--text-3);font-style:italic;margin-bottom:14px">Crée des findings en agrégeant 1 ou plusieurs Issues identifiées aux étapes Interviews (Design) et Testings (Operating). Un finding peut combiner les deux types.</div>';
+
+  if (!d.findings.length) {
+    html += '<div style="font-size:12px;color:var(--text-3);font-style:italic;padding:1rem;text-align:center;border:1px dashed var(--border);border-radius:6px">Aucun finding. ';
+    if (isPreparer) html += 'Cliquez sur « + Créer un finding » pour en créer un.';
+    html += '</div>';
+  } else {
+    // Grouper par Process principal
+    var byProcess = {};
+    d.findings.forEach(function(f){
+      var key = f.processId || '_unassigned';
+      if (!byProcess[key]) byProcess[key] = [];
+      byProcess[key].push(f);
+    });
+    Object.keys(byProcess).forEach(function(procId){
+      var procName = procId === '_unassigned' ? '(Process non assigné)' : _getProcNameForWpp(procId);
+      html += '<div style="background:#EEEDFE;color:#3C3489;font-weight:600;padding:6px 10px;font-size:11px;border-radius:4px;margin-bottom:6px;margin-top:8px">'+procName.replace(/</g,'&lt;')+'</div>';
+      byProcess[procId].forEach(function(f){
+        var fIdx = d.findings.indexOf(f);
+        html += renderBuFindingCard(f, fIdx, isPreparer);
+      });
+    });
+  }
+
+  html += '</div>';
+
+  // ─── Bloc 2 : Issues non agrégées ──────────────────────────
+  html += '<div class="cd" style="margin-bottom:1rem">';
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">';
+  html += '<span style="font-size:13px;font-weight:500">Issues non agrégées <span style="color:var(--text-3);font-weight:400">('+unaggregatedIssues.length+')</span></span>';
+  html += '</div>';
+  html += '<div style="font-size:11px;color:var(--text-3);font-style:italic;margin-bottom:14px">Issues identifiées (Design ou Operating) qui ne sont pas encore incluses dans un finding. Pour ne rien oublier dans le rapport, transforme-les en finding.</div>';
+
+  if (!unaggregatedIssues.length) {
+    if (allIssues.length === 0) {
+      html += '<div style="font-size:12px;color:var(--text-3);font-style:italic;padding:1rem;text-align:center;border:1px dashed var(--border);border-radius:6px">Aucune issue saisie aux étapes Interviews/Testings.</div>';
+    } else {
+      html += '<div style="font-size:12px;color:var(--green);padding:1rem;text-align:center;border:1px dashed var(--green);border-radius:6px;background:#E1F5EE">✓ Toutes les issues ont été agrégées dans des findings.</div>';
+    }
+  } else {
+    // Grouper par Process
+    var byProcessIssues = {};
+    unaggregatedIssues.forEach(function(iss){
+      var key = iss.processId || '_unassigned';
+      if (!byProcessIssues[key]) byProcessIssues[key] = [];
+      byProcessIssues[key].push(iss);
+    });
+    Object.keys(byProcessIssues).forEach(function(procId){
+      var procName = procId === '_unassigned' ? '(Process non assigné)' : _getProcNameForWpp(procId);
+      html += '<div style="background:#FAEEDA;color:#854F0B;font-weight:600;padding:6px 10px;font-size:11px;border-radius:4px;margin-bottom:6px;margin-top:8px">'+procName.replace(/</g,'&lt;')+'</div>';
+      byProcessIssues[procId].forEach(function(iss){
+        html += renderUnaggregatedIssueRow(iss, isPreparer);
+      });
+    });
+  }
+
+  html += '</div>';
+
+  return html;
+}
+
+function renderBuFindingCard(f, fIdx, isPreparer) {
+  var d = getAudData(CA);
+  var includedIssues = (f.issueIds||[]).map(function(id){
+    return d.issues.find(function(x){return x.id===id;});
+  }).filter(Boolean);
+
+  var designCount = includedIssues.filter(function(i){return i.source==='design';}).length;
+  var operatingCount = includedIssues.filter(function(i){return i.source==='operating';}).length;
+
+  var h = '';
+  h += '<div style="border:.5px solid var(--border);border-radius:5px;padding:11px 13px;margin-bottom:8px;background:#fafafa;position:relative">';
+  if (isPreparer) {
+    h += '<div style="position:absolute;top:8px;right:8px;display:flex;gap:3px">';
+    h += '<button class="bs" style="font-size:10px;padding:2px 7px" onclick="showBuFindingModal('+fIdx+')">Modifier</button>';
+    h += '<button class="bd" style="font-size:10px;padding:2px 7px" onclick="removeBuFinding('+fIdx+')" title="Supprimer">×</button>';
+    h += '</div>';
+  }
+  // Titre
+  h += '<div style="font-size:13px;font-weight:600;margin-bottom:4px;padding-right:80px">'+(''+(f.title||'(sans titre)')).replace(/</g,'&lt;')+'</div>';
+  // Description courte
+  if (f.descExec) {
+    h += '<div style="font-size:11px;color:var(--text-2);margin-bottom:6px;line-height:1.4">'+(''+f.descExec).replace(/</g,'&lt;')+'</div>';
+  }
+  // Méta : owner / proba / impact
+  var meta = [];
+  if (f.owner) meta.push('Owner : '+f.owner);
+  if (f.probability) meta.push('Probabilité : '+f.probability);
+  if (f.impact) meta.push('Impact : '+f.impact);
+  if (meta.length) {
+    h += '<div style="font-size:10px;color:var(--text-3);margin-bottom:7px;font-style:italic">'+meta.join(' · ').replace(/</g,'&lt;')+'</div>';
+  }
+  // Issues incluses
+  h += '<div style="border-top:.5px dashed var(--border);padding-top:6px;margin-top:4px">';
+  h += '<div style="font-size:10px;font-weight:600;color:var(--text-2);margin-bottom:4px">Issues incluses · '
+    + includedIssues.length;
+  if (designCount && operatingCount) {
+    h += ' <span style="font-weight:400;color:var(--text-3)">('+designCount+' design + '+operatingCount+' operating)</span>';
+  } else if (designCount) {
+    h += ' <span style="font-weight:400;color:var(--text-3)">('+designCount+' design)</span>';
+  } else if (operatingCount) {
+    h += ' <span style="font-weight:400;color:var(--text-3)">('+operatingCount+' operating)</span>';
+  }
+  h += '</div>';
+  if (!includedIssues.length) {
+    h += '<div style="font-size:10px;color:var(--text-3);font-style:italic">Aucune issue rattachée.</div>';
+  } else {
+    includedIssues.forEach(function(iss){
+      var badgeColor = iss.source==='design' ? '#854F0B' : '#085041';
+      var badgeBg = iss.source==='design' ? '#FAEEDA' : '#E1F5EE';
+      var badgeLabel = iss.source==='design' ? 'DESIGN' : 'OPERATING';
+      h += '<div style="display:flex;align-items:flex-start;gap:6px;padding:3px 0">';
+      h += '<span style="background:'+badgeBg+';color:'+badgeColor+';font-size:9px;padding:2px 6px;border-radius:3px;font-weight:500;flex-shrink:0;margin-top:2px">'+badgeLabel+'</span>';
+      h += '<div style="flex:1;min-width:0;font-size:10px;color:var(--text-2)">'+_issueShortLabel(iss).replace(/</g,'&lt;')+'</div>';
+      h += '</div>';
+    });
+  }
+  h += '</div>';
+  h += '</div>';
+  return h;
+}
+
+function renderUnaggregatedIssueRow(iss, isPreparer) {
+  var badgeColor = iss.source==='design' ? '#854F0B' : '#085041';
+  var badgeBg = iss.source==='design' ? '#FAEEDA' : '#E1F5EE';
+  var badgeLabel = iss.source==='design' ? 'DESIGN' : 'OPERATING';
+
+  var h = '';
+  h += '<div style="border:.5px solid var(--border);border-radius:5px;padding:8px 11px;margin-bottom:5px;background:#fff;display:flex;align-items:flex-start;gap:8px">';
+  h += '<span style="background:'+badgeBg+';color:'+badgeColor+';font-size:9px;padding:2px 6px;border-radius:3px;font-weight:500;flex-shrink:0;margin-top:2px">'+badgeLabel+'</span>';
+  h += '<div style="flex:1;min-width:0">';
+  if (iss.title) {
+    h += '<div style="font-size:11px;font-weight:500">'+(''+iss.title).replace(/</g,'&lt;')+'</div>';
+  } else if (iss.source === 'operating') {
+    var code = _getIssueTestCode(iss);
+    if (code) h += '<div style="font-size:10px;color:var(--text-3);font-family:monospace">'+code+'</div>';
+  }
+  if (iss.description) {
+    h += '<div style="font-size:10px;color:var(--text-2);margin-top:1px;white-space:pre-wrap">'+(''+iss.description).replace(/</g,'&lt;')+'</div>';
+  }
+  h += '</div>';
+  if (isPreparer) {
+    h += '<button class="bs" style="font-size:10px;padding:3px 8px;flex-shrink:0;white-space:nowrap" onclick="showBuFindingModal(null,\''+_escJsArg(iss.id)+'\')">→ Créer un finding</button>';
+  }
+  h += '</div>';
+  return h;
+}
+
+// ────────────────────────────────────────────────────────────────────
+//  MODALE — Création / édition d'un finding BU
+//  Si findingIdx est null, c'est une création.
+//  Si seedIssueId est fourni (depuis "Issues non agrégées"), on
+//  pré-coche cette issue + on pré-sélectionne son Process.
+// ────────────────────────────────────────────────────────────────────
+
+function showBuFindingModal(findingIdx, seedIssueId) {
+  var d = getAudData(CA);
+  if (!Array.isArray(d.findings)) d.findings = [];
+  _ensureIssues(d);
+  var existing = (findingIdx !== null && findingIdx !== undefined) ? d.findings[findingIdx] : null;
+  var f = existing || {};
+
+  // Process couverts
+  var wp = (d.workProgramBU && Array.isArray(d.workProgramBU.processes))
+    ? d.workProgramBU.processes : [];
+  if (!wp.length) {
+    toast('Aucun Process couvert dans cet audit.');
+    return;
+  }
+
+  // Pré-sélection : process du finding existant, ou process de la seed issue, ou rien
+  var preSelectedProcId = f.processId || '';
+  if (!preSelectedProcId && seedIssueId) {
+    var seedIss = d.issues.find(function(x){return x.id===seedIssueId;});
+    if (seedIss) preSelectedProcId = seedIss.processId || '';
+  }
+
+  var procOptions = wp.map(function(wpp){
+    var p = (PROCESSES||[]).find(function(x){return x.id===wpp.auditProcessId;});
+    var name = p ? p.proc : '(Process introuvable)';
+    return '<option value="'+_escAttr(wpp.id)+'"'+(preSelectedProcId===wpp.id?' selected':'')+'>'+name.replace(/</g,'&lt;')+'</option>';
+  }).join('');
+
+  // Construire le panneau d'issues — sera rendu dynamiquement par updateBuFindingIssuesPanel
+  // Il dépend du Process sélectionné. On rend juste un placeholder.
+
+  var body = '';
+  body += '<div><label>Process principal <span style="color:var(--red)">*</span></label>';
+  body += '<select id="bf-proc" onchange="updateBuFindingIssuesPanel()"><option value="">— Choisir un Process —</option>'+procOptions+'</select></div>';
+  body += '<div><label>Titre du finding <span style="color:var(--red)">*</span></label>';
+  body += '<input id="bf-title" value="'+_escAttr(f.title)+'" placeholder="ex : Ségrégation des tâches insuffisante en P2P"/></div>';
+  body += '<div><label>Description courte (Executive Summary)</label>';
+  body += '<div style="font-size:10px;color:var(--text-3);font-style:italic;margin-bottom:3px">2-3 lignes — apparaîtra en synthèse du rapport.</div>';
+  body += '<textarea id="bf-desc-exec" style="width:100%;min-height:50px">'+(''+(f.descExec||'')).replace(/</g,'&lt;')+'</textarea></div>';
+  body += '<div><label>Description détaillée</label>';
+  body += '<textarea id="bf-desc-detail" style="width:100%;min-height:80px" placeholder="Constat complet : combine les issues design + operating, contexte business, références aux tests...">'+(''+(f.descDetailed||f.desc||'')).replace(/</g,'&lt;')+'</textarea></div>';
+  body += '<div><label>Risque potentiel</label>';
+  body += '<textarea id="bf-risk" style="width:100%;min-height:50px" placeholder="ex : Pertes de marge non maîtrisées, fraude possible...">'+(''+(f.potentialRisk||'')).replace(/</g,'&lt;')+'</textarea></div>';
+  body += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">';
+  body += '<div><label>Owner</label><input id="bf-owner" value="'+_escAttr(f.owner)+'" placeholder="ex : Sales Director"/></div>';
+  body += '<div><label>Probability</label>';
+  body += '<select id="bf-prob"><option value="">—</option>';
+  ['rare','unlikely','possible','certain'].forEach(function(p){
+    body += '<option value="'+p+'"'+(f.probability===p?' selected':'')+'>'+p.charAt(0).toUpperCase()+p.slice(1)+'</option>';
+  });
+  body += '</select></div>';
+  body += '<div><label>Impact</label>';
+  body += '<select id="bf-imp"><option value="">—</option>';
+  ['minor','limited','major','severe'].forEach(function(i){
+    body += '<option value="'+i+'"'+(f.impact===i?' selected':'')+'>'+i.charAt(0).toUpperCase()+i.slice(1)+'</option>';
+  });
+  body += '</select></div>';
+  body += '</div>';
+  // Panel des issues à inclure (mis à jour quand le Process change)
+  body += '<div style="margin-top:10px">';
+  body += '<label>Issues à inclure dans ce finding</label>';
+  body += '<div style="font-size:10px;color:var(--text-3);font-style:italic;margin-bottom:5px">Les issues du Process sélectionné sont en haut. Tu peux aussi en cocher d\'autres provenant d\'autres Process si pertinent.</div>';
+  body += '<div id="bf-issues-panel" style="border:.5px solid var(--border);border-radius:4px;max-height:300px;overflow-y:auto;background:#fafafa"></div>';
+  body += '</div>';
+
+  // Stocker pour le helper updateBuFindingIssuesPanel
+  window._buFindingCtx = {
+    existing: existing,
+    seedIssueId: seedIssueId,
+    initialIssueIds: existing ? (existing.issueIds||[]).slice() : (seedIssueId ? [seedIssueId] : []),
+  };
+
+  openModal(existing ? 'Modifier le finding' : 'Nouveau finding', body, async function(){
+    var processId = document.getElementById('bf-proc').value;
+    var title = document.getElementById('bf-title').value.trim();
+    if (!processId) { toast('Process principal obligatoire'); return; }
+    if (!title) { toast('Titre obligatoire'); return; }
+    var checkedIssueIds = [];
+    document.querySelectorAll('.bf-iss-cb:checked').forEach(function(cb){checkedIssueIds.push(cb.value);});
+
+    var payload = {
+      processId: processId,
+      title: title,
+      descExec: document.getElementById('bf-desc-exec').value.trim(),
+      descDetailed: document.getElementById('bf-desc-detail').value.trim(),
+      desc: document.getElementById('bf-desc-detail').value.trim(),
+      potentialRisk: document.getElementById('bf-risk').value.trim(),
+      owner: document.getElementById('bf-owner').value.trim(),
+      probability: document.getElementById('bf-prob').value,
+      impact: document.getElementById('bf-imp').value,
+      issueIds: checkedIssueIds,
+    };
+
+    if (existing) {
+      Object.assign(existing, payload);
+      await saveAuditData(CA);
+      addHist('edit', 'Finding "'+title+'" modifié');
+      toast('Finding modifié ✓');
+    } else {
+      var dd = getAudData(CA);
+      if (!Array.isArray(dd.findings)) dd.findings = [];
+      dd.findings.push(Object.assign({
+        id: 'f_'+Date.now()+'_'+Math.floor(Math.random()*100000),
+        controlIds: [],
+        createdAt: new Date().toISOString(),
+      }, payload));
+      await saveAuditData(CA);
+      addHist('add', 'Finding "'+title+'" créé');
+      toast('Finding ajouté ✓');
+    }
+    document.getElementById('det-content').innerHTML = renderDetContent();
+    delete window._buFindingCtx;
+  }, { wide: true });
+
+  // Initialiser le panel d'issues APRÈS l'ouverture de la modale
+  setTimeout(updateBuFindingIssuesPanel, 50);
+}
+
+// Met à jour le panel des issues à inclure (groupées par Process, avec Process sélectionné en haut)
+// Appelé à l'ouverture de la modale + à chaque changement du Process principal
+function updateBuFindingIssuesPanel() {
+  var panel = document.getElementById('bf-issues-panel');
+  if (!panel) return;
+  var d = getAudData(CA);
+  _ensureIssues(d);
+  var allIssues = d.issues;
+  if (!allIssues.length) {
+    panel.innerHTML = '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:12px;text-align:center">Aucune issue saisie aux étapes précédentes. Saisis des issues Design (étape Interviews) ou Operating (étape Testings) avant de créer un finding.</div>';
+    return;
+  }
+  var ctx = window._buFindingCtx || {existing:null, initialIssueIds:[]};
+  var initialIds = ctx.initialIssueIds || [];
+  // Conserver les coches existantes pendant le re-render (sauf au tout 1er rendu)
+  var currentlyChecked = {};
+  document.querySelectorAll('.bf-iss-cb').forEach(function(cb){
+    if (cb.checked) currentlyChecked[cb.value] = true;
+  });
+  // Si pas encore de checkboxes (1er rendu), partir des initialIds
+  var alreadyRenderedOnce = !!document.querySelector('.bf-iss-cb');
+  if (!alreadyRenderedOnce) {
+    initialIds.forEach(function(id){currentlyChecked[id]=true;});
+  }
+
+  var selectedProcId = document.getElementById('bf-proc') ? document.getElementById('bf-proc').value : '';
+
+  // Issues groupées par Process. Le Process sélectionné en premier.
+  var byProcess = {};
+  allIssues.forEach(function(iss){
+    var key = iss.processId || '_unassigned';
+    if (!byProcess[key]) byProcess[key] = [];
+    byProcess[key].push(iss);
+  });
+  // Ordre d'affichage : selectedProcId d'abord, puis les autres
+  var procIds = Object.keys(byProcess);
+  procIds.sort(function(a,b){
+    if (a === selectedProcId) return -1;
+    if (b === selectedProcId) return 1;
+    return _getProcNameForWpp(a).localeCompare(_getProcNameForWpp(b),'fr',{sensitivity:'base'});
+  });
+
+  // Aggregated ids autres findings (sauf celui qu'on édite)
+  var aggregatedElsewhere = {};
+  (d.findings||[]).forEach(function(f){
+    if (ctx.existing && f === ctx.existing) return; // pas le finding qu'on édite
+    if (Array.isArray(f.issueIds)) f.issueIds.forEach(function(id){aggregatedElsewhere[id]=true;});
+  });
+
+  // Pré-cochage par défaut au 1er rendu : si Process est sélectionné, cocher ses issues
+  // sauf celles déjà dans un autre finding
+  if (!alreadyRenderedOnce && selectedProcId && !ctx.existing) {
+    (byProcess[selectedProcId] || []).forEach(function(iss){
+      if (!aggregatedElsewhere[iss.id] && !currentlyChecked[iss.id]) {
+        // Si pas déjà la seed issue, cocher
+        if (!ctx.seedIssueId || ctx.seedIssueId === iss.id || iss.processId === selectedProcId) {
+          currentlyChecked[iss.id] = true;
+        }
+      }
+    });
+  }
+
+  var h = '';
+  procIds.forEach(function(procId){
+    var procName = procId === '_unassigned' ? '(Process non assigné)' : _getProcNameForWpp(procId);
+    var isMainProc = procId === selectedProcId;
+    var headerBg = isMainProc ? '#3C3489' : '#EEEDFE';
+    var headerColor = isMainProc ? '#fff' : '#3C3489';
+    h += '<div style="background:'+headerBg+';color:'+headerColor+';font-weight:600;padding:5px 10px;font-size:10px;letter-spacing:.3px;text-transform:uppercase">'+procName.replace(/</g,'&lt;');
+    if (isMainProc) h += ' <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:10px">(Process principal)</span>';
+    h += '</div>';
+    byProcess[procId].forEach(function(iss){
+      var badgeColor = iss.source==='design' ? '#854F0B' : '#085041';
+      var badgeBg = iss.source==='design' ? '#FAEEDA' : '#E1F5EE';
+      var badgeLabel = iss.source==='design' ? 'DESIGN' : 'OPERATING';
+      var isInOther = !!aggregatedElsewhere[iss.id];
+      var checked = currentlyChecked[iss.id] ? ' checked' : '';
+      h += '<label style="display:flex;align-items:flex-start;gap:8px;padding:6px 10px;border-bottom:.5px solid #f0f0f0;cursor:pointer'+(isInOther?';opacity:.55':'')+'">';
+      h += '<input type="checkbox" class="bf-iss-cb" value="'+_escAttr(iss.id)+'"'+checked+' style="margin-top:3px;flex-shrink:0"/>';
+      h += '<span style="background:'+badgeBg+';color:'+badgeColor+';font-size:9px;padding:2px 6px;border-radius:3px;font-weight:500;flex-shrink:0;margin-top:1px">'+badgeLabel+'</span>';
+      h += '<div style="flex:1;min-width:0">';
+      if (iss.title) h += '<div style="font-size:11px;font-weight:500">'+(''+iss.title).replace(/</g,'&lt;')+'</div>';
+      else if (iss.source === 'operating') {
+        var code = _getIssueTestCode(iss);
+        if (code) h += '<div style="font-size:10px;color:var(--text-3);font-family:monospace">'+code+'</div>';
+      }
+      if (iss.description) {
+        var shortDesc = iss.description.length > 150 ? iss.description.slice(0,150)+'…' : iss.description;
+        h += '<div style="font-size:10px;color:var(--text-2);margin-top:1px;white-space:pre-wrap">'+shortDesc.replace(/</g,'&lt;')+'</div>';
+      }
+      if (isInOther) h += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:2px">⚠ déjà dans un autre finding</div>';
+      h += '</div>';
+      h += '</label>';
+    });
+  });
+  panel.innerHTML = h;
+}
+
+async function removeBuFinding(idx) {
+  var d = getAudData(CA);
+  var f = d.findings[idx];
+  if (!f) return;
+  var msg = 'Supprimer ce finding ?';
+  if (Array.isArray(f.issueIds) && f.issueIds.length) {
+    msg += '\n\nLes '+f.issueIds.length+' issue'+(f.issueIds.length>1?'s':'')+' rattachée'+(f.issueIds.length>1?'s':'')+' redeviendront « non agrégée'+(f.issueIds.length>1?'s':'')+' ».';
+  }
+  if (!confirm(msg)) return;
+  d.findings.splice(idx,1);
+  // Nettoyer aussi les management responses qui référenceraient ce finding
+  if (Array.isArray(d.mgtResp)) {
+    d.mgtResp = d.mgtResp.filter(function(r){return r.findingId !== f.id;});
+  }
+  await saveAuditData(CA);
+  addHist('del', 'Finding "'+(f.title||'')+'" supprimé');
+  document.getElementById('det-content').innerHTML = renderDetContent();
+  toast('Finding supprimé');
 }
 
 function renderFindingsSection() {
