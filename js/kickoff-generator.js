@@ -1,3 +1,4 @@
+
 // ════════════════════════════════════════════════════════════════════════════
 //  kickoff-generator.js — Génération du Kick Off Presentation (PowerPoint)
 //
@@ -122,6 +123,11 @@ async function generateKickoffPptx(auditId) {
   const subProcesses = Array.isArray(prep.subProcesses) ? prep.subProcesses : [];
   const interviews = Array.isArray(prep.interviews) ? prep.interviews : [];
   const planning = prep.planning || {};
+
+  // Audits BU : récupérer le Work Program BU (Process couverts + Owners + PBC)
+  const isBU = ap.type === 'BU';
+  const workProgramBU = (d && d.workProgramBU && Array.isArray(d.workProgramBU.processes))
+    ? d.workProgramBU.processes : [];
 
   // Récupérer le nom du process
   const procIds = Array.isArray(ap.processIds) && ap.processIds.length ? ap.processIds : (ap.processId ? [ap.processId] : []);
@@ -362,135 +368,18 @@ async function generateKickoffPptx(auditId) {
   ko_addFooter(pres, s4);
 
   // ════════════════════════════════════════════════════════════════════
-  // SLIDE 5 — AUDIT SCOPE (sous-processus + risques en tableau 2 colonnes)
+  // SLIDE 5 — AUDIT SCOPE
+  // Pour audits Process : tableau Sub-process | Risques associés
+  // Pour audits BU : tableau Process | Contact | Documents | Period
+  //                  (avec splitting auto sur plusieurs slides si besoin)
   // ════════════════════════════════════════════════════════════════════
-  const s5 = pres.addSlide();
-  ko_addTitleBar(pres, s5, auditTitleShort, "Audit Scope");
-
-  s5.addText("Process audited: " + processName, {
-    x: 0.5, y: 1.55, w: 12.3, h: 0.4,
-    fontSize: 13, bold: true, color: KO_COLORS.navy, fontFace: "Calibri",
-  });
-
-  // Tableau à 2 colonnes : Sub-process (titre+desc+owners en méta) | Associated risks
-  const subHeader = [
-    {text: "Sub-process", options: {bold: true, color: KO_COLORS.white, fill: {color: KO_COLORS.navy}, valign: "middle"}},
-    {text: "Associated risks", options: {bold: true, color: KO_COLORS.white, fill: {color: KO_COLORS.navy}, valign: "middle"}},
-  ];
-
-  // Helper : transforme une liste de risques en paragraphes pour une cellule de tableau
-  function risksToParas(rs) {
-    if (!rs || !rs.length) {
-      return [{ text: '—', options: { fontSize: 11, color: KO_COLORS.textGray, fontFace: "Calibri" } }];
-    }
-    const max = 6;
-    const paras = rs.slice(0, max).map((r, i) => {
-      const title = r.title || r.name || r.label || '—';
-      const sourceTag = r.source === 'adhoc' ? ' [Ad hoc]' : '';
-      return {
-        text: title + sourceTag,
-        options: {
-          bullet: { code: "25CF" },
-          fontSize: 11,
-          color: KO_COLORS.textDark,
-          fontFace: "Calibri",
-          paraSpaceAfter: i === Math.min(rs.length, max) - 1 ? 0 : 3,
-        },
-      };
-    });
-    if (rs.length > max) {
-      paras.push({
-        text: `… and ${rs.length - max} more`,
-        options: { fontSize: 10, italic: true, color: KO_COLORS.textGray, fontFace: "Calibri" },
-      });
-    }
-    return paras;
-  }
-
-  // Calculer pour chaque sous-process les risques liés via subProcessRiskLinks,
-  // et identifier les risques non liés (pour la ligne "General process risks").
-  const linkedRiskIds = new Set();
-  const risksBySubProcess = subProcesses.map(sp => {
-    const spName = sp.name || '';
-    const spRisks = linkedRisks.filter(r => {
-      const linkedSps = subProcessRiskLinks[r.id] || [];
-      return linkedSps.indexOf(spName) >= 0;
-    });
-    spRisks.forEach(r => linkedRiskIds.add(r.id));
-    return spRisks;
-  });
-  const generalRisks = linkedRisks.filter(r => !linkedRiskIds.has(r.id));
-
-  let subRows;
-  if (subProcesses.length) {
-    subRows = [subHeader].concat(subProcesses.map((sp, idx) => {
-      // Construire la cellule "sous-process" : titre gras + description + owners en méta
-      const cellParas = [
-        {
-          text: sp.name || '—',
-          options: { bold: true, fontSize: 13, color: KO_COLORS.navy, fontFace: "Calibri", paraSpaceAfter: 3 },
-        },
-      ];
-      if (sp.description) {
-        cellParas.push({
-          text: sp.description,
-          options: { fontSize: 11, color: KO_COLORS.textDark, fontFace: "Calibri", paraSpaceAfter: 3 },
-        });
-      }
-      const ownerLine = sp.owners
-        ? (sp.email ? `Owner: ${sp.owners} (${sp.email})` : `Owner: ${sp.owners}`)
-        : null;
-      if (ownerLine) {
-        cellParas.push({
-          text: ownerLine,
-          options: { fontSize: 9, italic: true, color: KO_COLORS.textGray, fontFace: "Calibri" },
-        });
-      }
-      return [
-        { text: cellParas, options: { valign: "top" } },
-        { text: risksToParas(risksBySubProcess[idx]), options: { valign: "top" } },
-      ];
-    }));
-    // Ligne "General process risks" en bas si des risques ne sont liés à aucun sous-process
-    if (generalRisks.length) {
-      subRows.push([
-        {
-          text: [
-            { text: "General process risks", options: { bold: true, fontSize: 12, color: KO_COLORS.navy, fontFace: "Calibri", paraSpaceAfter: 3 } },
-            { text: "Risks not specifically linked to a sub-process.", options: { fontSize: 10, italic: true, color: KO_COLORS.textGray, fontFace: "Calibri" } },
-          ],
-          options: { valign: "top", fill: { color: "F5F5F0" } },
-        },
-        { text: risksToParas(generalRisks), options: { valign: "top", fill: { color: "F5F5F0" } } },
-      ]);
-    }
+  if (isBU) {
+    // Slide(s) Audit Scope BU avec splitting automatique
+    ko_addAuditScopeBuSlides(pres, workProgramBU, _PROCESSES, auditTitleShort);
   } else {
-    subRows = [subHeader,
-      [
-        { text: '—', options: { valign: "middle" } },
-        { text: risksToParas(linkedRisks), options: { valign: "top" } },
-      ],
-    ];
+    // Slide Audit Scope Process (existant — sub-process + risques)
+    ko_addAuditScopeProcessSlide(pres, subProcesses, linkedRisks, subProcessRiskLinks, auditTitleShort, processName);
   }
-
-  // Hauteur de ligne adaptée au nombre total de lignes (sous-process + éventuelle ligne generale)
-  const totalRows = subProcesses.length + (generalRisks.length ? 1 : 0);
-  const rowHeight = totalRows > 4 ? 0.7 : 0.9;
-  s5.addTable(subRows, {
-    x: 0.5, y: 2.05, w: 12.3,
-    fontSize: 11, fontFace: "Calibri",
-    border: {type: "solid", pt: 0.5, color: KO_COLORS.grayMed},
-    rowH: rowHeight,
-    colW: [7.3, 5.0],
-  });
-
-  if (!subProcesses.length) {
-    s5.addText("Sub-processes to be defined during the kick-off meeting.", {
-      x: 0.5, y: 5.5, w: 12, h: 0.4,
-      fontSize: 11, italic: true, color: KO_COLORS.textGray, fontFace: "Calibri",
-    });
-  }
-  ko_addFooter(pres, s5);
 
   // ════════════════════════════════════════════════════════════════════
   // SLIDE 6 — INTERVIEWS (depuis kickoffPrep.interviews)
@@ -824,4 +713,278 @@ async function generateKickoffPptx(auditId) {
     console.error('[KICKOFF] Erreur génération :', err);
     if (typeof toast === 'function') toast('Erreur lors de la génération');
   }
+}
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  SLIDE 5 — Audit Scope (audits Process — Sub-process | Risques associés)
+// ════════════════════════════════════════════════════════════════════════════
+function ko_addAuditScopeProcessSlide(pres, subProcesses, linkedRisks, subProcessRiskLinks, auditTitleShort, processName) {
+  const s5 = pres.addSlide();
+  ko_addTitleBar(pres, s5, auditTitleShort, "Audit Scope");
+
+  s5.addText("Process audited: " + processName, {
+    x: 0.5, y: 1.55, w: 12.3, h: 0.4,
+    fontSize: 13, bold: true, color: KO_COLORS.navy, fontFace: "Calibri",
+  });
+
+  const subHeader = [
+    {text: "Sub-process", options: {bold: true, color: KO_COLORS.white, fill: {color: KO_COLORS.navy}, valign: "middle"}},
+    {text: "Associated risks", options: {bold: true, color: KO_COLORS.white, fill: {color: KO_COLORS.navy}, valign: "middle"}},
+  ];
+
+  function risksToParas(rs) {
+    if (!rs || !rs.length) {
+      return [{ text: '—', options: { fontSize: 11, color: KO_COLORS.textGray, fontFace: "Calibri" } }];
+    }
+    const max = 6;
+    const paras = rs.slice(0, max).map((r, i) => {
+      const title = r.title || r.name || r.label || '—';
+      const sourceTag = r.source === 'adhoc' ? ' [Ad hoc]' : '';
+      return {
+        text: title + sourceTag,
+        options: {
+          bullet: { code: "25CF" },
+          fontSize: 11,
+          color: KO_COLORS.textDark,
+          fontFace: "Calibri",
+          paraSpaceAfter: i === Math.min(rs.length, max) - 1 ? 0 : 3,
+        },
+      };
+    });
+    if (rs.length > max) {
+      paras.push({
+        text: `… and ${rs.length - max} more`,
+        options: { fontSize: 10, italic: true, color: KO_COLORS.textGray, fontFace: "Calibri" },
+      });
+    }
+    return paras;
+  }
+
+  const linkedRiskIds = new Set();
+  const risksBySubProcess = subProcesses.map(sp => {
+    const spName = sp.name || '';
+    const spRisks = linkedRisks.filter(r => {
+      const linkedSps = subProcessRiskLinks[r.id] || [];
+      return linkedSps.indexOf(spName) >= 0;
+    });
+    spRisks.forEach(r => linkedRiskIds.add(r.id));
+    return spRisks;
+  });
+  const generalRisks = linkedRisks.filter(r => !linkedRiskIds.has(r.id));
+
+  let subRows;
+  if (subProcesses.length) {
+    subRows = [subHeader].concat(subProcesses.map((sp, idx) => {
+      const cellParas = [
+        { text: sp.name || '—',
+          options: { bold: true, fontSize: 13, color: KO_COLORS.navy, fontFace: "Calibri", paraSpaceAfter: 3 },
+        },
+      ];
+      if (sp.description) {
+        cellParas.push({ text: sp.description,
+          options: { fontSize: 11, color: KO_COLORS.textDark, fontFace: "Calibri", paraSpaceAfter: 3 },
+        });
+      }
+      const ownerLine = sp.owners
+        ? (sp.email ? `Owner: ${sp.owners} (${sp.email})` : `Owner: ${sp.owners}`)
+        : null;
+      if (ownerLine) {
+        cellParas.push({ text: ownerLine,
+          options: { fontSize: 9, italic: true, color: KO_COLORS.textGray, fontFace: "Calibri" },
+        });
+      }
+      return [
+        { text: cellParas, options: { valign: "top" } },
+        { text: risksToParas(risksBySubProcess[idx]), options: { valign: "top" } },
+      ];
+    }));
+    if (generalRisks.length) {
+      subRows.push([
+        { text: [
+            { text: "General process risks", options: { bold: true, fontSize: 12, color: KO_COLORS.navy, fontFace: "Calibri", paraSpaceAfter: 3 } },
+            { text: "Risks not specifically linked to a sub-process.", options: { fontSize: 10, italic: true, color: KO_COLORS.textGray, fontFace: "Calibri" } },
+          ],
+          options: { valign: "top", fill: { color: "F5F5F0" } },
+        },
+        { text: risksToParas(generalRisks), options: { valign: "top", fill: { color: "F5F5F0" } } },
+      ]);
+    }
+  } else {
+    subRows = [subHeader,
+      [ { text: '—', options: { valign: "middle" } },
+        { text: risksToParas(linkedRisks), options: { valign: "top" } },
+      ],
+    ];
+  }
+
+  const totalRows = subProcesses.length + (generalRisks.length ? 1 : 0);
+  const rowHeight = totalRows > 4 ? 0.7 : 0.9;
+  s5.addTable(subRows, {
+    x: 0.5, y: 2.05, w: 12.3,
+    fontSize: 11, fontFace: "Calibri",
+    border: {type: "solid", pt: 0.5, color: KO_COLORS.grayMed},
+    rowH: rowHeight,
+    colW: [7.3, 5.0],
+  });
+
+  if (!subProcesses.length) {
+    s5.addText("Sub-processes to be defined during the kick-off meeting.", {
+      x: 0.5, y: 5.5, w: 12, h: 0.4,
+      fontSize: 11, italic: true, color: KO_COLORS.textGray, fontFace: "Calibri",
+    });
+  }
+  ko_addFooter(pres, s5);
+}
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  SLIDE 5 (BU) — Audit Scope (audits BU — Process | Contact | Documents | Period)
+//  Splitting automatique sur plusieurs slides si nécessaire.
+//  PBC dédupliquées par Process.
+// ════════════════════════════════════════════════════════════════════════════
+function ko_addAuditScopeBuSlides(pres, workProgramBU, _PROCESSES, auditTitleShort) {
+  // 1. Préparer les données pour chaque Process couvert
+  const rows = (workProgramBU || []).map(wpp => {
+    // Nom du Process depuis Audit Universe (lien vivant)
+    const p = (_PROCESSES || []).find(x => x.id === wpp.auditProcessId);
+    const procName = p ? p.proc : '(Process inconnu)';
+    // Owners : on liste nom (et email s'il existe) sur plusieurs lignes
+    const owners = (wpp.owners || []).map(o => {
+      const name = (o.name || '').trim();
+      const email = (o.email || '').trim();
+      if (!name && !email) return '';
+      if (name && email) return `${name}\n(${email})`;
+      return name || email;
+    }).filter(Boolean);
+    // PBC : on agrège tous les noms de docs depuis tous les tests, dédupliqués
+    const pbcSet = new Set();
+    (wpp.tests || []).forEach(t => {
+      (t.pbc || []).forEach(d => {
+        const name = (d.name || '').trim();
+        if (name) pbcSet.add(name);
+      });
+    });
+    const pbcList = Array.from(pbcSet);
+    return {
+      processName: procName,
+      contacts: owners,
+      documents: pbcList,
+    };
+  });
+
+  if (!rows.length) {
+    // Slide vide d'information si aucun Process couvert
+    const s5 = pres.addSlide();
+    ko_addTitleBar(pres, s5, auditTitleShort, "Audit Scope");
+    s5.addText("Audit Scope to be defined during the kick-off meeting.", {
+      x: 0.5, y: 3.0, w: 12, h: 0.5,
+      fontSize: 13, italic: true, color: KO_COLORS.textGray, fontFace: "Calibri", align: "center",
+    });
+    ko_addFooter(pres, s5);
+    return;
+  }
+
+  // 2. Splitter en groupes de Process selon la "hauteur" estimée
+  // Heuristique : estime ~0.32" par ligne de docs/contacts, min 0.7" par row.
+  // Espace dispo par slide ≈ 4.7" (de 2.05 à 6.75)
+  const MAX_HEIGHT = 4.7;
+  const groups = [];
+  let current = [];
+  let currentHeight = 0;
+
+  rows.forEach(row => {
+    // Nb de lignes "visuelles" pour cette row : max entre contacts (1 par owner, +1 par email) et documents
+    // owners : chaque "name\n(email)" = 2 lignes ; "name" seul = 1 ligne
+    const ownerLines = row.contacts.reduce((acc, c) => acc + (c.indexOf('\n') >= 0 ? 2 : 1), 0) || 1;
+    const docLines = Math.max(1, row.documents.length);
+    const lines = Math.max(ownerLines, docLines);
+    const rowHeight = Math.max(0.7, 0.32 * lines + 0.2);
+    if (currentHeight + rowHeight > MAX_HEIGHT && current.length > 0) {
+      groups.push(current);
+      current = [];
+      currentHeight = 0;
+    }
+    current.push({ row, rowHeight });
+    currentHeight += rowHeight;
+  });
+  if (current.length) groups.push(current);
+
+  // 3. Générer une slide par groupe
+  const totalSlides = groups.length;
+  groups.forEach((group, gIdx) => {
+    const s = pres.addSlide();
+    const subTitle = totalSlides > 1
+      ? `Audit Scope ${gIdx + 1}/${totalSlides}`
+      : "Audit Scope";
+    ko_addTitleBar(pres, s, auditTitleShort, subTitle);
+
+    // En-tête du tableau
+    const header = [
+      {text: "Process", options: {bold: true, color: KO_COLORS.white, fill: {color: KO_COLORS.navy}, valign: "middle"}},
+      {text: "Contact", options: {bold: true, color: KO_COLORS.white, fill: {color: KO_COLORS.navy}, valign: "middle"}},
+      {text: "Documents", options: {bold: true, color: KO_COLORS.white, fill: {color: KO_COLORS.navy}, valign: "middle"}},
+      {text: "Period", options: {bold: true, color: KO_COLORS.white, fill: {color: KO_COLORS.navy}, valign: "middle"}},
+    ];
+
+    const tableRows = [header];
+    const rowHeights = [0.45]; // header
+
+    group.forEach(({ row, rowHeight }) => {
+      // Colonne Process : nom en gras
+      const procCell = {
+        text: [{ text: row.processName,
+          options: { bold: true, fontSize: 12, color: KO_COLORS.navy, fontFace: "Calibri" } }],
+        options: { valign: "top" },
+      };
+
+      // Colonne Contact : 1 paragraphe par owner ; si email, sur ligne suivante
+      const contactParas = row.contacts.length
+        ? row.contacts.map((c, i) => {
+            const parts = c.split('\n');
+            const isLast = i === row.contacts.length - 1;
+            const subParas = [{ text: parts[0],
+              options: { fontSize: 11, color: KO_COLORS.textDark, fontFace: "Calibri",
+                breakLine: true } }];
+            if (parts[1]) {
+              subParas.push({ text: parts[1],
+                options: { fontSize: 9, italic: true, color: KO_COLORS.textGray, fontFace: "Calibri",
+                  breakLine: !isLast } });
+            }
+            return subParas;
+          }).flat()
+        : [{ text: '—', options: { fontSize: 11, color: KO_COLORS.textGray, fontFace: "Calibri" } }];
+      const contactCell = { text: contactParas, options: { valign: "top" } };
+
+      // Colonne Documents : 1 paragraphe par doc (avec puce)
+      const docParas = row.documents.length
+        ? row.documents.map((doc, i) => ({
+            text: doc,
+            options: { bullet: { code: "25CF" }, fontSize: 11, color: KO_COLORS.textDark, fontFace: "Calibri",
+              paraSpaceAfter: i === row.documents.length - 1 ? 0 : 2 },
+          }))
+        : [{ text: 'À définir', options: { fontSize: 11, italic: true, color: KO_COLORS.textGray, fontFace: "Calibri" } }];
+      const docCell = { text: docParas, options: { valign: "top" } };
+
+      // Colonne Period : à compléter
+      const periodCell = {
+        text: [{ text: 'À compléter',
+          options: { fontSize: 10, italic: true, color: KO_COLORS.textGray, fontFace: "Calibri" } }],
+        options: { valign: "top" },
+      };
+
+      tableRows.push([procCell, contactCell, docCell, periodCell]);
+      rowHeights.push(rowHeight);
+    });
+
+    s.addTable(tableRows, {
+      x: 0.5, y: 1.85, w: 12.3,
+      fontSize: 11, fontFace: "Calibri",
+      border: {type: "solid", pt: 0.5, color: KO_COLORS.grayMed},
+      rowH: rowHeights,
+      colW: [2.5, 2.0, 6.3, 1.5],
+    });
+
+    ko_addFooter(pres, s);
+  });
 }
