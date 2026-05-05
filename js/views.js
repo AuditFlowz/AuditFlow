@@ -4428,8 +4428,14 @@ function renderDetContent(){
     html += renderWCGWSection();
     // renderControlsSection désactivée - tout est dans renderWCGWSection
   } else if (CS === 5) {
-    // Étape 6 (index 5) : Testings — tests des contrôles uniquement
-    html += renderTestsSection();
+    // Étape 6 (index 5) : Testings
+    // Pour les audits BU : refonte avec sample/population/issues + extrapolation
+    // Pour les audits Process : tests des contrôles uniquement (existant)
+    if (a.type === 'BU') {
+      html += renderTestingsBuSection();
+    } else {
+      html += renderTestsSection();
+    }
   } else if (CS === 6) {
     // Étape 7 (index 6) : Report — Header + Maturity (côte-à-côte) puis Findings
     html += renderAuditReportGenerateBanner();
@@ -6340,6 +6346,450 @@ function showDesignFindingModal(idx) {
         await _createFinding(payload);
         addHist('add', 'Finding Design "'+title+'" créé');
         toast('Finding Design ajouté ✓');
+      }
+      document.getElementById('det-content').innerHTML = renderDetContent();
+    });
+}
+
+// ════════════════════════════════════════════════════════════════════
+//  ÉTAPE 6 (BU) — Testings BU
+//  Pour les audits BU : refonte complète avec :
+//   - Statut du test (à faire / en cours / fait)
+//   - Méthode (Coverage / Aléatoire / Mix)
+//   - Population / Échantillon / Anomalies (nb + valeur €)
+//   - Extrapolation auto-calculée (ratio simple — placeholder)
+//   - Observations
+//   - Création d'un finding Operating directement depuis le test
+//
+//  Le modèle stocke ces champs DANS le test du Work Program BU :
+//    test.testStatus, test.selectionMethod,
+//    test.population{count,value}, test.sample{count,value}, test.anomalies{count,value},
+//    test.observations
+// ════════════════════════════════════════════════════════════════════
+
+var TEST_STATUSES = ['à faire', 'en cours', 'fait'];
+var SELECTION_METHODS = ['', 'Coverage', 'Aléatoire', 'Mix'];
+
+// Helpers de formattage et calculs
+
+function _fmtNum(n) {
+  if (n === null || n === undefined || n === '' || isNaN(n)) return '—';
+  return Number(n).toLocaleString('fr-FR');
+}
+
+function _fmtEur(n) {
+  if (n === null || n === undefined || n === '' || isNaN(n)) return '—';
+  return Number(n).toLocaleString('fr-FR', {maximumFractionDigits:0}) + ' €';
+}
+
+// Calcul d'extrapolation (ratio simple) — placeholder, à remplacer plus tard
+// Renvoie {countExtrapolated, valueExtrapolated, applicable, reason}
+function _computeExtrapolation(t) {
+  var pop = t.population || {};
+  var smp = t.sample || {};
+  var ano = t.anomalies || {};
+  var method = t.selectionMethod || '';
+  // Méthode Aléatoire ou Mix : extrapolation valide
+  // Méthode Coverage : pas d'extrapolation (échantillon ciblé non-représentatif)
+  if (method === 'Coverage') {
+    return { applicable: false, reason: 'Coverage : sample ciblé non extrapolable' };
+  }
+  if (method !== 'Aléatoire' && method !== 'Mix') {
+    return { applicable: false, reason: 'Définissez la méthode de sélection (Aléatoire ou Mix) pour calculer.' };
+  }
+  // Vérifier qu'on a les bases pour calculer
+  if (!smp.count || !pop.count) {
+    return { applicable: false, reason: 'Saisissez la population et l\'échantillon (en nombre) pour calculer.' };
+  }
+  if (!ano.count) {
+    return { applicable: true, countExtrapolated: 0, valueExtrapolated: 0, reason: 'Aucune anomalie observée → 0 extrapolé.' };
+  }
+  // Extrapolation en nombre : (anomalies/sample) × population
+  var rateCount = Number(ano.count) / Number(smp.count);
+  var countExtrapolated = Math.round(rateCount * Number(pop.count));
+  // Extrapolation en valeur : (valeur écarts / valeur testée) × valeur totale
+  var valueExtrapolated = null;
+  if (smp.value && pop.value && ano.value !== '' && ano.value !== null && ano.value !== undefined) {
+    var rateValue = Number(ano.value) / Number(smp.value);
+    valueExtrapolated = Math.round(rateValue * Number(pop.value));
+  }
+  return {
+    applicable: true,
+    countExtrapolated: countExtrapolated,
+    valueExtrapolated: valueExtrapolated,
+    reason: null,
+  };
+}
+
+// État de pliage par Process (UI uniquement, pas persisté)
+var _testingsBuCollapsed = {};
+
+function renderTestingsBuSection() {
+  var a = AUDIT_PLAN.find(function(x){return x.id===CA;});
+  var d = getAudData(CA);
+  var isAdmin = CU && CU.role==='admin';
+  var isPreparer = (a.assignedTo||a.auditeurs||[]).indexOf(CU&&CU.id)>=0 || isAdmin;
+
+  var wp = (d.workProgramBU && Array.isArray(d.workProgramBU.processes))
+    ? d.workProgramBU.processes : [];
+
+  var html = '';
+  html += '<div class="cd" style="margin-bottom:1rem">';
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">';
+  html += '<span style="font-size:13px;font-weight:500">Testings <span style="color:var(--text-3);font-weight:400">— '+wp.length+' process couvert'+(wp.length>1?'s':'')+'</span></span>';
+  html += '</div>';
+  html += '<div style="font-size:11px;color:var(--text-3);font-style:italic;margin-bottom:14px">Réalise les tests substantifs définis au Work Program. Pour chaque test : statut, méthode, population/échantillon/anomalies, extrapolation auto, observations, et création de findings Operating si nécessaire.</div>';
+
+  if (!wp.length) {
+    html += '<div style="font-size:12px;color:var(--text-3);font-style:italic;padding:1.5rem;text-align:center;border:1px dashed var(--border);border-radius:6px">Aucun Process couvert dans cet audit. Retourne à l\'étape Work Program pour en ajouter.</div>';
+    html += '</div>';
+    return html;
+  }
+
+  wp.forEach(function(wpp){
+    html += renderTestingsBuProcessCard(wpp, isPreparer);
+  });
+
+  html += '</div>';
+  return html;
+}
+
+function renderTestingsBuProcessCard(wpp, isPreparer) {
+  var p = (PROCESSES||[]).find(function(x){return x.id===wpp.auditProcessId;});
+  var procName = p ? p.proc : '(Process introuvable)';
+  var tests = Array.isArray(wpp.tests) ? wpp.tests : [];
+  var testCount = tests.length;
+  var doneCount = tests.filter(function(t){return t.testStatus==='fait';}).length;
+  var inProgressCount = tests.filter(function(t){return t.testStatus==='en cours';}).length;
+  var failCount = tests.filter(function(t){return (t.anomalies && t.anomalies.count > 0);}).length;
+  var collapsed = !!_testingsBuCollapsed[wpp.id];
+
+  var h = '';
+  h += '<div style="border:.5px solid var(--border);border-radius:6px;margin-bottom:8px;background:#fff">';
+  // Header de la carte (cliquable pour collapse)
+  h += '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:'+(collapsed?'none':'.5px solid #f0f0f0')+';background:#fafafa;cursor:pointer" onclick="toggleTestingsBuProcess(\''+_escJsArg(wpp.id)+'\')">';
+  h += '<div style="flex:1;min-width:0">';
+  h += '<div style="font-size:13px;font-weight:500">'+(collapsed?'▶ ':'▼ ')+(''+procName).replace(/</g,'&lt;')+'</div>';
+  h += '<div style="font-size:11px;color:var(--purple);margin-top:3px">'
+    + testCount+(testCount>1?' tests':' test')
+    + ' · '+doneCount+' fait'+(doneCount>1?'s':'')
+    + (inProgressCount?' · '+inProgressCount+' en cours':'')
+    + (failCount?' · <span style="color:var(--red);font-weight:500">'+failCount+' avec anomalies</span>':'')
+    + '</div>';
+  h += '</div>';
+  h += '</div>';
+
+  if (!collapsed) {
+    h += '<div style="padding:8px 14px">';
+    if (!testCount) {
+      h += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:8px 0;text-align:center">Aucun test pour ce process. Retourne au Work Program pour en ajouter.</div>';
+    } else {
+      tests.forEach(function(t){
+        h += renderTestingsBuTestRow(wpp.id, t, isPreparer);
+      });
+    }
+    h += '</div>';
+  }
+
+  h += '</div>';
+  return h;
+}
+
+function renderTestingsBuTestRow(wppId, t, isPreparer) {
+  // Initialiser les structures si manquantes
+  if (!t.population) t.population = {count:'', value:''};
+  if (!t.sample) t.sample = {count:'', value:''};
+  if (!t.anomalies) t.anomalies = {count:'', value:''};
+  if (!t.testStatus) t.testStatus = 'à faire';
+  if (!t.selectionMethod) t.selectionMethod = '';
+
+  var status = t.testStatus;
+  var statusColor = status==='fait' ? '#085041' : status==='en cours' ? '#0C447C' : '#854F0B';
+  var statusBg = status==='fait' ? '#E1F5EE' : status==='en cours' ? '#E6F1FB' : '#FAEEDA';
+
+  var hasAnomalies = (t.anomalies.count !== '' && Number(t.anomalies.count) > 0);
+  var rowBorder = hasAnomalies ? 'border:1px solid #E24B4A' : 'border:.5px solid var(--border)';
+
+  // Findings operating déjà liés à ce test
+  var d = getAudData(CA);
+  var linkedFindings = (d.findings||[]).filter(function(f){
+    return f.source==='operating' && f.processId===wppId && f.testId===t.id;
+  });
+
+  var extrap = _computeExtrapolation(t);
+
+  var h = '';
+  h += '<div style="'+rowBorder+';border-radius:5px;padding:10px 12px;margin-bottom:8px;background:'+(hasAnomalies?'#FFF8F8':'#fff')+'">';
+
+  // Ligne 1 : Code + Type + Statut
+  h += '<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap">';
+  h += '<span style="background:var(--purple);color:#fff;font-size:9px;padding:2px 7px;border-radius:3px;font-family:monospace;letter-spacing:.4px">'+(t.code||'').replace(/</g,'&lt;')+'</span>';
+  h += '<span style="background:#FAEEDA;color:#854F0B;font-size:9px;padding:2px 7px;border-radius:3px">'+(t.testType||'').replace(/</g,'&lt;')+'</span>';
+  h += '<span style="background:'+statusBg+';color:'+statusColor+';font-size:9px;padding:2px 7px;border-radius:3px;font-weight:500">'+status+'</span>';
+  if (hasAnomalies) {
+    h += '<span style="background:#FCEBEB;color:#A32D2D;font-size:9px;padding:2px 7px;border-radius:3px;font-weight:500">⚠ ANOMALIES</span>';
+  }
+  if (linkedFindings.length) {
+    h += '<span style="background:#EEEDFE;color:#3C3489;font-size:9px;padding:2px 7px;border-radius:3px">'+linkedFindings.length+' finding'+(linkedFindings.length>1?'s':'')+'</span>';
+  }
+  h += '</div>';
+
+  // Énoncé
+  h += '<div style="font-size:11px;font-weight:500;margin-bottom:4px">'+(''+(t.statement||'(sans énoncé)')).replace(/</g,'&lt;')+'</div>';
+  if (t.objective) h += '<div style="font-size:10px;color:var(--text-3);font-style:italic;margin-bottom:6px">Objectif : '+(''+t.objective).replace(/</g,'&lt;')+'</div>';
+
+  // Bloc Statut + Méthode (2 selecteurs)
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">';
+  h += '<div>';
+  h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Statut du test</label>';
+  if (isPreparer) {
+    h += '<select onchange="setTestingsBuField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'testStatus\',this.value)" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;background:'+statusBg+';color:'+statusColor+';font-weight:500">';
+    TEST_STATUSES.forEach(function(s){
+      h += '<option'+(t.testStatus===s?' selected':'')+'>'+s+'</option>';
+    });
+    h += '</select>';
+  } else {
+    h += '<div style="font-size:11px;padding:5px 8px">'+t.testStatus+'</div>';
+  }
+  h += '</div>';
+  h += '<div>';
+  h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Méthode de sélection</label>';
+  if (isPreparer) {
+    h += '<select onchange="setTestingsBuField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'selectionMethod\',this.value)" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;background:#fff">';
+    h += '<option value=""'+(!t.selectionMethod?' selected':'')+'>— Choisir —</option>';
+    h += '<option'+(t.selectionMethod==='Coverage'?' selected':'')+'>Coverage</option>';
+    h += '<option'+(t.selectionMethod==='Aléatoire'?' selected':'')+'>Aléatoire</option>';
+    h += '<option'+(t.selectionMethod==='Mix'?' selected':'')+'>Mix</option>';
+    h += '</select>';
+  } else {
+    h += '<div style="font-size:11px;padding:5px 8px">'+(t.selectionMethod||'—')+'</div>';
+  }
+  h += '</div>';
+  h += '</div>';
+
+  // Tableau Population / Échantillon / Anomalies (3 colonnes × 2 lignes nb/€)
+  h += '<table style="width:100%;border-collapse:collapse;margin-bottom:8px;font-size:11px">';
+  h += '<thead><tr style="background:#f5f5f0">';
+  h += '<th style="text-align:left;padding:5px 8px;font-size:9px;color:var(--text-3);font-weight:500;text-transform:uppercase;letter-spacing:.3px;border:.5px solid var(--border)"></th>';
+  h += '<th style="text-align:right;padding:5px 8px;font-size:9px;color:var(--text-3);font-weight:500;border:.5px solid var(--border)">Population</th>';
+  h += '<th style="text-align:right;padding:5px 8px;font-size:9px;color:var(--text-3);font-weight:500;border:.5px solid var(--border)">Échantillon testé</th>';
+  h += '<th style="text-align:right;padding:5px 8px;font-size:9px;color:var(--text-3);font-weight:500;border:.5px solid var(--border)">Anomalies</th>';
+  h += '</tr></thead><tbody>';
+  // Ligne nombre
+  h += '<tr>';
+  h += '<td style="padding:5px 8px;color:var(--text-3);border:.5px solid var(--border)">Nombre</td>';
+  ['population','sample','anomalies'].forEach(function(field){
+    var val = t[field].count;
+    h += '<td style="padding:3px 5px;border:.5px solid var(--border)">';
+    if (isPreparer) {
+      h += '<input type="number" min="0" value="'+_escAttr(val)+'" placeholder="0" onchange="setTestingsBuSubField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\''+field+'\',\'count\',this.value)" style="width:100%;font-size:11px;padding:4px 6px;border:1px solid var(--border);border-radius:3px;text-align:right;box-sizing:border-box"/>';
+    } else {
+      h += '<div style="text-align:right;padding:4px 6px">'+_fmtNum(val)+'</div>';
+    }
+    h += '</td>';
+  });
+  h += '</tr>';
+  // Ligne valeur €
+  h += '<tr>';
+  h += '<td style="padding:5px 8px;color:var(--text-3);border:.5px solid var(--border)">Valeur (€)</td>';
+  ['population','sample','anomalies'].forEach(function(field){
+    var val = t[field].value;
+    h += '<td style="padding:3px 5px;border:.5px solid var(--border)">';
+    if (isPreparer) {
+      h += '<input type="number" min="0" step="0.01" value="'+_escAttr(val)+'" placeholder="(facultatif)" onchange="setTestingsBuSubField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\''+field+'\',\'value\',this.value)" style="width:100%;font-size:11px;padding:4px 6px;border:1px solid var(--border);border-radius:3px;text-align:right;box-sizing:border-box"/>';
+    } else {
+      h += '<div style="text-align:right;padding:4px 6px">'+_fmtEur(val)+'</div>';
+    }
+    h += '</td>';
+  });
+  h += '</tr>';
+  h += '</tbody></table>';
+
+  // Bloc Extrapolation (auto-calculé, lecture seule)
+  h += '<div style="background:'+(extrap.applicable?'#EEEDFE':'#F1EFE8')+';border-radius:4px;padding:8px 10px;margin-bottom:8px">';
+  h += '<div style="font-size:10px;color:'+(extrap.applicable?'#3C3489':'#5F5E5A')+';font-weight:600;margin-bottom:3px;text-transform:uppercase;letter-spacing:.3px">Extrapolation auto</div>';
+  if (!extrap.applicable) {
+    h += '<div style="font-size:11px;color:var(--text-3);font-style:italic">'+extrap.reason+'</div>';
+  } else if (extrap.reason) {
+    h += '<div style="font-size:11px;color:#3C3489">'+extrap.reason+'</div>';
+  } else {
+    h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:11px;color:#3C3489">';
+    h += '<div><span style="font-weight:500">'+_fmtNum(extrap.countExtrapolated)+'</span> cas potentiellement impactés</div>';
+    if (extrap.valueExtrapolated !== null) {
+      h += '<div><span style="font-weight:500">'+_fmtEur(extrap.valueExtrapolated)+'</span> d\'impact estimé</div>';
+    } else {
+      h += '<div style="color:var(--text-3);font-style:italic">Saisissez les valeurs (€) pour estimer l\'impact financier</div>';
+    }
+    h += '</div>';
+  }
+  h += '</div>';
+
+  // Observations
+  h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Observations / commentaires</label>';
+  if (isPreparer) {
+    h += '<textarea onchange="setTestingsBuField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'observations\',this.value)" style="width:100%;min-height:42px;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;resize:vertical;font-family:inherit;box-sizing:border-box;margin-bottom:8px" placeholder="Détails du test, contexte, points d\'attention...">'+(''+(t.observations||'')).replace(/</g,'&lt;')+'</textarea>';
+  } else {
+    h += '<div style="font-size:11px;padding:5px 8px;background:#fafafa;border-radius:3px;margin-bottom:8px">'+(''+(t.observations||'—')).replace(/</g,'&lt;')+'</div>';
+  }
+
+  // Findings Operating liés
+  h += '<div style="border-top:.5px dashed var(--border);padding-top:7px;margin-top:3px">';
+  h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">';
+  h += '<span style="font-size:10px;font-weight:600;color:var(--text-2)">Findings Operating · '+linkedFindings.length+'</span>';
+  if (isPreparer) {
+    h += '<button class="bs" style="font-size:10px;padding:2px 7px" onclick="showOperatingFindingModal(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',null)">+ Créer un finding</button>';
+  }
+  h += '</div>';
+  if (!linkedFindings.length) {
+    h += '<div style="font-size:10px;color:var(--text-3);font-style:italic;padding:3px 0">Aucun finding pour ce test.</div>';
+  } else {
+    linkedFindings.forEach(function(f){
+      var fIdx = d.findings.indexOf(f);
+      h += '<div style="display:flex;align-items:center;gap:6px;padding:4px 0">';
+      h += '<span style="background:#E1F5EE;color:#085041;font-size:9px;padding:2px 6px;border-radius:3px;font-weight:500">OPERATING</span>';
+      h += '<span style="font-size:11px;flex:1">'+(''+(f.title||'(sans titre)')).replace(/</g,'&lt;')+'</span>';
+      if (isPreparer) {
+        h += '<button class="bs" style="font-size:9px;padding:1px 6px" onclick="showOperatingFindingModal(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\','+fIdx+')">Modifier</button>';
+        h += '<button class="bd" style="font-size:9px;padding:1px 6px" onclick="removeManualFinding('+fIdx+')" title="Supprimer">×</button>';
+      }
+      h += '</div>';
+    });
+  }
+  h += '</div>';
+
+  h += '</div>';
+  return h;
+}
+
+// Toggle pliage d'un Process
+function toggleTestingsBuProcess(wppId) {
+  _testingsBuCollapsed[wppId] = !_testingsBuCollapsed[wppId];
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+// Setter d'un champ direct (testStatus, selectionMethod, observations)
+async function setTestingsBuField(wppId, testId, field, val) {
+  var d = getAudData(CA);
+  var wp = (d.workProgramBU && Array.isArray(d.workProgramBU.processes))
+    ? d.workProgramBU.processes : [];
+  var wpp = wp.find(function(x){return x.id===wppId;});
+  if (!wpp) return;
+  var t = (wpp.tests||[]).find(function(x){return x.id===testId;});
+  if (!t) return;
+  t[field] = val;
+  await saveAuditData(CA);
+  // Re-render pour rafraîchir les badges et l'extrapolation
+  if (field === 'testStatus' || field === 'selectionMethod') {
+    document.getElementById('det-content').innerHTML = renderDetContent();
+  }
+}
+
+// Setter sur un sous-champ (population.count, sample.value, anomalies.count, etc.)
+async function setTestingsBuSubField(wppId, testId, group, sub, val) {
+  var d = getAudData(CA);
+  var wp = (d.workProgramBU && Array.isArray(d.workProgramBU.processes))
+    ? d.workProgramBU.processes : [];
+  var wpp = wp.find(function(x){return x.id===wppId;});
+  if (!wpp) return;
+  var t = (wpp.tests||[]).find(function(x){return x.id===testId;});
+  if (!t) return;
+  if (!t[group]) t[group] = {};
+  // Stockage en string (vide accepté), conversion à la lecture
+  t[group][sub] = val === '' ? '' : Number(val);
+  await saveAuditData(CA);
+  // Re-render pour rafraîchir l'extrapolation
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+// Modale création/édition d'un finding Operating depuis un test
+function showOperatingFindingModal(wppId, testId, findingIdx) {
+  var d = getAudData(CA);
+  var existing = (findingIdx !== null && findingIdx !== undefined) ? d.findings[findingIdx] : null;
+  var f = existing || {};
+
+  // Récupérer info du test pour pré-remplir si nouveau
+  var wp = (d.workProgramBU && Array.isArray(d.workProgramBU.processes))
+    ? d.workProgramBU.processes : [];
+  var wpp = wp.find(function(x){return x.id===wppId;});
+  var t = wpp ? (wpp.tests||[]).find(function(x){return x.id===testId;}) : null;
+  var p = wpp ? (PROCESSES||[]).find(function(x){return x.id===wpp.auditProcessId;}) : null;
+  var procName = p ? p.proc : '(Process)';
+  var testCode = t ? (t.code || '') : '';
+
+  // Suggestion de description si test contient des anomalies
+  var suggestedDesc = '';
+  if (!existing && t && t.anomalies && Number(t.anomalies.count) > 0) {
+    var pop = t.population || {};
+    var smp = t.sample || {};
+    var ano = t.anomalies || {};
+    suggestedDesc = 'Test sur '+ _fmtNum(smp.count)+' '+(t.selectionMethod==='Coverage'?'cas ciblés':'cas')
+      +' : '+_fmtNum(ano.count)+' anomalie'+(Number(ano.count)>1?'s':'');
+    if (ano.value) suggestedDesc += ' ('+_fmtEur(ano.value)+' d\'écarts)';
+    if (t.selectionMethod === 'Aléatoire' || t.selectionMethod === 'Mix') {
+      var extrap = _computeExtrapolation(t);
+      if (extrap.applicable && extrap.countExtrapolated > 0) {
+        suggestedDesc += ', extrapolé à '+_fmtNum(extrap.countExtrapolated)+' cas potentiellement impactés';
+        if (extrap.valueExtrapolated) suggestedDesc += ' (~'+_fmtEur(extrap.valueExtrapolated)+')';
+      }
+    }
+    suggestedDesc += '.';
+  }
+
+  var body = '';
+  body += '<div style="background:#EEEDFE;color:#3C3489;font-size:11px;padding:6px 10px;border-radius:4px;margin-bottom:10px">'
+    + 'Finding Operating · Process : <strong>'+procName.replace(/</g,'&lt;')+'</strong>'
+    + (testCode ? ' · Test : <strong>'+testCode+'</strong>' : '')
+    + '</div>';
+  body += '<div><label>Titre du finding <span style="color:var(--red)">*</span></label>';
+  body += '<input id="of-title" value="'+_escAttr(f.title)+'" placeholder="ex : Non-respect de la politique de remises"/></div>';
+  body += '<div><label>Description courte (Executive Summary)</label>';
+  body += '<textarea id="of-desc-exec" style="width:100%;min-height:50px" placeholder="2-3 lignes — apparaîtra en synthèse du rapport.">'+(''+(f.descExec||'')).replace(/</g,'&lt;')+'</textarea></div>';
+  body += '<div><label>Description détaillée</label>';
+  body += '<textarea id="of-desc-detail" style="width:100%;min-height:80px" placeholder="Détail du test, anomalies trouvées, extrapolation...">'+(''+(f.descDetailed||f.desc||suggestedDesc)).replace(/</g,'&lt;')+'</textarea></div>';
+  body += '<div><label>Risque potentiel</label>';
+  body += '<textarea id="of-risk" style="width:100%;min-height:50px" placeholder="ex : Pertes de marge, écarts comptables...">'+(''+(f.potentialRisk||'')).replace(/</g,'&lt;')+'</textarea></div>';
+  body += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">';
+  body += '<div><label>Owner</label><input id="of-owner" value="'+_escAttr(f.owner)+'" placeholder="ex : Sales Director"/></div>';
+  body += '<div><label>Probability</label>';
+  body += '<select id="of-prob"><option value="">—</option>';
+  ['rare','unlikely','possible','certain'].forEach(function(p){
+    body += '<option value="'+p+'"'+(f.probability===p?' selected':'')+'>'+p.charAt(0).toUpperCase()+p.slice(1)+'</option>';
+  });
+  body += '</select></div>';
+  body += '<div><label>Impact</label>';
+  body += '<select id="of-imp"><option value="">—</option>';
+  ['minor','limited','major','severe'].forEach(function(i){
+    body += '<option value="'+i+'"'+(f.impact===i?' selected':'')+'>'+i.charAt(0).toUpperCase()+i.slice(1)+'</option>';
+  });
+  body += '</select></div>';
+  body += '</div>';
+
+  openModal(existing ? 'Modifier le finding Operating' : 'Nouveau finding Operating',
+    body, async function(){
+      var title = document.getElementById('of-title').value.trim();
+      if (!title) { toast('Titre obligatoire'); return; }
+      var payload = {
+        source: 'operating',
+        processId: wppId,
+        testId: testId,
+        title: title,
+        descExec: document.getElementById('of-desc-exec').value.trim(),
+        descDetailed: document.getElementById('of-desc-detail').value.trim(),
+        desc: document.getElementById('of-desc-detail').value.trim(),
+        potentialRisk: document.getElementById('of-risk').value.trim(),
+        owner: document.getElementById('of-owner').value.trim(),
+        probability: document.getElementById('of-prob').value,
+        impact: document.getElementById('of-imp').value,
+      };
+      if (existing) {
+        Object.assign(existing, payload);
+        await saveAuditData(CA);
+        addHist('edit', 'Finding Operating "'+title+'" modifié');
+        toast('Finding Operating modifié ✓');
+      } else {
+        await _createFinding(payload);
+        addHist('add', 'Finding Operating "'+title+'" créé');
+        toast('Finding Operating ajouté ✓');
       }
       document.getElementById('det-content').innerHTML = renderDetContent();
     });
