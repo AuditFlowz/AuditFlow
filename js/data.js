@@ -45,12 +45,11 @@ var RISK_IMPACT_TYPES = ['Réputation', 'Financier', 'Legal', 'Operations'];
 //  Chaque entrée pointe vers un Process via auditProcessId.
 //  Le NOM du Process vient de PROCESSES (lien vivant : renommer
 //  dans Audit Universe se reflète automatiquement ici).
-//  Structure : [{id, auditProcessId, subProcesses: [
-//      {id, name, description, tests: [
-//          {id, code, statement, objective, testType, samplingHint,
-//           pbc: [{id, name}]}
-//      ]}
-//  ]}]
+//  Structure aplatie : Process > Tests directement (pas de sous-processus).
+//    [{id, auditProcessId, tests: [
+//        {id, code, statement, objective, testType, samplingHint,
+//         pbc: [{id, name}]}
+//    ]}]
 // ══════════════════════════════════════════════════════════════
 var BU_PROCESSES = [];
 

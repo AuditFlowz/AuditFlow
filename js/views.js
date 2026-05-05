@@ -1056,14 +1056,17 @@ function _escJsArg(s) { return (''+(s||'')).replace(/\\/g,'\\\\').replace(/'/g,"
 
 
 // ══════════════════════════════════════════════════════════════
-//  BU WORK PROGRAM — Référentiel des sous-process et tests BU
+//  BU WORK PROGRAM — Référentiel des tests substantifs BU
 //
 //  Le BU Work Program n'a PAS ses propres "Process" : il s'appuie
 //  sur les Process de l'Audit Universe (lien vivant). Une entrée
-//  BU_PROCESSES = { auditProcessId, subProcesses: [...] }.
+//  BU_PROCESSES = { auditProcessId, tests: [...] }.
 //  Le NOM, le DOMAINE, etc. proviennent toujours de PROCESSES
 //  (Audit Universe). Renommer un Process dans Audit Universe se
 //  reflète immédiatement ici.
+//
+//  Structure simplifiée : pas de niveau "sous-processus".
+//  Process > Tests directement.
 // ══════════════════════════════════════════════════════════════
 
 var TEST_TYPES = ['Test of Design', 'Test of Effectiveness', 'Substantive'];
@@ -1074,7 +1077,7 @@ V['bu-work-program']=()=>`
     <div class="tbtitle">BU Work Program</div>
   </div>
   <div class="content">
-    <div style="font-size:11px;color:var(--text-2);margin-bottom:10px;font-style:italic">Référentiel des tests substantifs standardisés. S'appuie sur les processus de l'Audit Universe (renommer là-bas se répercute ici). Ajoute des sous-processus et leurs tests pour chaque process pertinent en audit BU.</div>
+    <div style="font-size:11px;color:var(--text-2);margin-bottom:10px;font-style:italic">Référentiel des tests substantifs standardisés. S'appuie sur les processus de l'Audit Universe (renommer là-bas se répercute ici). Pour chaque process, ajoute la liste des tests à réaliser dans un audit BU.</div>
     <div id="buwp-container" style="display:grid;grid-template-columns:300px 1fr;gap:12px;align-items:start">
       <div id="buwp-master" style="border:.5px solid var(--border);border-radius:6px;background:#fff;overflow:hidden;max-height:calc(100vh - 200px);overflow-y:auto"></div>
       <div id="buwp-detail" style="border:.5px solid var(--border);border-radius:6px;background:#fff;padding:14px;min-height:400px"></div>
@@ -1082,7 +1085,6 @@ V['bu-work-program']=()=>`
   </div>`;
 
 I['bu-work-program']=()=>{
-  // Sélection par défaut : 1er process non-archivé de l'Audit Universe
   if (!_buwpCurrentProcId || !(PROCESSES||[]).find(function(p){return p.id===_buwpCurrentProcId && !p.archived;})) {
     var first = (PROCESSES||[]).find(function(p){return !p.archived;});
     _buwpCurrentProcId = first ? first.id : null;
@@ -1091,24 +1093,20 @@ I['bu-work-program']=()=>{
   renderBuwpDetail();
 };
 
-// Helper : trouver l'entrée BU pour un Process Audit Universe donné
 function _getBuEntry(auditProcessId) {
   return (BU_PROCESSES||[]).find(function(b){return b.auditProcessId===auditProcessId;});
 }
 
-// Helper : nombre de sous-process / tests pour un Process Audit Universe
+// Helper : nombre de tests pour un Process Audit Universe donné
 function _buCounts(auditProcessId) {
   var entry = _getBuEntry(auditProcessId);
-  if (!entry || !entry.subProcesses) return {sub:0, tests:0};
-  var sub = entry.subProcesses.length;
-  var tests = entry.subProcesses.reduce(function(acc,sp){return acc+((sp.tests||[]).length);},0);
-  return {sub:sub, tests:tests};
+  if (!entry || !entry.tests) return {tests:0};
+  return {tests: entry.tests.length};
 }
 
 function renderBuwpMaster() {
-  // On affiche les Process de l'Audit Universe groupés par Univers > Domaine
   var procs = (PROCESSES||[]).filter(function(p){return !p.archived;});
-  // Construire la hiérarchie : { universName: { domainName: [process, ...] } }
+  // Hiérarchie : Univers > Domaine > Process
   var hierarchy = {};
   procs.forEach(function(p){
     var u = p.univers || '(Sans univers)';
@@ -1130,26 +1128,23 @@ function renderBuwpMaster() {
     h += '<div style="padding:1.5rem;text-align:center;color:var(--text-3);font-size:11px">Aucun processus dans l\'Audit Universe.<br>Ajoute des Processes côté Audit Universe pour les voir ici.</div>';
   } else {
     universList.forEach(function(univ){
-      // En-tête Univers (foncé)
       h += '<div style="background:#3C3489;color:#fff;font-weight:700;padding:6px 10px;font-size:10px;letter-spacing:.5px;text-transform:uppercase">'+(''+univ).replace(/</g,'&lt;')+'</div>';
       var domains = Object.keys(hierarchy[univ]).sort(function(a,b){return a.localeCompare(b, 'fr', {sensitivity:'base'});});
       domains.forEach(function(dom){
         var rows = hierarchy[univ][dom].slice().sort(function(a,b){return (a.proc||'').localeCompare(b.proc||'', 'fr', {sensitivity:'base'});});
-        // En-tête Domaine (clair)
         h += '<div style="background:#EEEDFE;color:#3C3489;font-weight:600;padding:5px 10px 5px 16px;font-size:10px">'+(''+dom).replace(/</g,'&lt;')+'</div>';
-        // Process du domaine
         rows.forEach(function(p){
           var isSelected = p.id === _buwpCurrentProcId;
           var counts = _buCounts(p.id);
-          var hasContent = counts.sub > 0 || counts.tests > 0;
+          var hasContent = counts.tests > 0;
           var cardStyle = isSelected
             ? 'background:var(--purple);color:#fff;cursor:pointer;border-bottom:.5px solid var(--border)'
             : 'background:#fff;color:var(--text);cursor:pointer;border-bottom:.5px solid var(--border)'
               + (hasContent ? '' : ';opacity:.65');
           var subColor = isSelected ? 'color:#CECBF6' : 'color:var(--text-3)';
           var contentLabel = hasContent
-            ? counts.sub+' sous-process · '+counts.tests+(counts.tests>1?' tests':' test')
-            : 'aucun contenu BU';
+            ? counts.tests+(counts.tests>1?' tests':' test')
+            : 'aucun test';
           h += '<div onclick="buwpSelectProc(\''+_escJsArg(p.id)+'\')" style="'+cardStyle+';padding:7px 10px 7px 18px">';
           h += '<div style="font-size:11px;font-weight:500">'+(''+(p.proc||'')).replace(/</g,'&lt;')+'</div>';
           h += '<div style="'+subColor+';font-size:10px;margin-top:1px">'+contentLabel+'</div>';
@@ -1168,7 +1163,6 @@ function buwpSelectProc(auditProcessId) {
 }
 
 function renderBuwpDetail() {
-  // Le Process maître vient de l'Audit Universe
   var p = (PROCESSES||[]).find(function(x){return x.id===_buwpCurrentProcId;});
   var box = document.getElementById('buwp-detail');
   if (!p) {
@@ -1176,9 +1170,8 @@ function renderBuwpDetail() {
       + ((PROCESSES||[]).length?'Sélectionnez un processus à gauche.':'Aucun processus dans l\'Audit Universe.')+'</div>';
     return;
   }
-  // Récupérer (ou créer en mémoire) l'entrée BU
   var buEntry = _getBuEntry(p.id);
-  var subProcs = (buEntry && Array.isArray(buEntry.subProcesses)) ? buEntry.subProcesses : [];
+  var tests = (buEntry && Array.isArray(buEntry.tests)) ? buEntry.tests : [];
   var isAdmin = CU && CU.role==='admin';
 
   var h = '';
@@ -1186,40 +1179,99 @@ function renderBuwpDetail() {
   h += '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;padding-bottom:12px;border-bottom:.5px solid var(--border)">';
   h += '<div>';
   h += '<div style="font-size:14px;font-weight:600">'+(''+(p.proc||'')).replace(/</g,'&lt;')+'</div>';
-  h += '<div style="font-size:11px;color:var(--text-3);margin-top:2px">Domaine : '+(''+(p.dom||'')).replace(/</g,'&lt;')+' <span style="margin-left:6px;font-style:italic">· lecture seule, modifiable depuis Audit Universe</span></div>';
+  h += '<div style="font-size:11px;color:var(--text-3);margin-top:2px">'+(''+(p.univers||'')).replace(/</g,'&lt;')+' &gt; '+(''+(p.dom||'')).replace(/</g,'&lt;')+' <span style="margin-left:6px;font-style:italic">· lecture seule, modifiable depuis Audit Universe</span></div>';
   h += '</div>';
   h += '</div>';
 
-  // Sous-processus
+  // Tests
   h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
-  h += '<span style="font-size:12px;font-weight:600;color:var(--text-2)">Sous-processus <span style="font-size:10px;font-weight:400;color:var(--text-3)">('+subProcs.length+')</span></span>';
+  h += '<span style="font-size:12px;font-weight:600;color:var(--text-2)">Tests <span style="font-size:10px;font-weight:400;color:var(--text-3)">('+tests.length+')</span></span>';
   if (isAdmin) {
-    h += '<button class="bs" style="font-size:11px;padding:3px 9px" onclick="showAddBuSubProcessModal(\''+_escJsArg(p.id)+'\')">+ Ajouter un sous-process</button>';
+    h += '<button class="bp" style="font-size:11px;padding:4px 10px" onclick="addBuTest(\''+_escJsArg(p.id)+'\')">+ Ajouter un test</button>';
   }
   h += '</div>';
+  h += '<div style="font-size:10px;color:var(--text-3);margin-bottom:10px;font-style:italic">Tests substantifs standardisés pour ce process. Pré-chargés à l\'étape Work Program de chaque audit BU.</div>';
 
-  if (!subProcs.length) {
-    h += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:.75rem;text-align:center;border:1px dashed var(--border);border-radius:4px">Aucun sous-process BU pour ce Process. '+(isAdmin?'Cliquez sur « + Ajouter un sous-process ».':'Demandez à un admin d\'en ajouter.')+'</div>';
+  if (!tests.length) {
+    h += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:.75rem;text-align:center;border:1px dashed var(--border);border-radius:4px">Aucun test pour ce process. '+(isAdmin?'Cliquez sur « + Ajouter un test ».':'Demandez à un admin d\'en ajouter.')+'</div>';
   } else {
-    subProcs.forEach(function(sp, spIdx){
-      var testCount = (sp.tests||[]).length;
-      h += '<div style="border:.5px solid var(--border);border-radius:5px;padding:9px 12px;margin-bottom:6px;background:#fafafa">';
-      h += '<div style="display:flex;justify-content:space-between;align-items:center">';
-      h += '<div style="flex:1">';
-      h += '<div style="font-size:12px;font-weight:500">'+(''+(sp.name||'(sans nom)')).replace(/</g,'&lt;');
-      h += ' <span class="badge bpc" style="font-size:9px;margin-left:6px">'+testCount+(testCount>1?' tests':' test')+'</span>';
-      h += '</div>';
-      if (sp.description) {
-        h += '<div style="font-size:10px;color:var(--text-3);margin-top:2px">'+(''+sp.description).replace(/</g,'&lt;')+'</div>';
-      }
-      h += '</div>';
-      h += '<div style="display:flex;gap:3px;flex-shrink:0">';
-      h += '<button class="bs" style="font-size:10px;padding:2px 7px" onclick="showBuSubProcessTestsModal(\''+_escJsArg(p.id)+'\',\''+_escJsArg(sp.id)+'\')">📋 Tests</button>';
+    tests.forEach(function(t, ti){
+      var typeColor = t.testType==='Test of Effectiveness' ? '#0C447C' :
+                      t.testType==='Substantive' ? '#854F0B' : '#085041';
+      var typeBg = t.testType==='Test of Effectiveness' ? '#E6F1FB' :
+                   t.testType==='Substantive' ? '#FAEEDA' : '#E1F5EE';
+      if (!Array.isArray(t.pbc)) t.pbc = [];
+
+      h += '<div style="border:.5px solid var(--border);border-radius:5px;padding:10px 12px;margin-bottom:6px;background:#fafafa;position:relative">';
       if (isAdmin) {
-        h += '<button class="bs" style="font-size:10px;padding:2px 7px" onclick="showEditBuSubProcessModal(\''+_escJsArg(p.id)+'\',\''+_escJsArg(sp.id)+'\')">Modifier</button>';
-        h += '<button class="bd" style="font-size:10px;padding:2px 7px" onclick="removeBuSubProcess(\''+_escJsArg(p.id)+'\',\''+_escJsArg(sp.id)+'\')" title="Supprimer">×</button>';
+        h += '<button onclick="removeBuTest(\''+_escJsArg(p.id)+'\',\''+_escJsArg(t.id)+'\')" title="Supprimer ce test" style="position:absolute;top:8px;right:8px;background:#fff;border:.5px solid var(--border);color:var(--text-3);border-radius:4px;width:22px;height:22px;cursor:pointer;font-size:13px;padding:0;line-height:1">×</button>';
+      }
+      // Code + Type
+      h += '<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">';
+      h += '<span style="background:var(--purple);color:#fff;font-size:9px;padding:2px 7px;border-radius:3px;font-family:monospace;letter-spacing:.5px">'+(t.code||'').replace(/</g,'&lt;')+'</span>';
+      h += '<span style="background:'+typeBg+';color:'+typeColor+';font-size:9px;padding:2px 7px;border-radius:3px">'+(t.testType||'').replace(/</g,'&lt;')+'</span>';
+      h += '</div>';
+      // Énoncé
+      h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:3px">Énoncé du test</label>';
+      if (isAdmin) {
+        h += '<textarea onchange="setBuTestField(\''+_escJsArg(p.id)+'\',\''+_escJsArg(t.id)+'\',\'statement\',this.value)" style="width:100%;min-height:42px;font-size:11px;padding:6px 9px;border:1px solid var(--border);border-radius:3px;resize:vertical;font-family:inherit;box-sizing:border-box;margin-bottom:6px">'+(''+(t.statement||'')).replace(/</g,'&lt;')+'</textarea>';
+      } else {
+        h += '<div style="font-size:11px;padding:6px 9px;background:#fff;border-radius:3px;margin-bottom:6px">'+(''+(t.statement||'—')).replace(/</g,'&lt;')+'</div>';
+      }
+      // Objectif + Type
+      h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:6px">';
+      h += '<div>';
+      h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:3px">Objectif</label>';
+      if (isAdmin) {
+        h += '<input value="'+_escAttr(t.objective)+'" onchange="setBuTestField(\''+_escJsArg(p.id)+'\',\''+_escJsArg(t.id)+'\',\'objective\',this.value)" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box"/>';
+      } else {
+        h += '<div style="font-size:11px;padding:5px 8px">'+(''+(t.objective||'—')).replace(/</g,'&lt;')+'</div>';
       }
       h += '</div>';
+      h += '<div>';
+      h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:3px">Type de test</label>';
+      if (isAdmin) {
+        h += '<select onchange="setBuTestField(\''+_escJsArg(p.id)+'\',\''+_escJsArg(t.id)+'\',\'testType\',this.value)" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;background:#fff">';
+        TEST_TYPES.forEach(function(tt){
+          h += '<option'+(t.testType===tt?' selected':'')+'>'+tt+'</option>';
+        });
+        h += '</select>';
+      } else {
+        h += '<div style="font-size:11px;padding:5px 8px">'+(''+(t.testType||'—')).replace(/</g,'&lt;')+'</div>';
+      }
+      h += '</div>';
+      h += '</div>';
+      // Sampling hint
+      h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:3px">Orientation pour la sélection (sample)</label>';
+      if (isAdmin) {
+        h += '<input value="'+_escAttr(t.samplingHint)+'" placeholder="ex : 25 transactions sur les 12 derniers mois" onchange="setBuTestField(\''+_escJsArg(p.id)+'\',\''+_escJsArg(t.id)+'\',\'samplingHint\',this.value)" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box;margin-bottom:8px"/>';
+      } else {
+        h += '<div style="font-size:11px;padding:5px 8px;margin-bottom:8px">'+(''+(t.samplingHint||'—')).replace(/</g,'&lt;')+'</div>';
+      }
+
+      // PBC
+      h += '<div style="border-top:.5px dashed var(--border);padding-top:8px;margin-top:4px">';
+      h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">';
+      h += '<span style="font-size:10px;font-weight:600;color:var(--text-2)">PBC (Prepared By Client) · '+t.pbc.length+' document'+(t.pbc.length>1?'s':'')+'</span>';
+      if (isAdmin) {
+        h += '<button class="bs" style="font-size:10px;padding:2px 7px" onclick="addBuPbcDoc(\''+_escJsArg(p.id)+'\',\''+_escJsArg(t.id)+'\')">+ Document</button>';
+      }
+      h += '</div>';
+      if (!t.pbc.length) {
+        h += '<div style="font-size:10px;color:var(--text-3);font-style:italic;padding:5px 0">Aucun document pré-défini.</div>';
+      } else {
+        t.pbc.forEach(function(doc){
+          h += '<div style="display:flex;align-items:center;gap:6px;padding:3px 0">';
+          h += '<span style="font-size:11px;color:var(--text-3)">📄</span>';
+          if (isAdmin) {
+            h += '<input value="'+_escAttr(doc.name)+'" placeholder="ex : Journal des ventes" onchange="setBuPbcDoc(\''+_escJsArg(p.id)+'\',\''+_escJsArg(t.id)+'\',\''+_escJsArg(doc.id)+'\',this.value)" style="flex:1;font-size:11px;padding:3px 7px;border:1px solid var(--border);border-radius:3px"/>';
+            h += '<button onclick="removeBuPbcDoc(\''+_escJsArg(p.id)+'\',\''+_escJsArg(t.id)+'\',\''+_escJsArg(doc.id)+'\')" title="Supprimer" style="background:#fff;border:.5px solid var(--border);color:var(--text-3);border-radius:3px;width:20px;height:20px;cursor:pointer;font-size:12px;padding:0;line-height:1">×</button>';
+          } else {
+            h += '<span style="font-size:11px;flex:1">'+(''+(doc.name||'')).replace(/</g,'&lt;')+'</span>';
+          }
+          h += '</div>';
+        });
+      }
       h += '</div>';
       h += '</div>';
     });
@@ -1230,237 +1282,41 @@ function renderBuwpDetail() {
 
 // ──────────────────────────────────────────────────────────────
 //  Helper : obtenir ou créer l'entrée BU pour un Process Audit Universe
-//  Crée l'entrée en mémoire ET la persiste si besoin.
 // ──────────────────────────────────────────────────────────────
 async function _ensureBuEntry(auditProcessId) {
   if (!Array.isArray(BU_PROCESSES)) BU_PROCESSES = [];
   var entry = _getBuEntry(auditProcessId);
   if (entry) return entry;
-  // Créer l'entrée
   entry = {
     id: 'buentry_'+Date.now()+'_'+Math.floor(Math.random()*1000),
     auditProcessId: auditProcessId,
-    subProcesses: [],
+    tests: [],
   };
   BU_PROCESSES.push(entry);
   return entry;
 }
 
 // ──────────────────────────────────────────────────────────────
-//  CRUD Sous-processus BU
+//  CRUD Tests BU (avec PBC)
 // ──────────────────────────────────────────────────────────────
 
-function showAddBuSubProcessModal(auditProcessId) {
-  if (!CU || CU.role!=='admin') { toast('Réservé aux admins'); return; }
-  openModal('Nouveau sous-processus BU',
-    '<div><label>Nom du sous-processus</label><input id="bsp-name" placeholder="ex : Customer onboarding, Payroll..."/></div>'
-    +'<div><label>Description (facultatif)</label><textarea id="bsp-desc" placeholder="Brève description" style="min-height:60px;resize:vertical"></textarea></div>',
-    async function(){
-      var name = document.getElementById('bsp-name').value.trim();
-      var desc = document.getElementById('bsp-desc').value.trim();
-      if (!name) { toast('Nom obligatoire'); return; }
-      var entry = await _ensureBuEntry(auditProcessId);
-      if (!Array.isArray(entry.subProcesses)) entry.subProcesses = [];
-      entry.subProcesses.push({
-        id: 'bsp_'+Date.now()+'_'+Math.floor(Math.random()*1000),
-        name: name,
-        description: desc,
-        tests: [],
-      });
-      try {
-        if (typeof saveBuProcessFull === 'function') await saveBuProcessFull(entry);
-      } catch(e) { console.warn(e); }
-      renderBuwpMaster();
-      renderBuwpDetail();
-      toast('Sous-processus ajouté ✓');
-    });
-}
-
-function showEditBuSubProcessModal(auditProcessId, subProcId) {
-  if (!CU || CU.role!=='admin') { toast('Réservé aux admins'); return; }
-  var entry = _getBuEntry(auditProcessId);
-  if (!entry) return;
-  var sp = (entry.subProcesses||[]).find(function(x){return x.id===subProcId;});
-  if (!sp) return;
-  openModal('Modifier le sous-processus',
-    '<div><label>Nom</label><input id="bsp-name" value="'+_escAttr(sp.name)+'"/></div>'
-    +'<div><label>Description</label><textarea id="bsp-desc" style="min-height:60px;resize:vertical">'+(''+(sp.description||'')).replace(/</g,'&lt;')+'</textarea></div>',
-    async function(){
-      var name = document.getElementById('bsp-name').value.trim();
-      var desc = document.getElementById('bsp-desc').value.trim();
-      if (!name) { toast('Nom obligatoire'); return; }
-      sp.name = name;
-      sp.description = desc;
-      try {
-        if (typeof saveBuProcessFull === 'function') await saveBuProcessFull(entry);
-      } catch(e) { console.warn(e); }
-      renderBuwpDetail();
-      renderBuwpMaster();
-      toast('Sous-processus modifié ✓');
-    });
-}
-
-async function removeBuSubProcess(auditProcessId, subProcId) {
-  if (!CU || CU.role!=='admin') { toast('Réservé aux admins'); return; }
-  var entry = _getBuEntry(auditProcessId);
-  if (!entry) return;
-  var sp = (entry.subProcesses||[]).find(function(x){return x.id===subProcId;});
-  if (!sp) return;
-  var testCount = (sp.tests||[]).length;
-  var msg = 'Supprimer le sous-processus « '+sp.name+' » ?'
-    + (testCount ? '\n\nCela supprimera également ses '+testCount+' test(s) standardisé(s).' : '');
-  if (!confirm(msg)) return;
-  entry.subProcesses = (entry.subProcesses||[]).filter(function(x){return x.id!==subProcId;});
-  try {
-    if (typeof saveBuProcessFull === 'function') await saveBuProcessFull(entry);
-  } catch(e) { console.warn(e); }
-  renderBuwpDetail();
-  renderBuwpMaster();
-  toast('Sous-processus supprimé');
-}
-
-// ──────────────────────────────────────────────────────────────
-//  PROGRAMME DE TESTS BU (avec PBC dans le référentiel)
-// ──────────────────────────────────────────────────────────────
-
-function _genBuTestCode(p, sp, existingTests) {
-  // Slug basé sur le nom du Process Audit Universe
-  var slug = (p.proc||p.name||'SUB').replace(/[^A-Za-z]/g,'').slice(0,3).toUpperCase() || 'SUB';
+function _genBuTestCode(p, existingTests) {
+  var slug = (p.proc||'SUB').replace(/[^A-Za-z]/g,'').slice(0,3).toUpperCase() || 'SUB';
   var existingCodes = (existingTests||[]).map(function(t){return t.code||'';});
   var n = 1;
   while (existingCodes.indexOf('T-'+slug+'-'+(n<10?'0':'')+n) >= 0) n++;
   return 'T-'+slug+'-'+(n<10?'0':'')+n;
 }
 
-function showBuSubProcessTestsModal(auditProcessId, subProcId) {
-  var p = (PROCESSES||[]).find(function(x){return x.id===auditProcessId;});
-  if (!p) return;
-  var entry = _getBuEntry(auditProcessId);
-  if (!entry) return;
-  var sp = (entry.subProcesses||[]).find(function(x){return x.id===subProcId;});
-  if (!sp) return;
-  if (!Array.isArray(sp.tests)) sp.tests = [];
-
-  var bodyHtml = renderBuTestsModalBody(p, entry, sp);
-
-  openModal('Programme de tests — '+(sp.name||'').replace(/</g,'&lt;'),
-    '<div id="bu-tests-modal-body">'+bodyHtml+'</div>',
-    null,
-    { hideOk: true, cancelLabel: 'Fermer', wide: true }
-  );
-}
-
-function renderBuTestsModalBody(p, entry, sp) {
-  var isAdmin = CU && CU.role==='admin';
-  var h = '';
-  h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">';
-  h += '<div style="font-size:11px;color:var(--text-3)">Tests substantifs standardisés. Pré-chargés à l\'étape Work Program de chaque audit BU couvrant ce sous-process. <span style="font-weight:500">'+(sp.tests||[]).length+' test'+((sp.tests||[]).length>1?'s':'')+'</span> · '+(p.proc||'').replace(/</g,'&lt;')+'</div>';
-  if (isAdmin) {
-    h += '<button class="bp" style="font-size:11px;padding:4px 10px" onclick="addBuTest(\''+_escJsArg(p.id)+'\',\''+_escJsArg(sp.id)+'\')">+ Ajouter un test</button>';
-  }
-  h += '</div>';
-
-  if (!sp.tests || !sp.tests.length) {
-    h += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:1.5rem;text-align:center;border:1px dashed var(--border);border-radius:4px">Aucun test pour ce sous-processus. '+(isAdmin?'Cliquez sur « + Ajouter un test ».':'Demandez à un admin d\'en ajouter.')+'</div>';
-    return h;
-  }
-
-  sp.tests.forEach(function(t, ti){
-    var typeColor = t.testType==='Test of Effectiveness' ? '#0C447C' :
-                    t.testType==='Substantive' ? '#854F0B' : '#085041';
-    var typeBg = t.testType==='Test of Effectiveness' ? '#E6F1FB' :
-                 t.testType==='Substantive' ? '#FAEEDA' : '#E1F5EE';
-    if (!Array.isArray(t.pbc)) t.pbc = [];
-
-    h += '<div style="border:.5px solid var(--border);border-radius:5px;padding:10px 12px;margin-bottom:6px;background:#fafafa;position:relative">';
-    if (isAdmin) {
-      h += '<button onclick="removeBuTest(\''+_escJsArg(p.id)+'\',\''+_escJsArg(sp.id)+'\',\''+_escJsArg(t.id)+'\')" title="Supprimer ce test" style="position:absolute;top:8px;right:8px;background:#fff;border:.5px solid var(--border);color:var(--text-3);border-radius:4px;width:22px;height:22px;cursor:pointer;font-size:13px;padding:0;line-height:1">×</button>';
-    }
-    // Code + Type
-    h += '<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">';
-    h += '<span style="background:var(--purple);color:#fff;font-size:9px;padding:2px 7px;border-radius:3px;font-family:monospace;letter-spacing:.5px">'+(t.code||'').replace(/</g,'&lt;')+'</span>';
-    h += '<span style="background:'+typeBg+';color:'+typeColor+';font-size:9px;padding:2px 7px;border-radius:3px">'+(t.testType||'').replace(/</g,'&lt;')+'</span>';
-    h += '</div>';
-    // Énoncé
-    h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:3px">Énoncé du test</label>';
-    if (isAdmin) {
-      h += '<textarea onchange="setBuTestField(\''+_escJsArg(p.id)+'\',\''+_escJsArg(sp.id)+'\',\''+_escJsArg(t.id)+'\',\'statement\',this.value)" style="width:100%;min-height:42px;font-size:11px;padding:6px 9px;border:1px solid var(--border);border-radius:3px;resize:vertical;font-family:inherit;box-sizing:border-box;margin-bottom:6px">'+(''+(t.statement||'')).replace(/</g,'&lt;')+'</textarea>';
-    } else {
-      h += '<div style="font-size:11px;padding:6px 9px;background:#fff;border-radius:3px;margin-bottom:6px">'+(''+(t.statement||'—')).replace(/</g,'&lt;')+'</div>';
-    }
-    // Objectif + Type
-    h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:6px">';
-    h += '<div>';
-    h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:3px">Objectif</label>';
-    if (isAdmin) {
-      h += '<input value="'+_escAttr(t.objective)+'" onchange="setBuTestField(\''+_escJsArg(p.id)+'\',\''+_escJsArg(sp.id)+'\',\''+_escJsArg(t.id)+'\',\'objective\',this.value)" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box"/>';
-    } else {
-      h += '<div style="font-size:11px;padding:5px 8px">'+(''+(t.objective||'—')).replace(/</g,'&lt;')+'</div>';
-    }
-    h += '</div>';
-    h += '<div>';
-    h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:3px">Type de test</label>';
-    if (isAdmin) {
-      h += '<select onchange="setBuTestField(\''+_escJsArg(p.id)+'\',\''+_escJsArg(sp.id)+'\',\''+_escJsArg(t.id)+'\',\'testType\',this.value)" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;background:#fff">';
-      TEST_TYPES.forEach(function(tt){
-        h += '<option'+(t.testType===tt?' selected':'')+'>'+tt+'</option>';
-      });
-      h += '</select>';
-    } else {
-      h += '<div style="font-size:11px;padding:5px 8px">'+(''+(t.testType||'—')).replace(/</g,'&lt;')+'</div>';
-    }
-    h += '</div>';
-    h += '</div>';
-    // Sampling hint
-    h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:3px">Orientation pour la sélection (sample)</label>';
-    if (isAdmin) {
-      h += '<input value="'+_escAttr(t.samplingHint)+'" placeholder="ex : 25 transactions sur les 12 derniers mois" onchange="setBuTestField(\''+_escJsArg(p.id)+'\',\''+_escJsArg(sp.id)+'\',\''+_escJsArg(t.id)+'\',\'samplingHint\',this.value)" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box;margin-bottom:8px"/>';
-    } else {
-      h += '<div style="font-size:11px;padding:5px 8px;margin-bottom:8px">'+(''+(t.samplingHint||'—')).replace(/</g,'&lt;')+'</div>';
-    }
-
-    // PBC
-    h += '<div style="border-top:.5px dashed var(--border);padding-top:8px;margin-top:4px">';
-    h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">';
-    h += '<span style="font-size:10px;font-weight:600;color:var(--text-2)">PBC (Prepared By Client) · '+t.pbc.length+' document'+(t.pbc.length>1?'s':'')+'</span>';
-    if (isAdmin) {
-      h += '<button class="bs" style="font-size:10px;padding:2px 7px" onclick="addBuPbcDoc(\''+_escJsArg(p.id)+'\',\''+_escJsArg(sp.id)+'\',\''+_escJsArg(t.id)+'\')">+ Document</button>';
-    }
-    h += '</div>';
-    if (!t.pbc.length) {
-      h += '<div style="font-size:10px;color:var(--text-3);font-style:italic;padding:5px 0">Aucun document pré-défini.</div>';
-    } else {
-      t.pbc.forEach(function(doc){
-        h += '<div style="display:flex;align-items:center;gap:6px;padding:3px 0">';
-        h += '<span style="font-size:11px;color:var(--text-3)">📄</span>';
-        if (isAdmin) {
-          h += '<input value="'+_escAttr(doc.name)+'" placeholder="ex : Journal des ventes" onchange="setBuPbcDoc(\''+_escJsArg(p.id)+'\',\''+_escJsArg(sp.id)+'\',\''+_escJsArg(t.id)+'\',\''+_escJsArg(doc.id)+'\',this.value)" style="flex:1;font-size:11px;padding:3px 7px;border:1px solid var(--border);border-radius:3px"/>';
-          h += '<button onclick="removeBuPbcDoc(\''+_escJsArg(p.id)+'\',\''+_escJsArg(sp.id)+'\',\''+_escJsArg(t.id)+'\',\''+_escJsArg(doc.id)+'\')" title="Supprimer" style="background:#fff;border:.5px solid var(--border);color:var(--text-3);border-radius:3px;width:20px;height:20px;cursor:pointer;font-size:12px;padding:0;line-height:1">×</button>';
-        } else {
-          h += '<span style="font-size:11px;flex:1">'+(''+(doc.name||'')).replace(/</g,'&lt;')+'</span>';
-        }
-        h += '</div>';
-      });
-    }
-    h += '</div>';
-    h += '</div>';
-  });
-
-  return h;
-}
-
-async function addBuTest(auditProcessId, subProcId) {
+async function addBuTest(auditProcessId) {
   if (!CU || CU.role!=='admin') { toast('Réservé aux admins'); return; }
   var p = (PROCESSES||[]).find(function(x){return x.id===auditProcessId;});
   if (!p) return;
-  var entry = _getBuEntry(auditProcessId);
-  if (!entry) return;
-  var sp = (entry.subProcesses||[]).find(function(x){return x.id===subProcId;});
-  if (!sp) return;
-  if (!Array.isArray(sp.tests)) sp.tests = [];
-  sp.tests.push({
+  var entry = await _ensureBuEntry(auditProcessId);
+  if (!Array.isArray(entry.tests)) entry.tests = [];
+  entry.tests.push({
     id: 'but_'+Date.now()+'_'+Math.floor(Math.random()*1000),
-    code: _genBuTestCode(p, sp, sp.tests),
+    code: _genBuTestCode(p, entry.tests),
     statement: '',
     objective: '',
     testType: 'Substantive',
@@ -1470,46 +1326,35 @@ async function addBuTest(auditProcessId, subProcId) {
   try {
     if (typeof saveBuProcessFull === 'function') await saveBuProcessFull(entry);
   } catch(e) { console.warn(e); }
-  var body = document.getElementById('bu-tests-modal-body');
-  if (body) body.innerHTML = renderBuTestsModalBody(p, entry, sp);
-  if (document.getElementById('buwp-detail')) renderBuwpDetail();
+  renderBuwpDetail();
+  renderBuwpMaster();
 }
 
-async function removeBuTest(auditProcessId, subProcId, testId) {
+async function removeBuTest(auditProcessId, testId) {
   if (!CU || CU.role!=='admin') { toast('Réservé aux admins'); return; }
   if (!confirm('Supprimer ce test ?')) return;
-  var p = (PROCESSES||[]).find(function(x){return x.id===auditProcessId;});
-  if (!p) return;
   var entry = _getBuEntry(auditProcessId);
   if (!entry) return;
-  var sp = (entry.subProcesses||[]).find(function(x){return x.id===subProcId;});
-  if (!sp) return;
-  sp.tests = (sp.tests||[]).filter(function(x){return x.id!==testId;});
+  entry.tests = (entry.tests||[]).filter(function(x){return x.id!==testId;});
   try {
     if (typeof saveBuProcessFull === 'function') await saveBuProcessFull(entry);
   } catch(e) { console.warn(e); }
-  var body = document.getElementById('bu-tests-modal-body');
-  if (body) body.innerHTML = renderBuTestsModalBody(p, entry, sp);
-  if (document.getElementById('buwp-detail')) renderBuwpDetail();
+  renderBuwpDetail();
+  renderBuwpMaster();
 }
 
-async function setBuTestField(auditProcessId, subProcId, testId, field, val) {
+async function setBuTestField(auditProcessId, testId, field, val) {
   if (!CU || CU.role!=='admin') return;
-  var p = (PROCESSES||[]).find(function(x){return x.id===auditProcessId;});
-  if (!p) return;
   var entry = _getBuEntry(auditProcessId);
   if (!entry) return;
-  var sp = (entry.subProcesses||[]).find(function(x){return x.id===subProcId;});
-  if (!sp) return;
-  var t = (sp.tests||[]).find(function(x){return x.id===testId;});
+  var t = (entry.tests||[]).find(function(x){return x.id===testId;});
   if (!t) return;
   t[field] = val;
   try {
     if (typeof saveBuProcessFull === 'function') await saveBuProcessFull(entry);
   } catch(e) { console.warn(e); }
   if (field === 'testType') {
-    var body = document.getElementById('bu-tests-modal-body');
-    if (body) body.innerHTML = renderBuTestsModalBody(p, entry, sp);
+    renderBuwpDetail();
   }
 }
 
@@ -1517,15 +1362,11 @@ async function setBuTestField(auditProcessId, subProcId, testId, field, val) {
 //  CRUD PBC dans le référentiel BU
 // ──────────────────────────────────────────────────────────────
 
-async function addBuPbcDoc(auditProcessId, subProcId, testId) {
+async function addBuPbcDoc(auditProcessId, testId) {
   if (!CU || CU.role!=='admin') return;
-  var p = (PROCESSES||[]).find(function(x){return x.id===auditProcessId;});
-  if (!p) return;
   var entry = _getBuEntry(auditProcessId);
   if (!entry) return;
-  var sp = (entry.subProcesses||[]).find(function(x){return x.id===subProcId;});
-  if (!sp) return;
-  var t = (sp.tests||[]).find(function(x){return x.id===testId;});
+  var t = (entry.tests||[]).find(function(x){return x.id===testId;});
   if (!t) return;
   if (!Array.isArray(t.pbc)) t.pbc = [];
   t.pbc.push({
@@ -1535,17 +1376,14 @@ async function addBuPbcDoc(auditProcessId, subProcId, testId) {
   try {
     if (typeof saveBuProcessFull === 'function') await saveBuProcessFull(entry);
   } catch(e) { console.warn(e); }
-  var body = document.getElementById('bu-tests-modal-body');
-  if (body) body.innerHTML = renderBuTestsModalBody(p, entry, sp);
+  renderBuwpDetail();
 }
 
-async function setBuPbcDoc(auditProcessId, subProcId, testId, pbcId, name) {
+async function setBuPbcDoc(auditProcessId, testId, pbcId, name) {
   if (!CU || CU.role!=='admin') return;
   var entry = _getBuEntry(auditProcessId);
   if (!entry) return;
-  var sp = (entry.subProcesses||[]).find(function(x){return x.id===subProcId;});
-  if (!sp) return;
-  var t = (sp.tests||[]).find(function(x){return x.id===testId;});
+  var t = (entry.tests||[]).find(function(x){return x.id===testId;});
   if (!t) return;
   var doc = (t.pbc||[]).find(function(x){return x.id===pbcId;});
   if (!doc) return;
@@ -1555,22 +1393,17 @@ async function setBuPbcDoc(auditProcessId, subProcId, testId, pbcId, name) {
   } catch(e) { console.warn(e); }
 }
 
-async function removeBuPbcDoc(auditProcessId, subProcId, testId, pbcId) {
+async function removeBuPbcDoc(auditProcessId, testId, pbcId) {
   if (!CU || CU.role!=='admin') return;
-  var p = (PROCESSES||[]).find(function(x){return x.id===auditProcessId;});
-  if (!p) return;
   var entry = _getBuEntry(auditProcessId);
   if (!entry) return;
-  var sp = (entry.subProcesses||[]).find(function(x){return x.id===subProcId;});
-  if (!sp) return;
-  var t = (sp.tests||[]).find(function(x){return x.id===testId;});
+  var t = (entry.tests||[]).find(function(x){return x.id===testId;});
   if (!t) return;
   t.pbc = (t.pbc||[]).filter(function(x){return x.id!==pbcId;});
   try {
     if (typeof saveBuProcessFull === 'function') await saveBuProcessFull(entry);
   } catch(e) { console.warn(e); }
-  var body = document.getElementById('bu-tests-modal-body');
-  if (body) body.innerHTML = renderBuTestsModalBody(p, entry, sp);
+  renderBuwpDetail();
 }
 
 function showAddDomainModal(){

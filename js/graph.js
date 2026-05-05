@@ -236,8 +236,10 @@ var LIST_SCHEMAS = {
     {name:'risk_refs_json',text:{}},
   ],
   // BU Work Program — entrées liées aux Process de l'Audit Universe
-  // Chaque entrée = { auditProcessId, subProcesses: [...] }
-  // Le nom et le domaine viennent du Process référencé (Audit Universe).
+  // Chaque entrée = { auditProcessId, tests: [...] }
+  // Note : la colonne SharePoint s'appelle toujours `sub_processes_json` pour
+  // éviter une migration SharePoint, mais elle stocke maintenant les tests
+  // directement (structure aplatie : Process > Tests, sans niveau sous-processus).
   BU_Processes: [
     {name:'af_id',text:{}},{name:'audit_process_id',text:{}},
     {name:'sub_processes_json',text:{}},
@@ -501,12 +503,13 @@ async function loadAllData() {
 
     // Charger le référentiel BU Work Program
     // Chaque entrée pointe vers un Process de l'Audit Universe via auditProcessId
+    // Structure : { id, auditProcessId, tests: [...] } — Process > Tests directement
     try {
       var buRaw = await listItems('BU_Processes');
       BU_PROCESSES = buRaw.map(function(r){ var f=r.fields; return {
         id: f.af_id,
         auditProcessId: f.audit_process_id || '',
-        subProcesses: tryParse(f.sub_processes_json, []),
+        tests: tryParse(f.sub_processes_json, []),
       };}).filter(function(b){return b.id && b.auditProcessId;});
       console.log('[SP] BU_Processes loaded:', BU_PROCESSES.length, 'entry(ies)');
     } catch(e){
@@ -871,17 +874,18 @@ async function seedAuditUniverse() {
 // ──────────────────────────────────────────────────────────────
 //  BU WORK PROGRAM — référentiel séparé pour les audits BU
 //  Liste SharePoint : BU_Processes
-//  Structure JSON : { id, name, description, archived, subProcesses: [...] }
+//  Structure JSON : { id, auditProcessId, tests: [...] }
+//  Note : la colonne SharePoint s'appelle sub_processes_json mais stocke
+//  les tests directement (structure aplatie sans sous-processus).
 // ──────────────────────────────────────────────────────────────
 
 // Helper de sauvegarde pour une entrée BU Work Program.
-// Une entrée = { id, auditProcessId, subProcesses: [...] }
 async function saveBuProcessFull(entry) {
   if (!entry || !entry.id) return;
   try {
     await spUpsert('BU_Processes', entry.id, {
       audit_process_id: entry.auditProcessId || '',
-      sub_processes_json: JSON.stringify(entry.subProcesses || []),
+      sub_processes_json: JSON.stringify(entry.tests || []),
       Title: entry.auditProcessId || entry.id,
     });
   } catch (e) {
