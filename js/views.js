@@ -6488,11 +6488,12 @@ function renderTestingsBuTestRow(wppId, t, isPreparer) {
   var hasAnomalies = (t.anomalies.count !== '' && Number(t.anomalies.count) > 0);
   var rowBorder = hasAnomalies ? 'border:1px solid #E24B4A' : 'border:.5px solid var(--border)';
 
-  // Issues operating déjà liées à ce test
+  // Issue operating inline pour ce test (au plus 1 par test dans le nouveau modèle)
   var d = getAudData(CA);
-  var linkedIssues = (d.issues||[]).filter(function(iss){
+  var issue = (d.issues||[]).find(function(iss){
     return iss.source==='operating' && iss.processId===wppId && iss.testId===t.id;
   });
+  var hasIssue = !!(issue && issue.description && issue.description.trim());
 
   var extrap = _computeExtrapolation(t);
 
@@ -6506,8 +6507,8 @@ function renderTestingsBuTestRow(wppId, t, isPreparer) {
   if (hasAnomalies) {
     h += '<span style="background:#FCEBEB;color:#A32D2D;font-size:9px;padding:2px 7px;border-radius:3px;font-weight:500">⚠ ANOMALIES</span>';
   }
-  if (linkedIssues.length) {
-    h += '<span style="background:#EEEDFE;color:#3C3489;font-size:9px;padding:2px 7px;border-radius:3px">'+linkedIssues.length+' issue'+(linkedIssues.length>1?'s':'')+'</span>';
+  if (hasIssue) {
+    h += '<span style="background:#EEEDFE;color:#3C3489;font-size:9px;padding:2px 7px;border-radius:3px;font-weight:500">ISSUE</span>';
   }
   h += '</div>';
 
@@ -6595,43 +6596,22 @@ function renderTestingsBuTestRow(wppId, t, isPreparer) {
   }
   h += '</div>';
 
-  h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Observations / commentaires</label>';
-  if (isPreparer) {
-    h += '<textarea onchange="setTestingsBuField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'observations\',this.value)" style="width:100%;min-height:42px;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;resize:vertical;font-family:inherit;box-sizing:border-box;margin-bottom:8px" placeholder="Détails du test, contexte, points d\'attention...">'+(''+(t.observations||'')).replace(/</g,'&lt;')+'</textarea>';
-  } else {
-    h += '<div style="font-size:11px;padding:5px 8px;background:#fafafa;border-radius:3px;margin-bottom:8px">'+(''+(t.observations||'—')).replace(/</g,'&lt;')+'</div>';
-  }
+  // Issue Description inline (remplace l'ancienne section "Observations" + modale Issue Operating)
+  // Une issue Operating EST cette description sur un test. Si vide → pas d'issue.
+  // Réutilise la variable `issue` déjà définie en début de fonction.
+  var issueDesc = issue ? (issue.description||'') : '';
 
-  // Issues Operating liées
-  h += '<div style="border-top:.5px dashed var(--border);padding-top:7px;margin-top:3px">';
-  h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">';
-  h += '<span style="font-size:10px;font-weight:600;color:var(--text-2)">Issues Operating · '+linkedIssues.length+'</span>';
+  h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">';
+  h += '<label style="font-size:9px;color:var(--text-3)">Issue description <span style="font-style:italic">(remontée dans le rapport — bouton ci-contre pour pré-remplir avec les résultats du test)</span></label>';
   if (isPreparer) {
-    h += '<button class="bs" style="font-size:10px;padding:2px 7px" onclick="showOperatingIssueModal(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',null)">+ Remonter une issue</button>';
+    h += '<button class="bs" style="font-size:10px;padding:2px 7px" onclick="prefillBuIssueDescription(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\')" title="Pré-remplir depuis les résultats du test">📋 Pré-remplir</button>';
   }
   h += '</div>';
-  if (!linkedIssues.length) {
-    h += '<div style="font-size:10px;color:var(--text-3);font-style:italic;padding:3px 0">Aucune issue pour ce test.</div>';
+  if (isPreparer) {
+    h += '<textarea id="iss-desc-'+_escAttr(t.id)+'" onchange="setBuIssueDescription(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',this.value)" style="width:100%;min-height:60px;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;resize:vertical;font-family:inherit;box-sizing:border-box;margin-bottom:4px" placeholder="Détail des anomalies trouvées, contexte, ce qui sera remonté dans le rapport...">'+issueDesc.replace(/</g,'&lt;')+'</textarea>';
   } else {
-    linkedIssues.forEach(function(iss){
-      h += '<div style="display:flex;align-items:flex-start;gap:6px;padding:4px 0;border-top:.5px dashed #f0f0f0">';
-      h += '<span style="background:#E1F5EE;color:#085041;font-size:9px;padding:2px 6px;border-radius:3px;font-weight:500;flex-shrink:0;margin-top:2px">OPERATING</span>';
-      h += '<div style="flex:1;min-width:0">';
-      h += '<div style="font-size:11px;font-weight:500">'+(''+(iss.title||'(sans titre)')).replace(/</g,'&lt;')+'</div>';
-      if (iss.description) {
-        h += '<div style="font-size:10px;color:var(--text-3);margin-top:1px;white-space:pre-wrap">'+(''+iss.description).replace(/</g,'&lt;')+'</div>';
-      }
-      h += '</div>';
-      if (isPreparer) {
-        h += '<div style="display:flex;gap:3px;flex-shrink:0">';
-        h += '<button class="bs" style="font-size:9px;padding:1px 6px" onclick="showOperatingIssueModal(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\''+_escJsArg(iss.id)+'\')">Modifier</button>';
-        h += '<button class="bd" style="font-size:9px;padding:1px 6px" onclick="removeIssue(\''+_escJsArg(iss.id)+'\')" title="Supprimer">×</button>';
-        h += '</div>';
-      }
-      h += '</div>';
-    });
+    h += '<div style="font-size:11px;padding:5px 8px;background:#fafafa;border-radius:3px;margin-bottom:4px;white-space:pre-wrap">'+(issueDesc||'—').replace(/</g,'&lt;')+'</div>';
   }
-  h += '</div>';
 
   h += '</div>';
   return h;
@@ -6671,72 +6651,105 @@ async function setTestingsBuSubField(wppId, testId, group, sub, val) {
   document.getElementById('det-content').innerHTML = renderDetContent();
 }
 
-// Modale création/édition d'une issue Operating depuis un test
-function showOperatingIssueModal(wppId, testId, issueId) {
+// Sauvegarde de l'issue description inline (saisie directement dans le test)
+// Si la description est vide → on supprime l'issue (s'il y en a une)
+// Si la description est non-vide → on crée ou met à jour l'issue
+async function setBuIssueDescription(wppId, testId, description) {
   var d = getAudData(CA);
   _ensureIssues(d);
-  var existing = issueId ? d.issues.find(function(x){return x.id===issueId;}) : null;
-  var iss = existing || {};
+  var trimmed = (description || '').trim();
+  // Trouver l'issue existante pour ce test
+  var existing = d.issues.find(function(iss){
+    return iss.source==='operating' && iss.processId===wppId && iss.testId===testId;
+  });
+  if (!trimmed) {
+    // Description vide → supprimer l'issue si elle existe
+    if (existing) {
+      // Nettoyer les références dans les findings
+      (d.findings||[]).forEach(function(f){
+        if (Array.isArray(f.issueIds)) {
+          f.issueIds = f.issueIds.filter(function(id){return id!==existing.id;});
+        }
+      });
+      d.issues = d.issues.filter(function(x){return x.id!==existing.id;});
+      await saveAuditData(CA);
+      // Re-render pour mettre à jour les badges
+      document.getElementById('det-content').innerHTML = renderDetContent();
+    }
+    return;
+  }
+  // Description non-vide → créer ou mettre à jour
+  if (existing) {
+    existing.description = trimmed;
+    await saveAuditData(CA);
+  } else {
+    await _createIssue({
+      source: 'operating',
+      processId: wppId,
+      testId: testId,
+      title: '', // pas de titre, le code du test sert d'identifiant
+      description: trimmed,
+    });
+    // Re-render pour faire apparaître le badge ISSUE
+    document.getElementById('det-content').innerHTML = renderDetContent();
+  }
+}
 
+// Pré-remplit la zone Issue Description avec un résumé des résultats du test.
+// Conserve ce que l'auditeur a déjà tapé (en l'ajoutant à la suite ?) — non, on remplace,
+// puisque c'est un bouton volontaire (l'auditeur l'a cliqué intentionnellement).
+function prefillBuIssueDescription(wppId, testId) {
+  var d = getAudData(CA);
   var wp = (d.workProgramBU && Array.isArray(d.workProgramBU.processes))
     ? d.workProgramBU.processes : [];
   var wpp = wp.find(function(x){return x.id===wppId;});
-  var t = wpp ? (wpp.tests||[]).find(function(x){return x.id===testId;}) : null;
-  var p = wpp ? (PROCESSES||[]).find(function(x){return x.id===wpp.auditProcessId;}) : null;
-  var procName = p ? p.proc : '(Process)';
-  var testCode = t ? (t.code || '') : '';
+  if (!wpp) return;
+  var t = (wpp.tests||[]).find(function(x){return x.id===testId;});
+  if (!t) return;
 
-  // Suggestion de description si nouvelle issue et anomalies présentes
-  var suggestedDesc = '';
-  if (!existing && t && t.anomalies && Number(t.anomalies.count) > 0) {
-    var smp = t.sample || {};
-    var ano = t.anomalies || {};
-    suggestedDesc = 'Test sur '+ _fmtNum(smp.count)+' '+(t.selectionMethod==='Coverage'?'cas ciblés':'cas')
+  var smp = t.sample || {};
+  var ano = t.anomalies || {};
+
+  // Construire une description synthétique
+  var lines = [];
+  var hasAnomalies = (ano.count !== '' && Number(ano.count) > 0);
+
+  if (!hasAnomalies) {
+    if (smp.count) {
+      lines.push('Test sur '+_fmtNum(smp.count)+' '+(t.selectionMethod==='Coverage'?'cas ciblés':'cas')+' : aucune anomalie identifiée.');
+    } else {
+      lines.push('Test non finalisé — saisis la population, l\'échantillon et les anomalies pour pré-remplir.');
+    }
+  } else {
+    var line = 'Test sur '+_fmtNum(smp.count)+' '+(t.selectionMethod==='Coverage'?'cas ciblés':'cas')
       +' : '+_fmtNum(ano.count)+' anomalie'+(Number(ano.count)>1?'s':'');
-    if (ano.value) suggestedDesc += ' ('+_fmtEur(ano.value)+' d\'écarts)';
+    if (ano.value) line += ' ('+_fmtEur(ano.value)+' d\'écarts)';
+    line += '.';
+    lines.push(line);
     if (t.selectionMethod === 'Aléatoire' || t.selectionMethod === 'Mix') {
       var extrap = _computeExtrapolation(t);
       if (extrap.applicable && extrap.countExtrapolated > 0) {
-        suggestedDesc += ', extrapolé à '+_fmtNum(extrap.countExtrapolated)+' cas potentiellement impactés';
-        if (extrap.valueExtrapolated) suggestedDesc += ' (~'+_fmtEur(extrap.valueExtrapolated)+')';
+        var extrapLine = 'Extrapolation : '+_fmtNum(extrap.countExtrapolated)+' cas potentiellement impactés';
+        if (extrap.valueExtrapolated) extrapLine += ' (~'+_fmtEur(extrap.valueExtrapolated)+' d\'impact estimé)';
+        extrapLine += '.';
+        lines.push(extrapLine);
       }
     }
-    suggestedDesc += '.';
   }
 
-  var body = '';
-  body += '<div style="background:#EEEDFE;color:#3C3489;font-size:11px;padding:6px 10px;border-radius:4px;margin-bottom:10px">'
-    + 'Issue Operating · Process : <strong>'+procName.replace(/</g,'&lt;')+'</strong>'
-    + (testCode ? ' · Test : <strong>'+testCode+'</strong>' : '')
-    + '</div>';
-  body += '<div><label>Titre <span style="color:var(--red)">*</span></label>';
-  body += '<input id="oi-title" value="'+_escAttr(iss.title)+'" placeholder="ex : Non-respect de la politique de remises"/></div>';
-  body += '<div><label>Description</label>';
-  body += '<textarea id="oi-desc" style="width:100%;min-height:90px" placeholder="Détail des anomalies trouvées, extrapolation, contexte...">'+(''+(iss.description||suggestedDesc)).replace(/</g,'&lt;')+'</textarea></div>';
+  var newDesc = lines.join('\n');
 
-  openModal(existing ? 'Modifier l\'issue Operating' : 'Nouvelle issue Operating', body, async function(){
-    var title = document.getElementById('oi-title').value.trim();
-    if (!title) { toast('Titre obligatoire'); return; }
-    var description = document.getElementById('oi-desc').value.trim();
-    if (existing) {
-      existing.title = title;
-      existing.description = description;
-      await saveAuditData(CA);
-      addHist('edit', 'Issue Operating "'+title+'" modifiée');
-      toast('Issue modifiée ✓');
-    } else {
-      await _createIssue({
-        source: 'operating',
-        processId: wppId,
-        testId: testId,
-        title: title,
-        description: description,
-      });
-      addHist('add', 'Issue Operating "'+title+'" créée');
-      toast('Issue ajoutée ✓');
+  // Confirmation si le textarea contient déjà du texte
+  var ta = document.getElementById('iss-desc-'+t.id);
+  if (ta && ta.value.trim() && ta.value.trim() !== newDesc) {
+    if (!confirm('La description contient déjà du texte. Le remplacer par le pré-remplissage ?\n\n(Pour ajouter à la suite, copie-colle manuellement.)')) {
+      return;
     }
-    document.getElementById('det-content').innerHTML = renderDetContent();
-  });
+  }
+
+  // Mettre à jour le textarea + sauvegarder
+  if (ta) ta.value = newDesc;
+  setBuIssueDescription(wppId, testId, newDesc);
 }
 
 function renderFindingsSection() {
