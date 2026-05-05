@@ -4306,11 +4306,27 @@ function renderAuditHeaderCompact(a, step, pct) {
   }
 
   // Construction du stepper en 3 phases colorées
-  var phases = [
-    {idxs: [0,1,2],   name: 'Préparation', bg: '#EEEDFE', txt: '#3C3489'},
-    {idxs: [3,4,5],   name: 'Réalisation', bg: '#E1F5EE', txt: '#085041'},
-    {idxs: [6,7,8,9], name: 'Restitution', bg: '#FAEEDA', txt: '#854F0B'},
-  ];
+  // Pour les audits BU : on saute l'étape 4 (ITW : WCGW & Contrôles) qui n'a pas de sens
+  // pour des audits substantifs. Le numéro d'étape affiché est ajusté en conséquence.
+  var auditObj = AUDIT_PLAN.find(function(x){return x.id===CA;});
+  var isBu = auditObj && auditObj.type === 'BU';
+  var phases = isBu
+    ? [
+        {idxs: [0,1,2],   name: 'Préparation', bg: '#EEEDFE', txt: '#3C3489'},
+        {idxs: [3,5],     name: 'Réalisation', bg: '#E1F5EE', txt: '#085041'},
+        {idxs: [6,7,8,9], name: 'Restitution', bg: '#FAEEDA', txt: '#854F0B'},
+      ]
+    : [
+        {idxs: [0,1,2],   name: 'Préparation', bg: '#EEEDFE', txt: '#3C3489'},
+        {idxs: [3,4,5],   name: 'Réalisation', bg: '#E1F5EE', txt: '#085041'},
+        {idxs: [6,7,8,9], name: 'Restitution', bg: '#FAEEDA', txt: '#854F0B'},
+      ];
+
+  // Pour le numéro d'étape affiché : si BU, on numérote 1..9 en sautant l'étape 4
+  function _displayedStepNum(realIdx) {
+    if (!isBu) return realIdx + 1;
+    return realIdx >= 4 ? realIdx : realIdx + 1; // 0..3 → 1..4 ; 5..9 → 5..9
+  }
 
   var phaseHtml = phases.map(function(p){
     var stepDots = p.idxs.map(function(i, idx){
@@ -4321,7 +4337,7 @@ function renderAuditHeaderCompact(a, step, pct) {
         : isActive
         ? 'background:#fff;color:'+p.txt+';border:2px solid '+p.txt+';font-weight:500'
         : 'background:#fff;color:'+p.txt+';border:1px solid '+p.txt+';opacity:0.4';
-      var dotContent = isDone ? '✓' : (i+1);
+      var dotContent = isDone ? '✓' : _displayedStepNum(i);
       var separator = idx < p.idxs.length - 1
         ? '<div style="flex:1;height:2px;background:'+(i<CS?p.txt:p.txt+'40')+';min-width:6px"></div>'
         : '';
@@ -4349,9 +4365,10 @@ function renderAuditHeaderCompact(a, step, pct) {
   // Ligne 2 : stepper en 3 phases colorées
   html += '<div style="display:flex;align-items:stretch">'+phaseHtml+'</div>';
 
-  // Ligne 3 : nom de l'étape courante
+  // Ligne 3 : nom de l'étape courante (avec numérotation adaptée au type d'audit)
   html += '<div style="font-size:12px;color:var(--text-2);margin-top:8px;text-align:center">';
-  html += 'Étape '+(CS+1)+'/10 — <strong>'+step.s+'</strong>';
+  var totalSteps = isBu ? 9 : 10;
+  html += 'Étape '+_displayedStepNum(CS)+'/'+totalSteps+' — <strong>'+step.s+'</strong>';
   html += '</div>';
 
   html += '</div>';
@@ -6538,11 +6555,20 @@ function downloadDoc(docId) {
 
 function goStep(i){
   CS=i;
-  const pct=Math.min(100,(i+1)*10);
+  var auditObj = AUDIT_PLAN.find(function(x){return x.id===CA;});
+  var isBu = auditObj && auditObj.type === 'BU';
+  // Pour les audits BU : on saute l'étape 4 (skip silencieux si on tombe dessus)
+  if (isBu && i === 4) {
+    CS = 5;
+    i = 5;
+  }
+  var totalSteps = isBu ? 9 : 10;
+  var displayedNum = isBu ? (i >= 4 ? i : i + 1) : (i + 1);
+  const pct=Math.min(100, Math.round((displayedNum/totalSteps)*100));
   document.getElementById('audit-header-compact').innerHTML=renderStepper();
   var pf=document.getElementById('gp-fill'); if(pf)pf.style.width=pct+'%';
   var pp=document.getElementById('gp-pct'); if(pp)pp.textContent=pct+'%';
-  var pl=document.getElementById('gp-lbl'); if(pl)pl.textContent=`Étape ${i+1}/11 — ${STEPS[i].s}`;
+  var pl=document.getElementById('gp-lbl'); if(pl)pl.textContent=`Étape ${displayedNum}/${totalSteps} — ${STEPS[i].s}`;
   document.getElementById('det-content').innerHTML=renderDetContent();
 }
 function switchDetTab(tab){
@@ -6683,7 +6709,31 @@ async function autoUnfinalizeIfNeeded() {
   }
 }
 
-async function validerEtape(){var ap=AUDIT_PLAN.find(function(a){return a.id===CA;});var d=getAudData(CA);var missing=getMissingDocs(CS,d.docs);if(missing.length){var msg='Document(s) requis :\n';missing.forEach(function(m){msg+='  • '+m+'\n';});alert(msg);return;}if(CS<9){CS++;if(ap){ap.statut='En cours';ap.step=CS;}await saveAuditPlan(ap);addHist('edit','Etape '+CS+' validée — '+(ap?ap.titre:''));goStep(CS);toast('"'+STEPS[CS].s+'" validée ✓');}else{if(ap){ap.statut='Clôturé';ap.step=9;await saveAuditPlan(ap);}toast('Mission clôturée ✓');}}
+async function validerEtape(){
+  var ap=AUDIT_PLAN.find(function(a){return a.id===CA;});
+  var d=getAudData(CA);
+  var missing=getMissingDocs(CS,d.docs);
+  if(missing.length){
+    var msg='Document(s) requis :\n';
+    missing.forEach(function(m){msg+='  • '+m+'\n';});
+    alert(msg);
+    return;
+  }
+  if(CS<9){
+    var nextStep = CS + 1;
+    // Pour les audits BU : on saute l'étape 4 (ITW : WCGW & Contrôles)
+    if (ap && ap.type === 'BU' && nextStep === 4) nextStep = 5;
+    CS = nextStep;
+    if(ap){ap.statut='En cours';ap.step=CS;}
+    await saveAuditPlan(ap);
+    addHist('edit','Etape '+CS+' validée — '+(ap?ap.titre:''));
+    goStep(CS);
+    toast('"'+STEPS[CS].s+'" validée ✓');
+  } else {
+    if(ap){ap.statut='Clôturé';ap.step=9;await saveAuditPlan(ap);}
+    toast('Mission clôturée ✓');
+  }
+}
 function renderTaskList(st,a){if(!st.length)return'<div style="font-size:12px;color:var(--text-3);padding:.5rem">Aucune tâche.</div>';return st.map((t,i)=>`<div class="ti"><div class="tcb ${t.done?'done':''}" onclick="toggleTask(${i})">${t.done?'✓':''}</div><div class="tt ${t.done?'dt':''}">${t.desc}</div><select style="font-size:11px;padding:2px 6px;border-radius:20px;background:var(--bg)" onchange="reassignTask(${i},this.value)"><option value="none" ${!t.assignee||t.assignee==='none'?'selected':''}>—</option>${buildAssigneeOpts(a.assignedTo,t.assignee)}</select><span style="font-size:10px;color:${t.done?'var(--green)':t.assignee&&t.assignee!=='none'?'var(--purple)':'var(--text-3)'}">${t.done?'✓':t.assignee&&t.assignee!=='none'?'En cours':'À faire'}</span></div>`).join('');}
 async function toggleTask(i){const d=getAudData(CA);if(!d.tasks[CS])d.tasks[CS]=[];d.tasks[CS][i].done=!d.tasks[CS][i].done;await saveAuditData(CA);const a=getAudits().find(x=>x.id===CA);document.getElementById('task-list').innerHTML=renderTaskList(d.tasks[CS],a);document.getElementById('audit-header-compact').innerHTML=renderStepper();}
 async function reassignTask(i,val){const d=getAudData(CA);if(d.tasks[CS]&&d.tasks[CS][i])d.tasks[CS][i].assignee=val;await saveAuditData(CA);document.getElementById('audit-header-compact').innerHTML=renderStepper();if(val!=='none')toast(`Assigné à ${TM[val]?.name}`);}
