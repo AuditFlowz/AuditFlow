@@ -4386,8 +4386,14 @@ function renderDetContent(){
 
   // ── 3. SECTIONS SPÉCIFIQUES MÉTIER selon l'étape ─────────
   if (CS === 1) {
-    // Étape 2 (index 1) : Work Program — préparation du Kick Off
-    html += renderKickoffPrepSection();
+    // Étape 2 (index 1) : Work Program
+    // Pour les audits BU : sélection des Process + tests substantifs depuis le référentiel
+    // Pour les audits Process : préparation classique (sous-process + risques + ITW)
+    if (a.type === 'BU') {
+      html += renderWorkProgramBuSection();
+    } else {
+      html += renderKickoffPrepSection();
+    }
   } else if (CS === 2) {
     // Étape 3 (index 2) : Audit Kick Off — bouton de génération mis en avant
     html += renderKickoffGenerateBanner();
@@ -4943,6 +4949,570 @@ async function toggleSubProcessRiskLink(riskId, subProcessName) {
   }
   await saveAuditData(CA);
   document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+// ════════════════════════════════════════════════════════════════════
+//  WORK PROGRAM BU — Phase BU.3
+//
+//  Pour les audits de type BU, l'étape 2 (Work Program) permet :
+//  - de sélectionner les Process à couvrir depuis le référentiel BU
+//  - les tests sont copiés du référentiel (snapshot, modifiables localement)
+//  - d'ajouter des Process Owners (multi)
+//  - d'éditer les tests, ajouter des tests ad hoc, supprimer
+//  - d'éditer les PBC et leur statut (à demander/demandé/reçu/N/A)
+//
+//  Modèle de données stocké dans audit.workProgramBU :
+//  {
+//    processes: [{
+//      id, auditProcessId,
+//      owners: [{id, name, email}],
+//      tests: [{
+//        id, source: 'ref'|'adhoc', refTestId, modifiedFromRef,
+//        code, statement, objective, testType, samplingHint,
+//        pbc: [{id, name, status}]
+//      }]
+//    }]
+//  }
+// ════════════════════════════════════════════════════════════════════
+
+var PBC_STATUSES = ['à demander', 'demandé', 'reçu', 'N/A'];
+
+function _wpBu(d) {
+  // Helper : renvoie l'objet workProgramBU initialisé
+  if (!d.workProgramBU) d.workProgramBU = { processes: [] };
+  if (!Array.isArray(d.workProgramBU.processes)) d.workProgramBU.processes = [];
+  return d.workProgramBU;
+}
+
+function renderWorkProgramBuSection() {
+  var a = AUDIT_PLAN.find(function(x){return x.id===CA;});
+  var d = getAudData(CA);
+  var wp = _wpBu(d);
+  var isAdmin = CU && CU.role==='admin';
+  var isPreparer = (a.assignedTo||a.auditeurs||[]).indexOf(CU&&CU.id)>=0 || isAdmin;
+
+  var html = '';
+  html += '<div class="cd" style="margin-bottom:1rem">';
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">';
+  html += '<span style="font-size:13px;font-weight:500">Process couverts <span style="color:var(--text-3);font-weight:400">('+wp.processes.length+(wp.processes.length>1?' process':' process')+')</span></span>';
+  if (isPreparer) {
+    html += '<button class="bp" style="font-size:11px;padding:4px 10px" onclick="showSelectBuProcessesModal()">+ Sélectionner des process</button>';
+  }
+  html += '</div>';
+  html += '<div style="font-size:11px;color:var(--text-3);font-style:italic;margin-bottom:14px">Choisis les Process à auditer dans cette mission depuis le BU Work Program. Les tests sont copiés depuis le référentiel et restent modifiables localement sans impacter le référentiel.</div>';
+
+  if (!wp.processes.length) {
+    html += '<div style="font-size:12px;color:var(--text-3);font-style:italic;padding:1.5rem;text-align:center;border:1px dashed var(--border);border-radius:6px">';
+    html += 'Aucun Process couvert pour cet audit. ';
+    if (isPreparer) html += 'Cliquez sur « + Sélectionner des process » ci-dessus pour démarrer.';
+    html += '</div>';
+  } else {
+    wp.processes.forEach(function(wpp){
+      html += renderWpBuProcessCard(wpp, isPreparer);
+    });
+  }
+
+  html += '</div>';
+  return html;
+}
+
+function renderWpBuProcessCard(wpp, isPreparer) {
+  // Récupérer les infos du Process depuis Audit Universe (lien vivant pour le nom)
+  var p = (PROCESSES||[]).find(function(x){return x.id===wpp.auditProcessId;});
+  var procName = p ? p.proc : '(Process introuvable)';
+  var hierarchy = p ? ((p.univers||'') + (p.univers&&p.dom?' > ':'') + (p.dom||'')) : '';
+  var testCount = (wpp.tests||[]).length;
+  var adhocCount = (wpp.tests||[]).filter(function(t){return t.source==='adhoc';}).length;
+  var owners = wpp.owners || [];
+
+  var h = '';
+  h += '<div style="border:.5px solid var(--border);border-radius:6px;margin-bottom:8px;background:#fff">';
+  // Header de la carte Process
+  h += '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:.5px solid #f0f0f0;background:#fafafa">';
+  h += '<div style="flex:1;min-width:0">';
+  h += '<div style="font-size:13px;font-weight:500">'+(''+procName).replace(/</g,'&lt;')+'</div>';
+  if (hierarchy) h += '<div style="font-size:10px;color:var(--text-3);margin-top:1px">'+(''+hierarchy).replace(/</g,'&lt;')+'</div>';
+  h += '<div style="font-size:11px;color:var(--purple);margin-top:3px">'
+    + testCount+(testCount>1?' tests':' test')
+    + (adhocCount?' · '+adhocCount+' ad hoc':'')
+    + ' · '+(owners.length?owners.length+(owners.length>1?' owners':' owner'):'aucun owner')
+    + '</div>';
+  h += '</div>';
+  if (isPreparer) {
+    h += '<div style="display:flex;gap:5px;flex-shrink:0">';
+    h += '<button class="bs" style="font-size:10px;padding:3px 8px" onclick="showWpBuOwnersModal(\''+_escJsArg(wpp.id)+'\')">Owners</button>';
+    h += '<button class="bd" style="font-size:10px;padding:3px 8px" onclick="removeWpBuProcess(\''+_escJsArg(wpp.id)+'\')" title="Retirer ce process de l\'audit">Retirer</button>';
+    h += '</div>';
+  }
+  h += '</div>';
+
+  // Liste des tests
+  h += '<div style="padding:8px 14px">';
+  if (!testCount) {
+    h += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:8px 0;text-align:center">Aucun test pour ce process. ';
+    if (isPreparer) h += 'Cliquez sur « + Ajouter un test ad hoc » pour en créer un.';
+    h += '</div>';
+  } else {
+    (wpp.tests||[]).forEach(function(t, ti){
+      h += renderWpBuTestRow(wpp.id, t, ti, isPreparer);
+    });
+  }
+  if (isPreparer) {
+    h += '<div style="text-align:center;padding:6px 0 2px">';
+    h += '<button class="bs" style="font-size:11px;padding:4px 10px" onclick="addWpBuAdHocTest(\''+_escJsArg(wpp.id)+'\')">+ Ajouter un test ad hoc</button>';
+    h += '</div>';
+  }
+  h += '</div>';
+
+  h += '</div>';
+  return h;
+}
+
+function renderWpBuTestRow(wppId, t, idx, isPreparer) {
+  var typeColor = t.testType==='Test of Effectiveness' ? '#0C447C' :
+                  t.testType==='Substantive' ? '#854F0B' : '#085041';
+  var typeBg = t.testType==='Test of Effectiveness' ? '#E6F1FB' :
+               t.testType==='Substantive' ? '#FAEEDA' : '#E1F5EE';
+  if (!Array.isArray(t.pbc)) t.pbc = [];
+  var sourceBadge = '';
+  if (t.source === 'adhoc') {
+    sourceBadge = '<span style="background:#FBEAF0;color:#993556;font-size:9px;padding:2px 6px;border-radius:3px">ad hoc</span>';
+  } else if (t.modifiedFromRef) {
+    sourceBadge = '<span style="background:#FAEEDA;color:#854F0B;font-size:9px;padding:2px 6px;border-radius:3px" title="Modifié depuis le référentiel">modifié</span>';
+  } else {
+    sourceBadge = '<span style="background:#E1F5EE;color:#085041;font-size:9px;padding:2px 6px;border-radius:3px">référentiel</span>';
+  }
+
+  var h = '';
+  h += '<div style="border:.5px solid var(--border);border-radius:5px;padding:9px 11px;margin-bottom:6px;background:#fff;position:relative">';
+  if (isPreparer) {
+    h += '<button onclick="removeWpBuTest(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\')" title="Supprimer ce test" style="position:absolute;top:7px;right:7px;background:#fff;border:.5px solid var(--border);color:var(--text-3);border-radius:4px;width:22px;height:22px;cursor:pointer;font-size:13px;padding:0;line-height:1">×</button>';
+  }
+  // Code + Type + Source
+  h += '<div style="display:flex;gap:5px;align-items:center;margin-bottom:6px;padding-right:30px">';
+  h += '<span style="background:var(--purple);color:#fff;font-size:9px;padding:2px 6px;border-radius:3px;font-family:monospace;letter-spacing:.4px">'+(t.code||'').replace(/</g,'&lt;')+'</span>';
+  h += '<span style="background:'+typeBg+';color:'+typeColor+';font-size:9px;padding:2px 6px;border-radius:3px">'+(t.testType||'').replace(/</g,'&lt;')+'</span>';
+  h += sourceBadge;
+  h += '</div>';
+  // Énoncé
+  h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Énoncé du test</label>';
+  if (isPreparer) {
+    h += '<textarea onchange="setWpBuTestField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'statement\',this.value)" style="width:100%;min-height:38px;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;resize:vertical;font-family:inherit;box-sizing:border-box;margin-bottom:5px">'+(''+(t.statement||'')).replace(/</g,'&lt;')+'</textarea>';
+  } else {
+    h += '<div style="font-size:11px;padding:5px 8px;background:#fafafa;border-radius:3px;margin-bottom:5px">'+(''+(t.statement||'—')).replace(/</g,'&lt;')+'</div>';
+  }
+  // Objectif + Type
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:5px">';
+  h += '<div>';
+  h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Objectif</label>';
+  if (isPreparer) {
+    h += '<input value="'+_escAttr(t.objective)+'" onchange="setWpBuTestField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'objective\',this.value)" style="width:100%;font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box"/>';
+  } else {
+    h += '<div style="font-size:11px;padding:4px 7px">'+(''+(t.objective||'—')).replace(/</g,'&lt;')+'</div>';
+  }
+  h += '</div>';
+  h += '<div>';
+  h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Type de test</label>';
+  if (isPreparer) {
+    h += '<select onchange="setWpBuTestField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'testType\',this.value)" style="width:100%;font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:3px;background:#fff">';
+    TEST_TYPES.forEach(function(tt){
+      h += '<option'+(t.testType===tt?' selected':'')+'>'+tt+'</option>';
+    });
+    h += '</select>';
+  } else {
+    h += '<div style="font-size:11px;padding:4px 7px">'+(''+(t.testType||'—')).replace(/</g,'&lt;')+'</div>';
+  }
+  h += '</div>';
+  h += '</div>';
+  // Sampling
+  h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Méthode / sample (combien et comment)</label>';
+  if (isPreparer) {
+    h += '<input value="'+_escAttr(t.samplingHint)+'" placeholder="ex : 25 transactions sur les 12 derniers mois" onchange="setWpBuTestField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'samplingHint\',this.value)" style="width:100%;font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box;margin-bottom:7px"/>';
+  } else {
+    h += '<div style="font-size:11px;padding:4px 7px;margin-bottom:7px">'+(''+(t.samplingHint||'—')).replace(/</g,'&lt;')+'</div>';
+  }
+  // PBC avec statut
+  h += '<div style="border-top:.5px dashed var(--border);padding-top:7px;margin-top:3px">';
+  h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">';
+  h += '<span style="font-size:10px;font-weight:600;color:var(--text-2)">PBC · '+t.pbc.length+' document'+(t.pbc.length>1?'s':'')+'</span>';
+  if (isPreparer) {
+    h += '<button class="bs" style="font-size:10px;padding:2px 7px" onclick="addWpBuPbc(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\')">+ Document</button>';
+  }
+  h += '</div>';
+  if (!t.pbc.length) {
+    h += '<div style="font-size:10px;color:var(--text-3);font-style:italic;padding:4px 0">Aucun document.</div>';
+  } else {
+    t.pbc.forEach(function(doc){
+      var statusColor = doc.status==='reçu' ? '#085041' :
+                        doc.status==='demandé' ? '#0C447C' :
+                        doc.status==='N/A' ? '#888780' : '#854F0B';
+      var statusBg = doc.status==='reçu' ? '#E1F5EE' :
+                     doc.status==='demandé' ? '#E6F1FB' :
+                     doc.status==='N/A' ? '#F1EFE8' : '#FAEEDA';
+      h += '<div style="display:flex;align-items:center;gap:5px;padding:3px 0">';
+      h += '<span style="font-size:11px;color:var(--text-3)">📄</span>';
+      if (isPreparer) {
+        h += '<input value="'+_escAttr(doc.name)+'" placeholder="ex : Journal des ventes" onchange="setWpBuPbcDoc(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\''+_escJsArg(doc.id)+'\',\'name\',this.value)" style="flex:1;font-size:11px;padding:3px 7px;border:1px solid var(--border);border-radius:3px"/>';
+        h += '<select onchange="setWpBuPbcDoc(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\''+_escJsArg(doc.id)+'\',\'status\',this.value)" style="font-size:10px;padding:3px 6px;border:1px solid var(--border);border-radius:3px;background:'+statusBg+';color:'+statusColor+';font-weight:500">';
+        PBC_STATUSES.forEach(function(s){
+          h += '<option'+(doc.status===s?' selected':'')+'>'+s+'</option>';
+        });
+        h += '</select>';
+        h += '<button onclick="removeWpBuPbc(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\''+_escJsArg(doc.id)+'\')" title="Supprimer" style="background:#fff;border:.5px solid var(--border);color:var(--text-3);border-radius:3px;width:20px;height:20px;cursor:pointer;font-size:12px;padding:0;line-height:1">×</button>';
+      } else {
+        h += '<span style="font-size:11px;flex:1">'+(''+(doc.name||'')).replace(/</g,'&lt;')+'</span>';
+        h += '<span style="font-size:10px;padding:2px 7px;border-radius:3px;background:'+statusBg+';color:'+statusColor+';font-weight:500">'+(doc.status||'à demander')+'</span>';
+      }
+      h += '</div>';
+    });
+  }
+  h += '</div>';
+  h += '</div>';
+  return h;
+}
+
+// ────────────────────────────────────────────────────────────────────
+//  MODALE — Sélection des Process à couvrir
+// ────────────────────────────────────────────────────────────────────
+
+function showSelectBuProcessesModal() {
+  var d = getAudData(CA);
+  var wp = _wpBu(d);
+  var alreadySelected = {};
+  wp.processes.forEach(function(wpp){alreadySelected[wpp.auditProcessId]=true;});
+
+  // Construire la hiérarchie Univers > Domaine > Process
+  var procs = (PROCESSES||[]).filter(function(p){return !p.archived;});
+  var hierarchy = {};
+  procs.forEach(function(p){
+    var u = p.univers || '(Sans univers)';
+    var dom = p.dom || '(Sans domaine)';
+    if (!hierarchy[u]) hierarchy[u] = {};
+    if (!hierarchy[u][dom]) hierarchy[u][dom] = [];
+    hierarchy[u][dom].push(p);
+  });
+  var UNIVERS_ORDER = ['GOVERNANCE', 'EDITION (Factory)', 'DISTRIBUTION', 'SUPPORT FUNCTIONS'];
+  var universList = Object.keys(hierarchy).sort(function(a,b){
+    var ia=UNIVERS_ORDER.indexOf(a), ib=UNIVERS_ORDER.indexOf(b);
+    if (ia<0) ia=999; if (ib<0) ib=999;
+    if (ia!==ib) return ia-ib;
+    return a.localeCompare(b, 'fr', {sensitivity:'base'});
+  });
+
+  var body = '<div id="sel-bu-procs-body">';
+  if (!procs.length) {
+    body += '<div style="font-size:12px;color:var(--text-3);text-align:center;padding:1rem">Aucun processus dans l\'Audit Universe.</div>';
+  } else {
+    universList.forEach(function(univ){
+      body += '<div style="background:#3C3489;color:#fff;font-weight:700;padding:6px 10px;font-size:10px;letter-spacing:.5px;text-transform:uppercase;margin-bottom:4px">'+(''+univ).replace(/</g,'&lt;')+'</div>';
+      var domains = Object.keys(hierarchy[univ]).sort(function(a,b){return a.localeCompare(b,'fr',{sensitivity:'base'});});
+      domains.forEach(function(dom){
+        var rows = hierarchy[univ][dom].slice().sort(function(a,b){return (a.proc||'').localeCompare(b.proc||'','fr',{sensitivity:'base'});});
+        body += '<div style="background:#EEEDFE;color:#3C3489;font-weight:600;padding:5px 10px 5px 16px;font-size:10px;margin-bottom:4px">'+(''+dom).replace(/</g,'&lt;')+'</div>';
+        rows.forEach(function(p){
+          var entry = (BU_PROCESSES||[]).find(function(b){return b.auditProcessId===p.id;});
+          var refTestCount = (entry && entry.tests) ? entry.tests.length : 0;
+          var isAlready = !!alreadySelected[p.id];
+          body += '<label style="display:flex;align-items:center;gap:8px;padding:7px 16px;cursor:pointer;border-bottom:.5px solid #f0f0f0">';
+          body += '<input type="checkbox" class="sel-bu-proc-cb" value="'+_escAttr(p.id)+'"'+(isAlready?' checked':'')+' style="width:14px;height:14px;flex-shrink:0"/>';
+          body += '<div style="flex:1;min-width:0">';
+          body += '<div style="font-size:12px;font-weight:500">'+(''+p.proc).replace(/</g,'&lt;')+'</div>';
+          if (refTestCount>0) {
+            body += '<div style="font-size:10px;color:var(--purple)">'+refTestCount+' test'+(refTestCount>1?'s':'')+' dans le référentiel</div>';
+          } else {
+            body += '<div style="font-size:10px;color:var(--text-3);font-style:italic">aucun test dans le référentiel — vous devrez ajouter des tests ad hoc</div>';
+          }
+          body += '</div>';
+          if (isAlready) body += '<span style="background:#E1F5EE;color:#085041;font-size:9px;padding:2px 6px;border-radius:3px">déjà sélectionné</span>';
+          body += '</label>';
+        });
+      });
+    });
+  }
+  body += '</div>';
+
+  openModal('Sélectionner les Process à couvrir', body, async function(){
+    var checked = document.querySelectorAll('.sel-bu-proc-cb:checked');
+    var newIds = [];
+    checked.forEach(function(cb){newIds.push(cb.value);});
+    var d2 = getAudData(CA);
+    var wp2 = _wpBu(d2);
+    var existingIds = wp2.processes.map(function(wpp){return wpp.auditProcessId;});
+
+    // Process à ajouter
+    var toAdd = newIds.filter(function(id){return existingIds.indexOf(id)<0;});
+    // Process à retirer (décochés)
+    var toRemove = existingIds.filter(function(id){return newIds.indexOf(id)<0;});
+
+    // Confirmation si on retire des Process qui ont des tests ad hoc ou des owners
+    var hasAdhocOrOwners = toRemove.some(function(id){
+      var wpp = wp2.processes.find(function(x){return x.auditProcessId===id;});
+      if (!wpp) return false;
+      var hasAdhoc = (wpp.tests||[]).some(function(t){return t.source==='adhoc';});
+      var hasOwners = (wpp.owners||[]).length>0;
+      return hasAdhoc || hasOwners;
+    });
+    if (hasAdhocOrOwners) {
+      if (!confirm('Certains Process décochés ont des tests ad hoc ou des owners renseignés. Confirmer le retrait ? Les données ad hoc seront perdues.')) {
+        return; // ne pas fermer la modale
+      }
+    }
+
+    // Retirer
+    wp2.processes = wp2.processes.filter(function(wpp){return toRemove.indexOf(wpp.auditProcessId)<0;});
+
+    // Ajouter (en copiant les tests du référentiel)
+    toAdd.forEach(function(procId){
+      var entry = (BU_PROCESSES||[]).find(function(b){return b.auditProcessId===procId;});
+      var refTests = (entry && entry.tests) ? entry.tests : [];
+      var copiedTests = refTests.map(function(rt){
+        return {
+          id: 'wpt_'+Date.now()+'_'+Math.floor(Math.random()*100000),
+          source: 'ref',
+          refTestId: rt.id,
+          modifiedFromRef: false,
+          code: rt.code,
+          statement: rt.statement,
+          objective: rt.objective || '',
+          testType: rt.testType || 'Substantive',
+          samplingHint: rt.samplingHint || '',
+          pbc: (rt.pbc||[]).map(function(pbc){
+            return {
+              id: 'wppbc_'+Date.now()+'_'+Math.floor(Math.random()*100000),
+              name: pbc.name,
+              status: 'à demander',
+            };
+          }),
+        };
+      });
+      wp2.processes.push({
+        id: 'wpp_'+Date.now()+'_'+Math.floor(Math.random()*100000),
+        auditProcessId: procId,
+        owners: [],
+        tests: copiedTests,
+      });
+    });
+
+    await saveAuditData(CA);
+    document.getElementById('det-content').innerHTML = renderDetContent();
+    toast('Process couverts mis à jour ✓');
+  }, { wide: true });
+}
+
+// ────────────────────────────────────────────────────────────────────
+//  Setters & actions sur les Process couverts (Work Program BU)
+// ────────────────────────────────────────────────────────────────────
+
+async function removeWpBuProcess(wppId) {
+  var d = getAudData(CA);
+  var wp = _wpBu(d);
+  var wpp = wp.processes.find(function(x){return x.id===wppId;});
+  if (!wpp) return;
+  var hasAdhoc = (wpp.tests||[]).some(function(t){return t.source==='adhoc';});
+  var hasOwners = (wpp.owners||[]).length>0;
+  var msg = 'Retirer ce Process de l\'audit ?';
+  if (hasAdhoc || hasOwners) msg += '\n\nLes tests ad hoc et les owners seront perdus.';
+  if (!confirm(msg)) return;
+  wp.processes = wp.processes.filter(function(x){return x.id!==wppId;});
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+  toast('Process retiré');
+}
+
+// Setter d'un champ d'un test
+async function setWpBuTestField(wppId, testId, field, val) {
+  var d = getAudData(CA);
+  var wp = _wpBu(d);
+  var wpp = wp.processes.find(function(x){return x.id===wppId;});
+  if (!wpp) return;
+  var t = (wpp.tests||[]).find(function(x){return x.id===testId;});
+  if (!t) return;
+  // Détecter si on modifie un test issu du référentiel
+  if (t.source==='ref' && field==='statement' && val !== t.statement) {
+    t.modifiedFromRef = true;
+  }
+  t[field] = val;
+  await saveAuditData(CA);
+  // Re-render seulement si on change le testType (pour rafraîchir le badge couleur)
+  // ou si on vient de marquer comme "modifiedFromRef"
+  if (field==='testType' || (field==='statement' && t.source==='ref')) {
+    document.getElementById('det-content').innerHTML = renderDetContent();
+  }
+}
+
+// Ajouter un test ad hoc
+async function addWpBuAdHocTest(wppId) {
+  var d = getAudData(CA);
+  var wp = _wpBu(d);
+  var wpp = wp.processes.find(function(x){return x.id===wppId;});
+  if (!wpp) return;
+  if (!Array.isArray(wpp.tests)) wpp.tests = [];
+  var p = (PROCESSES||[]).find(function(x){return x.id===wpp.auditProcessId;});
+  var slug = ((p&&p.proc)||'SUB').replace(/[^A-Za-z]/g,'').slice(0,3).toUpperCase()||'SUB';
+  // Trouver le prochain numéro libre dans ce process
+  var existingCodes = (wpp.tests||[]).map(function(t){return t.code||'';});
+  var n = 1;
+  while (existingCodes.indexOf('T-'+slug+'-'+(n<10?'0':'')+n)>=0) n++;
+  wpp.tests.push({
+    id: 'wpt_'+Date.now()+'_'+Math.floor(Math.random()*100000),
+    source: 'adhoc',
+    refTestId: '',
+    modifiedFromRef: false,
+    code: 'T-'+slug+'-'+(n<10?'0':'')+n,
+    statement: '',
+    objective: '',
+    testType: 'Substantive',
+    samplingHint: '',
+    pbc: [],
+  });
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+// Supprimer un test
+async function removeWpBuTest(wppId, testId) {
+  if (!confirm('Supprimer ce test ?')) return;
+  var d = getAudData(CA);
+  var wp = _wpBu(d);
+  var wpp = wp.processes.find(function(x){return x.id===wppId;});
+  if (!wpp) return;
+  wpp.tests = (wpp.tests||[]).filter(function(x){return x.id!==testId;});
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+// Ajouter un PBC
+async function addWpBuPbc(wppId, testId) {
+  var d = getAudData(CA);
+  var wp = _wpBu(d);
+  var wpp = wp.processes.find(function(x){return x.id===wppId;});
+  if (!wpp) return;
+  var t = (wpp.tests||[]).find(function(x){return x.id===testId;});
+  if (!t) return;
+  if (!Array.isArray(t.pbc)) t.pbc = [];
+  t.pbc.push({
+    id: 'wppbc_'+Date.now()+'_'+Math.floor(Math.random()*100000),
+    name: '',
+    status: 'à demander',
+  });
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+async function setWpBuPbcDoc(wppId, testId, pbcId, field, val) {
+  var d = getAudData(CA);
+  var wp = _wpBu(d);
+  var wpp = wp.processes.find(function(x){return x.id===wppId;});
+  if (!wpp) return;
+  var t = (wpp.tests||[]).find(function(x){return x.id===testId;});
+  if (!t) return;
+  var doc = (t.pbc||[]).find(function(x){return x.id===pbcId;});
+  if (!doc) return;
+  doc[field] = val;
+  await saveAuditData(CA);
+  // Re-render uniquement si on change le statut (pour rafraîchir la couleur)
+  if (field==='status') {
+    document.getElementById('det-content').innerHTML = renderDetContent();
+  }
+}
+
+async function removeWpBuPbc(wppId, testId, pbcId) {
+  var d = getAudData(CA);
+  var wp = _wpBu(d);
+  var wpp = wp.processes.find(function(x){return x.id===wppId;});
+  if (!wpp) return;
+  var t = (wpp.tests||[]).find(function(x){return x.id===testId;});
+  if (!t) return;
+  t.pbc = (t.pbc||[]).filter(function(x){return x.id!==pbcId;});
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+// ────────────────────────────────────────────────────────────────────
+//  MODALE — Process Owners
+// ────────────────────────────────────────────────────────────────────
+
+function showWpBuOwnersModal(wppId) {
+  var d = getAudData(CA);
+  var wp = _wpBu(d);
+  var wpp = wp.processes.find(function(x){return x.id===wppId;});
+  if (!wpp) return;
+  var p = (PROCESSES||[]).find(function(x){return x.id===wpp.auditProcessId;});
+  var procName = p ? p.proc : 'Process';
+  if (!Array.isArray(wpp.owners)) wpp.owners = [];
+
+  var body = '<div id="bu-owners-body">' + renderWpBuOwnersBody(wpp) + '</div>';
+  openModal('Process Owners — '+procName.replace(/</g,'&lt;'),
+    body,
+    null,
+    { hideOk: true, cancelLabel: 'Fermer' }
+  );
+}
+
+function renderWpBuOwnersBody(wpp) {
+  var h = '';
+  h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">';
+  h += '<span style="font-size:12px;font-weight:500">'+(wpp.owners||[]).length+' owner'+((wpp.owners||[]).length>1?'s':'')+'</span>';
+  h += '<button class="bp" style="font-size:11px;padding:4px 10px" onclick="addWpBuOwner(\''+_escJsArg(wpp.id)+'\')">+ Ajouter un owner</button>';
+  h += '</div>';
+  if (!(wpp.owners||[]).length) {
+    h += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:1rem;text-align:center;border:1px dashed var(--border);border-radius:4px">Aucun owner. Cliquez sur « + Ajouter un owner ».</div>';
+  } else {
+    wpp.owners.forEach(function(o){
+      h += '<div style="border:.5px solid var(--border);border-radius:5px;padding:8px 10px;margin-bottom:5px;background:#fafafa;display:grid;grid-template-columns:1fr 1.4fr 30px;gap:6px;align-items:center">';
+      h += '<input value="'+_escAttr(o.name)+'" placeholder="Nom" onchange="setWpBuOwner(\''+_escJsArg(wpp.id)+'\',\''+_escJsArg(o.id)+'\',\'name\',this.value)" style="font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px"/>';
+      h += '<input value="'+_escAttr(o.email)+'" type="email" placeholder="email facultatif" onchange="setWpBuOwner(\''+_escJsArg(wpp.id)+'\',\''+_escJsArg(o.id)+'\',\'email\',this.value)" style="font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px"/>';
+      h += '<button onclick="removeWpBuOwner(\''+_escJsArg(wpp.id)+'\',\''+_escJsArg(o.id)+'\')" title="Supprimer" style="background:#fff;border:.5px solid var(--border);color:var(--text-3);border-radius:3px;width:24px;height:24px;cursor:pointer;font-size:13px;padding:0;line-height:1">×</button>';
+      h += '</div>';
+    });
+  }
+  return h;
+}
+
+async function addWpBuOwner(wppId) {
+  var d = getAudData(CA);
+  var wp = _wpBu(d);
+  var wpp = wp.processes.find(function(x){return x.id===wppId;});
+  if (!wpp) return;
+  if (!Array.isArray(wpp.owners)) wpp.owners = [];
+  wpp.owners.push({
+    id: 'wpown_'+Date.now()+'_'+Math.floor(Math.random()*100000),
+    name: '',
+    email: '',
+  });
+  await saveAuditData(CA);
+  var body = document.getElementById('bu-owners-body');
+  if (body) body.innerHTML = renderWpBuOwnersBody(wpp);
+  // Refresh aussi la vue principale (compteur d'owners)
+  if (document.getElementById('det-content')) {
+    document.getElementById('det-content').innerHTML = renderDetContent();
+    // Réafficher la modale après le re-render
+  }
+}
+
+async function setWpBuOwner(wppId, ownerId, field, val) {
+  var d = getAudData(CA);
+  var wp = _wpBu(d);
+  var wpp = wp.processes.find(function(x){return x.id===wppId;});
+  if (!wpp) return;
+  var o = (wpp.owners||[]).find(function(x){return x.id===ownerId;});
+  if (!o) return;
+  o[field] = val;
+  await saveAuditData(CA);
+}
+
+async function removeWpBuOwner(wppId, ownerId) {
+  var d = getAudData(CA);
+  var wp = _wpBu(d);
+  var wpp = wp.processes.find(function(x){return x.id===wppId;});
+  if (!wpp) return;
+  wpp.owners = (wpp.owners||[]).filter(function(x){return x.id!==ownerId;});
+  await saveAuditData(CA);
+  var body = document.getElementById('bu-owners-body');
+  if (body) body.innerHTML = renderWpBuOwnersBody(wpp);
+  if (document.getElementById('det-content')) {
+    document.getElementById('det-content').innerHTML = renderDetContent();
+  }
 }
 
 // Setters Kickoff Prep (planning + interviews — inchangés)
