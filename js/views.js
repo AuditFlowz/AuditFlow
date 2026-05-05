@@ -4990,21 +4990,28 @@ function renderWorkProgramBuSection() {
   var wp = _wpBu(d);
   var isAdmin = CU && CU.role==='admin';
   var isPreparer = (a.assignedTo||a.auditeurs||[]).indexOf(CU&&CU.id)>=0 || isAdmin;
+  // Le bouton "Uploader le BU Work Program" est masqué après le 1er upload
+  var alreadyUploaded = !!wp.buWorkProgramUploaded;
 
   var html = '';
   html += '<div class="cd" style="margin-bottom:1rem">';
-  html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">';
-  html += '<span style="font-size:13px;font-weight:500">Process couverts <span style="color:var(--text-3);font-weight:400">('+wp.processes.length+(wp.processes.length>1?' process':' process')+')</span></span>';
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:8px">';
+  html += '<span style="font-size:13px;font-weight:500">Process couverts <span style="color:var(--text-3);font-weight:400">('+wp.processes.length+' process)</span></span>';
   if (isPreparer) {
-    html += '<button class="bp" style="font-size:11px;padding:4px 10px" onclick="showSelectBuProcessesModal()">+ Sélectionner des process</button>';
+    html += '<div style="display:flex;gap:6px;flex-wrap:wrap">';
+    if (!alreadyUploaded) {
+      html += '<button class="bp" style="font-size:11px;padding:4px 10px" onclick="showUploadBuWorkProgramModal()">↓ Uploader le BU Work Program</button>';
+    }
+    html += '<button class="bs" style="font-size:11px;padding:4px 10px" onclick="showAddBuProcessFromUniverseModal()">+ Ajouter un Process hors BU Work Program</button>';
+    html += '</div>';
   }
   html += '</div>';
-  html += '<div style="font-size:11px;color:var(--text-3);font-style:italic;margin-bottom:14px">Choisis les Process à auditer dans cette mission depuis le BU Work Program. Les tests sont copiés depuis le référentiel et restent modifiables localement sans impacter le référentiel.</div>';
+  html += '<div style="font-size:11px;color:var(--text-3);font-style:italic;margin-bottom:14px">Importe les Process et tests du référentiel BU Work Program (action en bloc), ou ajoute des Process supplémentaires depuis l\'Audit Universe. Les tests issus du référentiel sont copiés et restent modifiables localement sans impacter le référentiel.</div>';
 
   if (!wp.processes.length) {
     html += '<div style="font-size:12px;color:var(--text-3);font-style:italic;padding:1.5rem;text-align:center;border:1px dashed var(--border);border-radius:6px">';
     html += 'Aucun Process couvert pour cet audit. ';
-    if (isPreparer) html += 'Cliquez sur « + Sélectionner des process » ci-dessus pour démarrer.';
+    if (isPreparer) html += 'Commence par « Uploader le BU Work Program » pour importer le référentiel, ou ajoute un Process spécifique.';
     html += '</div>';
   } else {
     wp.processes.forEach(function(wpp){
@@ -5050,7 +5057,7 @@ function renderWpBuProcessCard(wpp, isPreparer) {
   h += '<div style="padding:8px 14px">';
   if (!testCount) {
     h += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:8px 0;text-align:center">Aucun test pour ce process. ';
-    if (isPreparer) h += 'Cliquez sur « + Ajouter un test ad hoc » pour en créer un.';
+    if (isPreparer) h += 'Cliquez sur « + Ajouter un test hors BU Work Program » pour en créer un.';
     h += '</div>';
   } else {
     (wpp.tests||[]).forEach(function(t, ti){
@@ -5059,7 +5066,7 @@ function renderWpBuProcessCard(wpp, isPreparer) {
   }
   if (isPreparer) {
     h += '<div style="text-align:center;padding:6px 0 2px">';
-    h += '<button class="bs" style="font-size:11px;padding:4px 10px" onclick="addWpBuAdHocTest(\''+_escJsArg(wpp.id)+'\')">+ Ajouter un test ad hoc</button>';
+    h += '<button class="bs" style="font-size:11px;padding:4px 10px" onclick="addWpBuAdHocTest(\''+_escJsArg(wpp.id)+'\')">+ Ajouter un test hors BU Work Program</button>';
     h += '</div>';
   }
   h += '</div>';
@@ -5171,25 +5178,37 @@ function renderWpBuTestRow(wppId, t, idx, isPreparer) {
   return h;
 }
 
+
 // ────────────────────────────────────────────────────────────────────
-//  MODALE — Sélection des Process à couvrir
+//  MODALE 1 — Uploader le BU Work Program (en bloc, depuis le référentiel)
+//  Affiche les Process du référentiel (qui ont au moins 1 test) avec checkbox.
+//  Chaque Process coché est ajouté à l'audit avec ses tests copiés.
+//  Une fois validé, le bouton "Uploader" disparaît (alreadyUploaded).
 // ────────────────────────────────────────────────────────────────────
 
-function showSelectBuProcessesModal() {
+function showUploadBuWorkProgramModal() {
   var d = getAudData(CA);
   var wp = _wpBu(d);
-  var alreadySelected = {};
-  wp.processes.forEach(function(wpp){alreadySelected[wpp.auditProcessId]=true;});
+  var alreadyCovered = {};
+  wp.processes.forEach(function(wpp){alreadyCovered[wpp.auditProcessId]=true;});
 
-  // Construire la hiérarchie Univers > Domaine > Process
-  var procs = (PROCESSES||[]).filter(function(p){return !p.archived;});
+  // On ne propose QUE les Process qui ont au moins 1 test dans le référentiel
+  var refEntries = (BU_PROCESSES||[]).filter(function(b){return (b.tests||[]).length>0;});
+  if (!refEntries.length) {
+    toast('Aucun process avec tests dans le référentiel BU');
+    return;
+  }
+
+  // Construire la hiérarchie Univers > Domaine > Process pour les entrées du référentiel
   var hierarchy = {};
-  procs.forEach(function(p){
+  refEntries.forEach(function(entry){
+    var p = (PROCESSES||[]).find(function(x){return x.id===entry.auditProcessId;});
+    if (!p || p.archived) return;
     var u = p.univers || '(Sans univers)';
     var dom = p.dom || '(Sans domaine)';
     if (!hierarchy[u]) hierarchy[u] = {};
     if (!hierarchy[u][dom]) hierarchy[u][dom] = [];
-    hierarchy[u][dom].push(p);
+    hierarchy[u][dom].push({ process: p, refEntry: entry });
   });
   var UNIVERS_ORDER = ['GOVERNANCE', 'EDITION (Factory)', 'DISTRIBUTION', 'SUPPORT FUNCTIONS'];
   var universList = Object.keys(hierarchy).sort(function(a,b){
@@ -5199,73 +5218,51 @@ function showSelectBuProcessesModal() {
     return a.localeCompare(b, 'fr', {sensitivity:'base'});
   });
 
-  var body = '<div id="sel-bu-procs-body">';
-  if (!procs.length) {
-    body += '<div style="font-size:12px;color:var(--text-3);text-align:center;padding:1rem">Aucun processus dans l\'Audit Universe.</div>';
-  } else {
-    universList.forEach(function(univ){
-      body += '<div style="background:#3C3489;color:#fff;font-weight:700;padding:6px 10px;font-size:10px;letter-spacing:.5px;text-transform:uppercase;margin-bottom:4px">'+(''+univ).replace(/</g,'&lt;')+'</div>';
-      var domains = Object.keys(hierarchy[univ]).sort(function(a,b){return a.localeCompare(b,'fr',{sensitivity:'base'});});
-      domains.forEach(function(dom){
-        var rows = hierarchy[univ][dom].slice().sort(function(a,b){return (a.proc||'').localeCompare(b.proc||'','fr',{sensitivity:'base'});});
-        body += '<div style="background:#EEEDFE;color:#3C3489;font-weight:600;padding:5px 10px 5px 16px;font-size:10px;margin-bottom:4px">'+(''+dom).replace(/</g,'&lt;')+'</div>';
-        rows.forEach(function(p){
-          var entry = (BU_PROCESSES||[]).find(function(b){return b.auditProcessId===p.id;});
-          var refTestCount = (entry && entry.tests) ? entry.tests.length : 0;
-          var isAlready = !!alreadySelected[p.id];
-          body += '<label style="display:flex;align-items:center;gap:8px;padding:7px 16px;cursor:pointer;border-bottom:.5px solid #f0f0f0">';
-          body += '<input type="checkbox" class="sel-bu-proc-cb" value="'+_escAttr(p.id)+'"'+(isAlready?' checked':'')+' style="width:14px;height:14px;flex-shrink:0"/>';
-          body += '<div style="flex:1;min-width:0">';
-          body += '<div style="font-size:12px;font-weight:500">'+(''+p.proc).replace(/</g,'&lt;')+'</div>';
-          if (refTestCount>0) {
-            body += '<div style="font-size:10px;color:var(--purple)">'+refTestCount+' test'+(refTestCount>1?'s':'')+' dans le référentiel</div>';
-          } else {
-            body += '<div style="font-size:10px;color:var(--text-3);font-style:italic">aucun test dans le référentiel — vous devrez ajouter des tests ad hoc</div>';
-          }
-          body += '</div>';
-          if (isAlready) body += '<span style="background:#E1F5EE;color:#085041;font-size:9px;padding:2px 6px;border-radius:3px">déjà sélectionné</span>';
-          body += '</label>';
-        });
+  var body = '<div style="font-size:11px;color:var(--text-3);margin-bottom:10px">Coche les Process du référentiel BU à importer dans l\'audit. Leurs tests seront copiés et restent modifiables localement.</div>';
+  body += '<div id="upload-bu-body">';
+  universList.forEach(function(univ){
+    body += '<div style="background:#3C3489;color:#fff;font-weight:700;padding:6px 10px;font-size:10px;letter-spacing:.5px;text-transform:uppercase;margin-bottom:4px">'+(''+univ).replace(/</g,'&lt;')+'</div>';
+    var domains = Object.keys(hierarchy[univ]).sort(function(a,b){return a.localeCompare(b,'fr',{sensitivity:'base'});});
+    domains.forEach(function(dom){
+      var rows = hierarchy[univ][dom].slice().sort(function(a,b){return (a.process.proc||'').localeCompare(b.process.proc||'','fr',{sensitivity:'base'});});
+      body += '<div style="background:#EEEDFE;color:#3C3489;font-weight:600;padding:5px 10px 5px 16px;font-size:10px;margin-bottom:4px">'+(''+dom).replace(/</g,'&lt;')+'</div>';
+      rows.forEach(function(item){
+        var p = item.process;
+        var refEntry = item.refEntry;
+        var testCount = (refEntry.tests||[]).length;
+        var isAlready = !!alreadyCovered[p.id];
+        var disabledAttr = isAlready ? ' disabled' : '';
+        var checkedAttr = isAlready ? '' : ' checked'; // par défaut, on coche tous les non-déjà-couverts
+        body += '<label style="display:flex;align-items:center;gap:8px;padding:7px 16px;cursor:'+(isAlready?'default':'pointer')+';border-bottom:.5px solid #f0f0f0'+(isAlready?';opacity:.55':'')+'">';
+        body += '<input type="checkbox" class="upl-bu-cb" value="'+_escAttr(p.id)+'"'+checkedAttr+disabledAttr+' style="width:14px;height:14px;flex-shrink:0"/>';
+        body += '<div style="flex:1;min-width:0">';
+        body += '<div style="font-size:12px;font-weight:500">'+(''+p.proc).replace(/</g,'&lt;')+'</div>';
+        body += '<div style="font-size:10px;color:var(--purple)">'+testCount+' test'+(testCount>1?'s':'')+' dans le référentiel</div>';
+        body += '</div>';
+        if (isAlready) body += '<span style="background:#E1F5EE;color:#085041;font-size:9px;padding:2px 6px;border-radius:3px">déjà couvert</span>';
+        body += '</label>';
       });
     });
-  }
+  });
   body += '</div>';
 
-  openModal('Sélectionner les Process à couvrir', body, async function(){
-    var checked = document.querySelectorAll('.sel-bu-proc-cb:checked');
-    var newIds = [];
-    checked.forEach(function(cb){newIds.push(cb.value);});
+  openModal('Uploader le BU Work Program', body, async function(){
+    var checked = document.querySelectorAll('.upl-bu-cb:checked');
+    if (!checked.length) {
+      toast('Aucun process sélectionné');
+      return;
+    }
     var d2 = getAudData(CA);
     var wp2 = _wpBu(d2);
-    var existingIds = wp2.processes.map(function(wpp){return wpp.auditProcessId;});
+    var added = 0;
 
-    // Process à ajouter
-    var toAdd = newIds.filter(function(id){return existingIds.indexOf(id)<0;});
-    // Process à retirer (décochés)
-    var toRemove = existingIds.filter(function(id){return newIds.indexOf(id)<0;});
-
-    // Confirmation si on retire des Process qui ont des tests ad hoc ou des owners
-    var hasAdhocOrOwners = toRemove.some(function(id){
-      var wpp = wp2.processes.find(function(x){return x.auditProcessId===id;});
-      if (!wpp) return false;
-      var hasAdhoc = (wpp.tests||[]).some(function(t){return t.source==='adhoc';});
-      var hasOwners = (wpp.owners||[]).length>0;
-      return hasAdhoc || hasOwners;
-    });
-    if (hasAdhocOrOwners) {
-      if (!confirm('Certains Process décochés ont des tests ad hoc ou des owners renseignés. Confirmer le retrait ? Les données ad hoc seront perdues.')) {
-        return; // ne pas fermer la modale
-      }
-    }
-
-    // Retirer
-    wp2.processes = wp2.processes.filter(function(wpp){return toRemove.indexOf(wpp.auditProcessId)<0;});
-
-    // Ajouter (en copiant les tests du référentiel)
-    toAdd.forEach(function(procId){
+    checked.forEach(function(cb){
+      var procId = cb.value;
+      // Vérifier qu'on ne double pas (sécurité)
+      if (wp2.processes.find(function(x){return x.auditProcessId===procId;})) return;
       var entry = (BU_PROCESSES||[]).find(function(b){return b.auditProcessId===procId;});
-      var refTests = (entry && entry.tests) ? entry.tests : [];
-      var copiedTests = refTests.map(function(rt){
+      if (!entry) return;
+      var copiedTests = (entry.tests||[]).map(function(rt){
         return {
           id: 'wpt_'+Date.now()+'_'+Math.floor(Math.random()*100000),
           source: 'ref',
@@ -5291,13 +5288,112 @@ function showSelectBuProcessesModal() {
         owners: [],
         tests: copiedTests,
       });
+      added++;
     });
+
+    // Marquer comme uploadé pour cacher le bouton dorénavant
+    wp2.buWorkProgramUploaded = true;
 
     await saveAuditData(CA);
     document.getElementById('det-content').innerHTML = renderDetContent();
-    toast('Process couverts mis à jour ✓');
+    toast('BU Work Program importé ✓ — '+added+' process ajoutés');
   }, { wide: true });
 }
+
+// ────────────────────────────────────────────────────────────────────
+//  MODALE 2 — Ajouter un Process hors BU Work Program
+//  Affiche les Process de l'Audit Universe non encore couverts.
+//  Inclut tous les Process (pas seulement ceux qui ont des tests dans le réf BU).
+//  Création vide (pas de tests pré-remplis), à enrichir manuellement.
+// ────────────────────────────────────────────────────────────────────
+
+function showAddBuProcessFromUniverseModal() {
+  var d = getAudData(CA);
+  var wp = _wpBu(d);
+  var alreadyCovered = {};
+  wp.processes.forEach(function(wpp){alreadyCovered[wpp.auditProcessId]=true;});
+
+  // Tous les Process de l'Audit Universe non archivés et non déjà couverts
+  var available = (PROCESSES||[]).filter(function(p){
+    return !p.archived && !alreadyCovered[p.id];
+  });
+
+  if (!available.length) {
+    toast('Tous les Process de l\'Audit Universe sont déjà couverts');
+    return;
+  }
+
+  // Construire la hiérarchie
+  var hierarchy = {};
+  available.forEach(function(p){
+    var u = p.univers || '(Sans univers)';
+    var dom = p.dom || '(Sans domaine)';
+    if (!hierarchy[u]) hierarchy[u] = {};
+    if (!hierarchy[u][dom]) hierarchy[u][dom] = [];
+    hierarchy[u][dom].push(p);
+  });
+  var UNIVERS_ORDER = ['GOVERNANCE', 'EDITION (Factory)', 'DISTRIBUTION', 'SUPPORT FUNCTIONS'];
+  var universList = Object.keys(hierarchy).sort(function(a,b){
+    var ia=UNIVERS_ORDER.indexOf(a), ib=UNIVERS_ORDER.indexOf(b);
+    if (ia<0) ia=999; if (ib<0) ib=999;
+    if (ia!==ib) return ia-ib;
+    return a.localeCompare(b, 'fr', {sensitivity:'base'});
+  });
+
+  var body = '<div style="font-size:11px;color:var(--text-3);margin-bottom:10px">Coche les Process à ajouter à l\'audit. Aucun test ne sera pré-rempli — à toi d\'ajouter les tests ad hoc nécessaires ensuite.</div>';
+  body += '<div id="add-bu-univ-body">';
+  universList.forEach(function(univ){
+    body += '<div style="background:#3C3489;color:#fff;font-weight:700;padding:6px 10px;font-size:10px;letter-spacing:.5px;text-transform:uppercase;margin-bottom:4px">'+(''+univ).replace(/</g,'&lt;')+'</div>';
+    var domains = Object.keys(hierarchy[univ]).sort(function(a,b){return a.localeCompare(b,'fr',{sensitivity:'base'});});
+    domains.forEach(function(dom){
+      var rows = hierarchy[univ][dom].slice().sort(function(a,b){return (a.proc||'').localeCompare(b.proc||'','fr',{sensitivity:'base'});});
+      body += '<div style="background:#EEEDFE;color:#3C3489;font-weight:600;padding:5px 10px 5px 16px;font-size:10px;margin-bottom:4px">'+(''+dom).replace(/</g,'&lt;')+'</div>';
+      rows.forEach(function(p){
+        // Indique si ce Process a des tests dans le référentiel BU (info utile)
+        var refEntry = (BU_PROCESSES||[]).find(function(b){return b.auditProcessId===p.id;});
+        var refTestCount = (refEntry && refEntry.tests) ? refEntry.tests.length : 0;
+        body += '<label style="display:flex;align-items:center;gap:8px;padding:7px 16px;cursor:pointer;border-bottom:.5px solid #f0f0f0">';
+        body += '<input type="checkbox" class="add-bu-univ-cb" value="'+_escAttr(p.id)+'" style="width:14px;height:14px;flex-shrink:0"/>';
+        body += '<div style="flex:1;min-width:0">';
+        body += '<div style="font-size:12px;font-weight:500">'+(''+p.proc).replace(/</g,'&lt;')+'</div>';
+        if (refTestCount>0) {
+          body += '<div style="font-size:10px;color:var(--purple);font-style:italic">'+refTestCount+' test'+(refTestCount>1?'s':'')+' dispo dans le référentiel BU (mais non importés ici — utilise « Uploader » pour l\'import en bloc)</div>';
+        } else {
+          body += '<div style="font-size:10px;color:var(--text-3);font-style:italic">aucun test dans le référentiel BU</div>';
+        }
+        body += '</div>';
+        body += '</label>';
+      });
+    });
+  });
+  body += '</div>';
+
+  openModal('Ajouter un Process hors BU Work Program', body, async function(){
+    var checked = document.querySelectorAll('.add-bu-univ-cb:checked');
+    if (!checked.length) {
+      toast('Aucun process sélectionné');
+      return;
+    }
+    var d2 = getAudData(CA);
+    var wp2 = _wpBu(d2);
+    var added = 0;
+    checked.forEach(function(cb){
+      var procId = cb.value;
+      if (wp2.processes.find(function(x){return x.auditProcessId===procId;})) return;
+      wp2.processes.push({
+        id: 'wpp_'+Date.now()+'_'+Math.floor(Math.random()*100000),
+        auditProcessId: procId,
+        owners: [],
+        tests: [],
+      });
+      added++;
+    });
+    await saveAuditData(CA);
+    document.getElementById('det-content').innerHTML = renderDetContent();
+    toast(added+' process ajouté'+(added>1?'s':'')+' ✓');
+  }, { wide: true });
+}
+
 
 // ────────────────────────────────────────────────────────────────────
 //  Setters & actions sur les Process couverts (Work Program BU)
