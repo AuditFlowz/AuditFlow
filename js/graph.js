@@ -258,6 +258,7 @@ var LIST_SCHEMAS = {
     {name:'audit_risks_json',text:{}},{name:'step_states_json',text:{}},
     {name:'prep_notes_json',text:{}},{name:'rev_notes_json',text:{}},{name:'wcgw_json',text:{}},
     {name:'kickoff_prep_json',text:{}},{name:'work_program_bu_json',text:{}},
+    {name:'issues_json',text:{}},
     {name:'exec_summary_header',text:{}},
   ],
   AF_History: [{name:'af_type',text:{}},{name:'msg',text:{}},{name:'user_name',text:{}}],
@@ -558,14 +559,15 @@ async function loadAuditData(auditId) {
         wcgw:tryParse(f.wcgw_json,{}),
         kickoffPrep:tryParse(f.kickoff_prep_json,{}),
         workProgramBU:tryParse(f.work_program_bu_json,{processes:[]}),
+        issues:tryParse(f.issues_json,[]),
         execSummaryHeader:f.exec_summary_header||'',
       };
     } else {
-      DB.auditData[auditId] = {tasks:{},controls:{},findings:[],mgtResp:[],docs:[],notes:'',maturity:null,riskLinks:{},auditRisks:[],stepStates:{},prepNotes:{},revNotes:{},wcgw:{},kickoffPrep:{},workProgramBU:{processes:[]},execSummaryHeader:''};
+      DB.auditData[auditId] = {tasks:{},controls:{},findings:[],mgtResp:[],docs:[],notes:'',maturity:null,riskLinks:{},auditRisks:[],stepStates:{},prepNotes:{},revNotes:{},wcgw:{},kickoffPrep:{},workProgramBU:{processes:[]},issues:[],execSummaryHeader:''};
     }
   } catch(e) {
     console.warn('[SP] loadAuditData error:', e.message);
-    DB.auditData[auditId] = {tasks:{},controls:{},findings:[],mgtResp:[],docs:[],notes:'',maturity:null,riskLinks:{},auditRisks:[],stepStates:{},prepNotes:{},revNotes:{},wcgw:{},kickoffPrep:{},workProgramBU:{processes:[]},execSummaryHeader:''};
+    DB.auditData[auditId] = {tasks:{},controls:{},findings:[],mgtResp:[],docs:[],notes:'',maturity:null,riskLinks:{},auditRisks:[],stepStates:{},prepNotes:{},revNotes:{},wcgw:{},kickoffPrep:{},workProgramBU:{processes:[]},issues:[],execSummaryHeader:''};
   }
   AUD_DATA[auditId] = DB.auditData[auditId];
   return DB.auditData[auditId];
@@ -586,6 +588,7 @@ async function saveAuditData(auditId) {
     wcgw_json:JSON.stringify(d.wcgw||{}),
     kickoff_prep_json:JSON.stringify(d.kickoffPrep||{}),
     work_program_bu_json:JSON.stringify(d.workProgramBU||{}),
+    issues_json:JSON.stringify(d.issues||[]),
     exec_summary_header:d.execSummaryHeader||'',
     Title:auditId,
   });
