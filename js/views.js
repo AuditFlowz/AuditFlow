@@ -7191,8 +7191,8 @@ function updateBuFindingIssuesPanel() {
       var badgeLabel = iss.source==='design' ? 'DESIGN' : 'OPERATING';
       var isInOther = !!aggregatedElsewhere[iss.id];
       var checked = currentlyChecked[iss.id] ? ' checked' : '';
-      h += '<label style="display:flex;align-items:flex-start;gap:8px;padding:6px 10px;border-bottom:.5px solid #f0f0f0;cursor:pointer;box-sizing:border-box;width:100%'+(isInOther?';opacity:.55':'')+'">';
-      h += '<input type="checkbox" class="bf-iss-cb" value="'+_escAttr(iss.id)+'"'+checked+' style="margin-top:3px;flex-shrink:0"/>';
+      h += '<label style="display:flex;align-items:flex-start;gap:8px;padding:6px 10px;border-bottom:.5px solid #f0f0f0;cursor:pointer;box-sizing:border-box;width:100%;font-weight:normal;color:inherit;margin-bottom:0'+(isInOther?';opacity:.55':'')+'">';
+      h += '<input type="checkbox" class="bf-iss-cb" value="'+_escAttr(iss.id)+'"'+checked+' style="margin-top:3px;flex-shrink:0;width:14px;height:14px"/>';
       h += '<span style="background:'+badgeBg+';color:'+badgeColor+';font-size:9px;padding:2px 6px;border-radius:3px;font-weight:500;flex-shrink:0;margin-top:1px">'+badgeLabel+'</span>';
       h += '<div style="flex:1;min-width:0;word-break:break-word;overflow-wrap:break-word">';
       if (iss.title) h += '<div style="font-size:11px;font-weight:500">'+(''+iss.title).replace(/</g,'&lt;')+'</div>';
