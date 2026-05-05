@@ -153,6 +153,30 @@ async function generateAuditReportPptx(auditId) {
   const controls = (d.controls && d.controls[4]) || [];
   const mgtResp = Array.isArray(d.mgtResp) ? d.mgtResp : [];
 
+  // Données BU (audits de type 'BU' uniquement)
+  const isBU = ap.type === 'BU';
+  const issues = Array.isArray(d.issues) ? d.issues : [];
+  const workProgramBU = (d && d.workProgramBU && Array.isArray(d.workProgramBU.processes))
+    ? d.workProgramBU.processes : [];
+
+  // Helpers BU : retrouver Process et code de test depuis un id
+  function _ar_getWppProcName(wppId) {
+    const wpp = workProgramBU.find(x => x.id === wppId);
+    if (!wpp) return null;
+    const p = _PROCESSES.find(x => x.id === wpp.auditProcessId);
+    return p ? p.proc : null;
+  }
+  function _ar_getTestCode(wppId, testId) {
+    const wpp = workProgramBU.find(x => x.id === wppId);
+    if (!wpp || !Array.isArray(wpp.tests)) return null;
+    const t = wpp.tests.find(x => x.id === testId);
+    return t ? (t.code || null) : null;
+  }
+  function _ar_getIssuesForFinding(f) {
+    if (!Array.isArray(f.issueIds)) return [];
+    return f.issueIds.map(id => issues.find(x => x.id === id)).filter(Boolean);
+  }
+
   // Récupérer le nom du process
   const procIds = Array.isArray(ap.processIds) && ap.processIds.length ? ap.processIds : (ap.processId ? [ap.processId] : []);
   const procNames = procIds.map(id => {
@@ -472,33 +496,63 @@ async function generateAuditReportPptx(auditId) {
   });
 
   // Tableau des findings
-  const fHeader = [
+  // Pour les audits BU : ajouter une colonne "Process" en première position pour identifier
+  // à quel Process appartient chaque finding (utile quand plusieurs Process couverts).
+  const fHeader = isBU ? [
+    {text: "Process", options: {bold: true, color: AR_COLORS.white, fill: {color: AR_COLORS.grayMed}, valign: "middle"}},
+    {text: "Finding", options: {bold: true, color: AR_COLORS.white, fill: {color: AR_COLORS.grayMed}, valign: "middle"}},
+    {text: "Associated Risk", options: {bold: true, color: AR_COLORS.white, fill: {color: AR_COLORS.grayMed}, valign: "middle"}},
+    {text: "Risk Level", options: {bold: true, color: AR_COLORS.white, fill: {color: AR_COLORS.grayMed}, valign: "middle"}},
+  ] : [
     {text: "Finding", options: {bold: true, color: AR_COLORS.white, fill: {color: AR_COLORS.grayMed}, valign: "middle"}},
     {text: "Associated Risk", options: {bold: true, color: AR_COLORS.white, fill: {color: AR_COLORS.grayMed}, valign: "middle"}},
     {text: "Risk Level", options: {bold: true, color: AR_COLORS.white, fill: {color: AR_COLORS.grayMed}, valign: "middle"}},
   ];
   let fRows;
   if (findings.length) {
-    fRows = [fHeader].concat(findings.map((f, i) => {
+    // Pour BU : trier les findings par Process (ordre du Work Program)
+    let orderedFindings = findings;
+    if (isBU) {
+      const procOrder = workProgramBU.map(wpp => wpp.id);
+      orderedFindings = findings.slice().sort((a, b) => {
+        const aIdx = procOrder.indexOf(a.processId || '');
+        const bIdx = procOrder.indexOf(b.processId || '');
+        if (aIdx !== bIdx) return (aIdx < 0 ? 999 : aIdx) - (bIdx < 0 ? 999 : bIdx);
+        return 0;
+      });
+    }
+    fRows = [fHeader].concat(orderedFindings.map((f, i) => {
       const fillColor = ar_riskColor(f.probability, f.impact);
       const shortDesc = f.descExec || (f.desc && f.desc.length<200 ? f.desc : '');
-      return [
-        {text: (i+1)+'. '+(f.title||'—') + (shortDesc?'\n'+shortDesc:''),
-         options: {valign: "middle", color: AR_COLORS.textDark, fontSize: 11}},
-        {text: f.potentialRisk || '—', options: {valign: "middle", color: AR_COLORS.textDark, fontSize: 11}},
-        {text: ar_riskLabel(f.probability, f.impact),
-         options: {valign: "middle", align: "center", color: AR_COLORS.textDark, fontSize: 10, bold: true, fill: {color: fillColor}}},
-      ];
+      const findingCell = {
+        text: (i+1)+'. '+(f.title||'—') + (shortDesc?'\n'+shortDesc:''),
+        options: {valign: "middle", color: AR_COLORS.textDark, fontSize: 11},
+      };
+      const riskCell = {text: f.potentialRisk || '—', options: {valign: "middle", color: AR_COLORS.textDark, fontSize: 11}};
+      const riskLevelCell = {
+        text: ar_riskLabel(f.probability, f.impact),
+        options: {valign: "middle", align: "center", color: AR_COLORS.textDark, fontSize: 10, bold: true, fill: {color: fillColor}},
+      };
+      if (isBU) {
+        const procName = (f.processId && _ar_getWppProcName(f.processId)) || '—';
+        return [
+          {text: procName, options: {valign: "middle", color: AR_COLORS.navy, fontSize: 10, bold: true}},
+          findingCell, riskCell, riskLevelCell,
+        ];
+      }
+      return [findingCell, riskCell, riskLevelCell];
     }));
   } else {
-    fRows = [fHeader, [{text: 'No finding identified'}, {text: '—'}, {text: '—'}]];
+    fRows = isBU
+      ? [fHeader, [{text:'—'},{text: 'No finding identified'}, {text: '—'}, {text: '—'}]]
+      : [fHeader, [{text: 'No finding identified'}, {text: '—'}, {text: '—'}]];
   }
   s6.addTable(fRows, {
     x: 0.5, y: 2.1, w: 12.3,
     fontSize: 11, fontFace: "Calibri",
     border: {type: "solid", pt: 0.5, color: AR_COLORS.grayMed},
     rowH: findings.length > 4 ? 0.6 : 0.85,
-    colW: [6.0, 4.3, 2.0],
+    colW: isBU ? [2.0, 5.0, 3.5, 1.8] : [6.0, 4.3, 2.0],
   });
   ar_addFooter(pres, s6);
 
@@ -537,51 +591,58 @@ async function generateAuditReportPptx(auditId) {
   ar_addFooter(pres, s7);
 
   // ════════════════════════════════════════════════════════════════════
-  // SLIDES 8...N — DETAILED FINDINGS (1 slide per finding)
+  // SLIDES 8...N — DETAILED FINDINGS
+  // Pour audits Process : 1 slide par finding (existant)
+  // Pour audits BU : 1 slide par Process avec ses findings + issues groupés
   // ════════════════════════════════════════════════════════════════════
-  findings.forEach((f, i) => {
-    const sf = pres.addSlide();
-    ar_addTitleBar(pres, sf, "Findings", (i+1) + " – " + (f.title || 'Finding'));
+  if (isBU) {
+    ar_addBuFindingsByProcessSlides(pres, findings, issues, workProgramBU,
+      _ar_getWppProcName, _ar_getTestCode, _ar_getIssuesForFinding);
+  } else {
+    findings.forEach((f, i) => {
+      const sf = pres.addSlide();
+      ar_addTitleBar(pres, sf, "Findings", (i+1) + " – " + (f.title || 'Finding'));
 
-    // Bandeau violet décoratif (comme dans le template)
-    sf.addShape(pres.ShapeType.rect, {
-      x: 0.4, y: 1.55, w: 12.5, h: 0.18,
-      fill: {color: AR_COLORS.purple}, line: {type: "none"},
+      // Bandeau violet décoratif (comme dans le template)
+      sf.addShape(pres.ShapeType.rect, {
+        x: 0.4, y: 1.55, w: 12.5, h: 0.18,
+        fill: {color: AR_COLORS.purple}, line: {type: "none"},
+      });
+
+      // Tableau de détails du finding
+      const findingDetailRows = [
+        [
+          {text: "Finding", options: {bold: true, color: AR_COLORS.textDark, fill: {color: AR_COLORS.grayLight}, valign: "top"}},
+          {text: [
+            {text: (f.title||'') + '\n', options: {bold: true, fontSize: 13, color: AR_COLORS.textDark, fontFace: "Calibri"}},
+            {text: f.descDetailed || f.desc || '—', options: {fontSize: 11, color: AR_COLORS.textDark, fontFace: "Calibri"}},
+           ], options: {valign: "top"}},
+        ],
+        [
+          {text: "Potential Risk", options: {bold: true, color: AR_COLORS.textDark, fill: {color: AR_COLORS.grayLight}, valign: "top"}},
+          {text: f.potentialRisk || '—', options: {valign: "top", color: AR_COLORS.textDark, fontSize: 11}},
+        ],
+        [
+          {text: "Owner", options: {bold: true, color: AR_COLORS.textDark, fill: {color: AR_COLORS.grayLight}, valign: "top"}},
+          {text: f.owner || '—', options: {valign: "top", color: AR_COLORS.textDark, fontSize: 11}},
+        ],
+        [
+          {text: "Risk Level", options: {bold: true, color: AR_COLORS.textDark, fill: {color: AR_COLORS.grayLight}, valign: "top"}},
+          {text: ar_riskLabel(f.probability, f.impact),
+           options: {valign: "top", color: AR_COLORS.textDark, fontSize: 11, fill: {color: ar_riskColor(f.probability, f.impact)}}},
+        ],
+      ];
+      sf.addTable(findingDetailRows, {
+        x: 0.4, y: 1.85, w: 12.5,
+        fontSize: 11, fontFace: "Calibri",
+        border: {type: "solid", pt: 0.5, color: AR_COLORS.grayMed},
+        rowH: [2.5, 0.8, 0.5, 0.5],
+        colW: [1.7, 10.8],
+      });
+
+      ar_addFooter(pres, sf);
     });
-
-    // Tableau de détails du finding
-    const findingDetailRows = [
-      [
-        {text: "Finding", options: {bold: true, color: AR_COLORS.textDark, fill: {color: AR_COLORS.grayLight}, valign: "top"}},
-        {text: [
-          {text: (f.title||'') + '\n', options: {bold: true, fontSize: 13, color: AR_COLORS.textDark, fontFace: "Calibri"}},
-          {text: f.descDetailed || f.desc || '—', options: {fontSize: 11, color: AR_COLORS.textDark, fontFace: "Calibri"}},
-         ], options: {valign: "top"}},
-      ],
-      [
-        {text: "Potential Risk", options: {bold: true, color: AR_COLORS.textDark, fill: {color: AR_COLORS.grayLight}, valign: "top"}},
-        {text: f.potentialRisk || '—', options: {valign: "top", color: AR_COLORS.textDark, fontSize: 11}},
-      ],
-      [
-        {text: "Owner", options: {bold: true, color: AR_COLORS.textDark, fill: {color: AR_COLORS.grayLight}, valign: "top"}},
-        {text: f.owner || '—', options: {valign: "top", color: AR_COLORS.textDark, fontSize: 11}},
-      ],
-      [
-        {text: "Risk Level", options: {bold: true, color: AR_COLORS.textDark, fill: {color: AR_COLORS.grayLight}, valign: "top"}},
-        {text: ar_riskLabel(f.probability, f.impact),
-         options: {valign: "top", color: AR_COLORS.textDark, fontSize: 11, fill: {color: ar_riskColor(f.probability, f.impact)}}},
-      ],
-    ];
-    sf.addTable(findingDetailRows, {
-      x: 0.4, y: 1.85, w: 12.5,
-      fontSize: 11, fontFace: "Calibri",
-      border: {type: "solid", pt: 0.5, color: AR_COLORS.grayMed},
-      rowH: [2.5, 0.8, 0.5, 0.5],
-      colW: [1.7, 10.8],
-    });
-
-    ar_addFooter(pres, sf);
-  });
+  }
 
   // ════════════════════════════════════════════════════════════════════
   // SLIDE — TESTING STRATEGY
@@ -771,4 +832,197 @@ async function generateAuditReportPptx(auditId) {
     console.error('[AUDIT_REPORT] Erreur génération :', err);
     if (typeof toast === 'function') toast('Erreur lors de la génération');
   }
+}
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  AUDIT BU — SLIDES FINDINGS GROUPÉS PAR PROCESS
+//  Pour chaque Process couvert qui a des findings → 1 slide (ou plusieurs si débordement)
+//  Chaque slide affiche : titre du Process, puis les findings de ce Process avec :
+//   - Badge DESIGN ou OPERATING (calculé selon les issues incluses)
+//   - Titre du finding
+//   - Description courte (descExec) ou détaillée
+//   - Liste des issues incluses (avec leurs sources Design/Operating)
+//   - Owner, probability, impact
+// ════════════════════════════════════════════════════════════════════════════
+function ar_addBuFindingsByProcessSlides(pres, findings, issues, workProgramBU,
+  getWppProcName, getTestCode, getIssuesForFinding) {
+
+  if (!findings.length) return;
+
+  // Grouper les findings par processId (process principal du finding)
+  const byProcess = {};
+  findings.forEach(f => {
+    const key = f.processId || '_unassigned';
+    if (!byProcess[key]) byProcess[key] = [];
+    byProcess[key].push(f);
+  });
+
+  // Tri : suivre l'ordre des Process couverts dans le Work Program
+  const orderedProcIds = workProgramBU.map(wpp => wpp.id).filter(id => byProcess[id]);
+  // Plus les findings non assignés ou avec processId orphelin
+  Object.keys(byProcess).forEach(id => {
+    if (id === '_unassigned' || !workProgramBU.find(wpp => wpp.id === id)) {
+      if (!orderedProcIds.includes(id)) orderedProcIds.push(id);
+    }
+  });
+
+  orderedProcIds.forEach(procId => {
+    const procFindings = byProcess[procId];
+    const procName = procId === '_unassigned' ? 'Findings non assignés' : (getWppProcName(procId) || '(Process inconnu)');
+    ar_addBuProcessFindingsSlide(pres, procName, procFindings, issues, getTestCode, getIssuesForFinding);
+  });
+}
+
+// Génère une (ou plusieurs si débordement) slide(s) pour un Process et ses findings
+function ar_addBuProcessFindingsSlide(pres, procName, procFindings, allIssues, getTestCode, getIssuesForFinding) {
+  // Heuristique : ~3-4 findings par slide. Si plus, on splitte.
+  // En pratique, un finding occupe ~1.3" à ~1.8" de hauteur selon le contenu (titre + 2-3 lignes desc + 2-3 issues).
+  const MAX_HEIGHT = 5.0; // hauteur disponible (de y=1.7 à y=6.7 environ)
+  const groups = [];
+  let current = [];
+  let currentHeight = 0;
+
+  procFindings.forEach(f => {
+    const includedIssues = getIssuesForFinding(f);
+    // Estimation de hauteur en pouces (plus généreuse pour éviter chevauchements) :
+    //  - base : 0.5" (titre + badge + petite marge)
+    //  - description : ~0.5" (toujours réservée même si vide)
+    //  - chaque issue : ~0.32"
+    //  - meta line (owner + risk) : 0.32"
+    const issueLines = includedIssues.length;
+    const findingHeight = 0.5 + 0.5 + (issueLines * 0.32) + 0.32 + 0.15; // dernier = padding bas
+    if (currentHeight + findingHeight > MAX_HEIGHT && current.length > 0) {
+      groups.push(current);
+      current = [];
+      currentHeight = 0;
+    }
+    current.push({finding: f, height: findingHeight, issues: includedIssues});
+    currentHeight += findingHeight;
+  });
+  if (current.length) groups.push(current);
+
+  const totalSlides = groups.length;
+  groups.forEach((group, gIdx) => {
+    const s = pres.addSlide();
+    const title = totalSlides > 1
+      ? `Findings — ${procName} (${gIdx + 1}/${totalSlides})`
+      : `Findings — ${procName}`;
+    ar_addTitleBar(pres, s, "Findings by Process", title);
+
+    // Bandeau violet décoratif
+    s.addShape(pres.ShapeType.rect, {
+      x: 0.4, y: 1.55, w: 12.5, h: 0.18,
+      fill: {color: AR_COLORS.purple}, line: {type: "none"},
+    });
+
+    // Position de départ (sous le bandeau)
+    let yPos = 1.85;
+    const xLeft = 0.4;
+    const fullWidth = 12.5;
+
+    group.forEach(item => {
+      const f = item.finding;
+      const issues = item.issues;
+      const findingH = item.height;
+
+      const designCount = issues.filter(i => i.source === 'design').length;
+      const operatingCount = issues.filter(i => i.source === 'operating').length;
+      // Badge global : DESIGN si que design, OPERATING si que operating, MIXED sinon
+      let badgeLabel, badgeColor, badgeBg;
+      if (designCount && operatingCount) {
+        badgeLabel = 'MIXED';
+        badgeColor = '#3C3489';
+        badgeBg = '#EEEDFE';
+      } else if (designCount) {
+        badgeLabel = 'DESIGN';
+        badgeColor = '#854F0B';
+        badgeBg = '#FAEEDA';
+      } else if (operatingCount) {
+        badgeLabel = 'OPERATING';
+        badgeColor = '#085041';
+        badgeBg = '#E1F5EE';
+      } else {
+        badgeLabel = '—';
+        badgeColor = '#5F5E5A';
+        badgeBg = '#F1EFE8';
+      }
+
+      // Bordure du finding (boîte légèrement encadrée)
+      s.addShape(pres.ShapeType.rect, {
+        x: xLeft, y: yPos, w: fullWidth, h: findingH,
+        fill: {color: 'FFFFFF'},
+        line: {color: AR_COLORS.grayMed, pt: 0.5},
+      });
+
+      // En-tête : badge à gauche, titre à droite (zone fixe 0.3" de haut)
+      s.addShape(pres.ShapeType.rect, {
+        x: xLeft + 0.15, y: yPos + 0.12, w: 0.85, h: 0.22,
+        fill: {color: badgeBg.replace('#','')}, line: {type: "none"},
+      });
+      s.addText(badgeLabel, {
+        x: xLeft + 0.15, y: yPos + 0.12, w: 0.85, h: 0.22,
+        fontSize: 8, color: badgeColor.replace('#',''), fontFace: "Calibri", bold: true, align: "center", valign: "middle",
+      });
+      s.addText(f.title || '(sans titre)', {
+        x: xLeft + 1.1, y: yPos + 0.08, w: fullWidth - 1.3, h: 0.3,
+        fontSize: 13, color: AR_COLORS.navy, fontFace: "Calibri", bold: true, valign: "top",
+      });
+
+      // Description (zone fixe 0.45" de haut, sous l'en-tête)
+      const descText = f.descExec || f.descDetailed || f.desc || '';
+      const descY = yPos + 0.42;
+      const descH = 0.45;
+      if (descText) {
+        s.addText(descText, {
+          x: xLeft + 1.1, y: descY, w: fullWidth - 1.3, h: descH,
+          fontSize: 10, color: AR_COLORS.textDark, fontFace: "Calibri", valign: "top",
+        });
+      }
+
+      // Liste des issues incluses : zone qui occupe toute la place entre desc et meta
+      const issuesY = descY + descH + 0.05;
+      const metaH = 0.28;
+      const metaY = yPos + findingH - metaH - 0.08;
+      const issuesH = metaY - issuesY - 0.05;
+      if (issues.length && issuesH > 0.15) {
+        const issueParas = issues.map((iss, idx) => {
+          const isDesign = iss.source === 'design';
+          const tag = isDesign ? '[DESIGN]' : '[OPERATING'+(getTestCode(iss.processId, iss.testId) ? ' '+getTestCode(iss.processId, iss.testId) : '')+']';
+          const txt = (iss.title ? iss.title + ' — ' : '') + (iss.description ? iss.description.split('\n')[0] : '');
+          return {
+            text: tag + ' ' + (txt || ''),
+            options: {
+              bullet: { code: "25CF" },
+              fontSize: 9,
+              color: isDesign ? '854F0B' : '085041',
+              fontFace: "Calibri",
+              paraSpaceAfter: idx === issues.length - 1 ? 0 : 2,
+            },
+          };
+        });
+        s.addText(issueParas, {
+          x: xLeft + 1.1, y: issuesY, w: fullWidth - 1.3, h: issuesH,
+          valign: "top",
+        });
+      }
+
+      // Footer du finding : owner / risk level (zone fixe en bas)
+      const metaParts = [];
+      if (f.owner) metaParts.push('Owner: ' + f.owner);
+      if (f.probability && f.impact) {
+        metaParts.push('Risk: ' + ar_riskLabel(f.probability, f.impact));
+      }
+      if (metaParts.length) {
+        s.addText(metaParts.join('  •  '), {
+          x: xLeft + 1.1, y: metaY, w: fullWidth - 1.3, h: metaH,
+          fontSize: 9, color: AR_COLORS.textGray, fontFace: "Calibri", italic: true, valign: "middle",
+        });
+      }
+
+      yPos += findingH + 0.1; // espace inter-findings
+    });
+
+    ar_addFooter(pres, s);
+  });
 }
