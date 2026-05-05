@@ -4414,6 +4414,14 @@ function renderDetContent(){
   } else if (CS === 2) {
     // Étape 3 (index 2) : Audit Kick Off — bouton de génération mis en avant
     html += renderKickoffGenerateBanner();
+  } else if (CS === 3) {
+    // Étape 4 (index 3) : Interview / Flowcharts
+    // Pour les audits BU : on ajoute la possibilité de remonter des findings Design
+    // (problèmes de conception du process identifiés en interview)
+    if (a.type === 'BU') {
+      html += renderDesignFindingsSection();
+    }
+    // Pour les audits Process : aucune section spécifique (juste les docs + notes en bas)
   } else if (CS === 4) {
     // Étape 5 (index 4) : ITW : WCGW & Contrôles (groupés)
     html += renderRiskSection();
@@ -6098,6 +6106,245 @@ function renderTestsSection() {
   html += '</div>';
   return html;
 }
+// ════════════════════════════════════════════════════════════════════
+//  HELPERS FINDINGS — Phase BU.4
+//  Pour les audits BU, chaque finding peut avoir :
+//   - source : 'design' (issu d'interview/flowchart) ou 'operating' (issu de test)
+//   - processId : ID du Process couvert dans audit.workProgramBU.processes
+//   - testId : si source='operating', ID du test au sein du Process
+//  Pour les audits Process, ces champs restent vides → comportement inchangé.
+// ════════════════════════════════════════════════════════════════════
+
+// Crée un finding avec les champs étendus BU.4. Centralisé pour cohérence.
+async function _createFinding(payload) {
+  var d = getAudData(CA);
+  if (!Array.isArray(d.findings)) d.findings = [];
+  var finding = Object.assign({
+    id: 'f_'+Date.now()+'_'+Math.floor(Math.random()*100000),
+    title: '',
+    descExec: '',
+    descDetailed: '',
+    desc: '',
+    potentialRisk: '',
+    owner: '',
+    probability: '',
+    impact: '',
+    controlIds: [],
+    // Nouveaux champs BU.4 (vides par défaut → backward compat audits Process)
+    source: '',           // 'design' | 'operating' | ''
+    processId: '',        // ID du Process couvert (audit.workProgramBU.processes[].id)
+    testId: '',           // ID du test au sein du Process (si source='operating')
+    createdAt: new Date().toISOString(),
+  }, payload || {});
+  // Backward compat : 'desc' pointe sur 'descDetailed' si le payload n'a pas fourni 'desc'
+  if (!finding.desc && finding.descDetailed) finding.desc = finding.descDetailed;
+  d.findings.push(finding);
+  await saveAuditData(CA);
+  return finding;
+}
+
+// Retourne le nom du Process associé à un finding (null si pas applicable)
+function _getFindingProcessName(finding) {
+  if (!finding || !finding.processId) return null;
+  var d = getAudData(CA);
+  var wp = (d.workProgramBU && Array.isArray(d.workProgramBU.processes))
+    ? d.workProgramBU.processes : [];
+  var wpp = wp.find(function(x){return x.id===finding.processId;});
+  if (!wpp) return null;
+  var p = (PROCESSES||[]).find(function(x){return x.id===wpp.auditProcessId;});
+  return p ? p.proc : null;
+}
+
+// Retourne le code du test associé à un finding (null si pas applicable)
+function _getFindingTestCode(finding) {
+  if (!finding || !finding.testId || !finding.processId) return null;
+  var d = getAudData(CA);
+  var wp = (d.workProgramBU && Array.isArray(d.workProgramBU.processes))
+    ? d.workProgramBU.processes : [];
+  var wpp = wp.find(function(x){return x.id===finding.processId;});
+  if (!wpp || !Array.isArray(wpp.tests)) return null;
+  var t = wpp.tests.find(function(x){return x.id===finding.testId;});
+  return t ? (t.code || null) : null;
+}
+
+// ════════════════════════════════════════════════════════════════════
+//  ÉTAPE 4 (BU) — Findings Design
+//  Pour les audits BU : à l'étape Interviews/Flowcharts, l'auditeur
+//  peut remonter des findings Design (contrôles manquants ou mal conçus
+//  identifiés pendant les interviews, avant les tests).
+// ════════════════════════════════════════════════════════════════════
+
+function renderDesignFindingsSection() {
+  var d = getAudData(CA);
+  if (!Array.isArray(d.findings)) d.findings = [];
+  var a = AUDIT_PLAN.find(function(x){return x.id===CA;});
+  var isAdmin = CU && CU.role==='admin';
+  var isPreparer = (a.assignedTo||a.auditeurs||[]).indexOf(CU&&CU.id)>=0 || isAdmin;
+
+  // Process couverts dans cet audit (depuis workProgramBU)
+  var wp = (d.workProgramBU && Array.isArray(d.workProgramBU.processes))
+    ? d.workProgramBU.processes : [];
+
+  // Findings Design existants
+  var designFindings = d.findings.filter(function(f){return f.source==='design';});
+
+  var html = '';
+  html += '<div class="cd" style="margin-bottom:1rem">';
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">';
+  html += '<span style="font-size:13px;font-weight:500">Findings Design <span style="color:var(--text-3);font-weight:400">('+designFindings.length+')</span></span>';
+  if (isPreparer) {
+    html += '<button class="bp" style="font-size:11px;padding:4px 10px" onclick="showDesignFindingModal(null)">+ Ajouter un finding Design</button>';
+  }
+  html += '</div>';
+  html += '<div style="font-size:11px;color:var(--text-3);font-style:italic;margin-bottom:14px">Problématiques de conception du process identifiées pendant les interviews/flowcharts (contrôles manquants, mal conçus, séparation des tâches insuffisante…). Ces findings apparaîtront dans le rapport groupés par Process avec un badge « Design ».</div>';
+
+  if (!wp.length) {
+    html += '<div style="font-size:12px;color:var(--text-3);font-style:italic;padding:1rem;text-align:center;border:1px dashed var(--border);border-radius:6px">Aucun Process couvert dans cet audit. Retourne à l\'étape Work Program pour ajouter des Process avant de saisir des findings Design.</div>';
+    html += '</div>';
+    return html;
+  }
+
+  if (!designFindings.length) {
+    html += '<div style="font-size:12px;color:var(--text-3);font-style:italic;padding:1rem;text-align:center;border:1px dashed var(--border);border-radius:6px">';
+    html += 'Aucun finding Design pour le moment.';
+    if (isPreparer) html += ' Cliquez sur « + Ajouter un finding Design » pour en créer un.';
+    html += '</div>';
+    html += '</div>';
+    return html;
+  }
+
+  // Grouper par Process couvert
+  var byProcess = {};
+  designFindings.forEach(function(f){
+    var key = f.processId || '_unassigned';
+    if (!byProcess[key]) byProcess[key] = [];
+    byProcess[key].push(f);
+  });
+
+  Object.keys(byProcess).forEach(function(procId){
+    var wpp = wp.find(function(x){return x.id===procId;});
+    var procName;
+    if (wpp) {
+      var p = (PROCESSES||[]).find(function(x){return x.id===wpp.auditProcessId;});
+      procName = p ? p.proc : '(Process introuvable)';
+    } else {
+      procName = '(Process non assigné)';
+    }
+    html += '<div style="background:#EEEDFE;color:#3C3489;font-weight:600;padding:6px 10px;font-size:11px;border-radius:4px;margin-bottom:6px;margin-top:8px">'+(''+procName).replace(/</g,'&lt;')+'</div>';
+    byProcess[procId].forEach(function(f){
+      var fIdx = d.findings.indexOf(f);
+      html += '<div style="border:.5px solid var(--border);border-radius:5px;padding:9px 12px;margin-bottom:6px;background:#fafafa;position:relative">';
+      if (isPreparer) {
+        html += '<div style="position:absolute;top:7px;right:7px;display:flex;gap:3px">';
+        html += '<button class="bs" style="font-size:10px;padding:2px 7px" onclick="showDesignFindingModal('+fIdx+')">Modifier</button>';
+        html += '<button class="bd" style="font-size:10px;padding:2px 7px" onclick="removeManualFinding('+fIdx+')" title="Supprimer">×</button>';
+        html += '</div>';
+      }
+      html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;padding-right:80px">';
+      html += '<span style="background:#FAEEDA;color:#854F0B;font-size:9px;padding:2px 7px;border-radius:3px;font-weight:500">DESIGN</span>';
+      html += '<span style="font-size:12px;font-weight:500">'+(''+(f.title||'')).replace(/</g,'&lt;')+'</span>';
+      html += '</div>';
+      if (f.descExec) {
+        html += '<div style="font-size:11px;color:var(--text-2);margin-top:3px">'+(''+f.descExec).replace(/</g,'&lt;')+'</div>';
+      }
+      var meta = [];
+      if (f.owner) meta.push('Owner : '+f.owner);
+      if (f.probability) meta.push('Probabilité : '+f.probability);
+      if (f.impact) meta.push('Impact : '+f.impact);
+      if (meta.length) {
+        html += '<div style="font-size:10px;color:var(--text-3);margin-top:5px;font-style:italic">'+meta.join(' · ').replace(/</g,'&lt;')+'</div>';
+      }
+      html += '</div>';
+    });
+  });
+
+  html += '</div>';
+  return html;
+}
+
+// Modale dédiée aux findings Design (audit BU, étape Interviews)
+// Plus simple que la modale "report" : pas de contrôles fail à lier (les tests
+// n'ont pas encore eu lieu), juste un sélecteur de Process + champs descriptifs.
+function showDesignFindingModal(idx) {
+  var d = getAudData(CA);
+  var existing = (idx !== null && idx !== undefined) ? d.findings[idx] : null;
+  var f = existing || {};
+
+  var wp = (d.workProgramBU && Array.isArray(d.workProgramBU.processes))
+    ? d.workProgramBU.processes : [];
+
+  if (!wp.length) {
+    toast('Aucun Process couvert. Retourne à l\'étape Work Program pour en ajouter.');
+    return;
+  }
+
+  // Sélecteur de Process couvert
+  var procOptions = wp.map(function(wpp){
+    var p = (PROCESSES||[]).find(function(x){return x.id===wpp.auditProcessId;});
+    var name = p ? p.proc : '(Process introuvable)';
+    return '<option value="'+_escAttr(wpp.id)+'"'+(f.processId===wpp.id?' selected':'')+'>'+name.replace(/</g,'&lt;')+'</option>';
+  }).join('');
+
+  var body = '';
+  body += '<div><label>Process concerné <span style="color:var(--red)">*</span></label>';
+  body += '<select id="df-proc"><option value="">— Choisir un Process —</option>'+procOptions+'</select></div>';
+  body += '<div><label>Titre du finding <span style="color:var(--red)">*</span></label>';
+  body += '<input id="df-title" value="'+_escAttr(f.title)+'" placeholder="ex : Absence de séparation des tâches en P2P"/></div>';
+  body += '<div><label>Description courte (Executive Summary)</label>';
+  body += '<textarea id="df-desc-exec" style="width:100%;min-height:50px" placeholder="2-3 lignes — apparaîtra en synthèse du rapport.">'+(''+(f.descExec||'')).replace(/</g,'&lt;')+'</textarea></div>';
+  body += '<div><label>Description détaillée</label>';
+  body += '<textarea id="df-desc-detail" style="width:100%;min-height:80px" placeholder="Constat complet : ce qui est manquant ou mal conçu, contexte business, impact potentiel...">'+(''+(f.descDetailed||f.desc||'')).replace(/</g,'&lt;')+'</textarea></div>';
+  body += '<div><label>Risque potentiel</label>';
+  body += '<textarea id="df-risk" style="width:100%;min-height:50px" placeholder="ex : Pertes de marge non maîtrisées, fraude possible...">'+(''+(f.potentialRisk||'')).replace(/</g,'&lt;')+'</textarea></div>';
+  body += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">';
+  body += '<div><label>Owner</label><input id="df-owner" value="'+_escAttr(f.owner)+'" placeholder="ex : Sales Director"/></div>';
+  body += '<div><label>Probability</label>';
+  body += '<select id="df-prob"><option value="">—</option>';
+  ['rare','unlikely','possible','certain'].forEach(function(p){
+    body += '<option value="'+p+'"'+(f.probability===p?' selected':'')+'>'+p.charAt(0).toUpperCase()+p.slice(1)+'</option>';
+  });
+  body += '</select></div>';
+  body += '<div><label>Impact</label>';
+  body += '<select id="df-imp"><option value="">—</option>';
+  ['minor','limited','major','severe'].forEach(function(i){
+    body += '<option value="'+i+'"'+(f.impact===i?' selected':'')+'>'+i.charAt(0).toUpperCase()+i.slice(1)+'</option>';
+  });
+  body += '</select></div>';
+  body += '</div>';
+
+  openModal(existing ? 'Modifier le finding Design' : 'Nouveau finding Design',
+    body, async function(){
+      var processId = document.getElementById('df-proc').value;
+      var title = document.getElementById('df-title').value.trim();
+      if (!processId) { toast('Process obligatoire'); return; }
+      if (!title) { toast('Titre obligatoire'); return; }
+      var payload = {
+        source: 'design',
+        processId: processId,
+        title: title,
+        descExec: document.getElementById('df-desc-exec').value.trim(),
+        descDetailed: document.getElementById('df-desc-detail').value.trim(),
+        desc: document.getElementById('df-desc-detail').value.trim(),
+        potentialRisk: document.getElementById('df-risk').value.trim(),
+        owner: document.getElementById('df-owner').value.trim(),
+        probability: document.getElementById('df-prob').value,
+        impact: document.getElementById('df-imp').value,
+      };
+      if (existing) {
+        // Modification : on garde l'id et la date de création
+        Object.assign(existing, payload);
+        await saveAuditData(CA);
+        addHist('edit', 'Finding Design "'+title+'" modifié');
+        toast('Finding Design modifié ✓');
+      } else {
+        await _createFinding(payload);
+        addHist('add', 'Finding Design "'+title+'" créé');
+        toast('Finding Design ajouté ✓');
+      }
+      document.getElementById('det-content').innerHTML = renderDetContent();
+    });
+}
+
 function renderFindingsSection() {
   var d = getAudData(CA);
   if (!d.findings) d.findings = [];
