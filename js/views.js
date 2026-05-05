@@ -7055,10 +7055,10 @@ function showBuFindingModal(findingIdx, seedIssueId) {
   body += '</select></div>';
   body += '</div>';
   // Panel des issues à inclure (mis à jour quand le Process change)
-  body += '<div style="margin-top:10px">';
+  body += '<div style="margin-top:10px;width:100%;min-width:0;box-sizing:border-box">';
   body += '<label>Issues à inclure dans ce finding</label>';
   body += '<div style="font-size:10px;color:var(--text-3);font-style:italic;margin-bottom:5px">Les issues du Process sélectionné sont en haut. Tu peux aussi en cocher d\'autres provenant d\'autres Process si pertinent.</div>';
-  body += '<div id="bf-issues-panel" style="border:.5px solid var(--border);border-radius:4px;max-height:300px;overflow-y:auto;background:#fafafa"></div>';
+  body += '<div id="bf-issues-panel" style="border:.5px solid var(--border);border-radius:4px;max-height:300px;overflow-y:auto;overflow-x:hidden;background:#fafafa;width:100%;box-sizing:border-box"></div>';
   body += '</div>';
 
   // Stocker pour le helper updateBuFindingIssuesPanel
@@ -7182,7 +7182,7 @@ function updateBuFindingIssuesPanel() {
     var isMainProc = procId === selectedProcId;
     var headerBg = isMainProc ? '#3C3489' : '#EEEDFE';
     var headerColor = isMainProc ? '#fff' : '#3C3489';
-    h += '<div style="background:'+headerBg+';color:'+headerColor+';font-weight:600;padding:5px 10px;font-size:10px;letter-spacing:.3px;text-transform:uppercase">'+procName.replace(/</g,'&lt;');
+    h += '<div style="background:'+headerBg+';color:'+headerColor+';font-weight:600;padding:5px 10px;font-size:10px;letter-spacing:.3px;text-transform:uppercase;box-sizing:border-box;width:100%">'+procName.replace(/</g,'&lt;');
     if (isMainProc) h += ' <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:10px">(Process principal)</span>';
     h += '</div>';
     byProcess[procId].forEach(function(iss){
@@ -7191,10 +7191,10 @@ function updateBuFindingIssuesPanel() {
       var badgeLabel = iss.source==='design' ? 'DESIGN' : 'OPERATING';
       var isInOther = !!aggregatedElsewhere[iss.id];
       var checked = currentlyChecked[iss.id] ? ' checked' : '';
-      h += '<label style="display:flex;align-items:flex-start;gap:8px;padding:6px 10px;border-bottom:.5px solid #f0f0f0;cursor:pointer'+(isInOther?';opacity:.55':'')+'">';
+      h += '<label style="display:flex;align-items:flex-start;gap:8px;padding:6px 10px;border-bottom:.5px solid #f0f0f0;cursor:pointer;box-sizing:border-box;width:100%'+(isInOther?';opacity:.55':'')+'">';
       h += '<input type="checkbox" class="bf-iss-cb" value="'+_escAttr(iss.id)+'"'+checked+' style="margin-top:3px;flex-shrink:0"/>';
       h += '<span style="background:'+badgeBg+';color:'+badgeColor+';font-size:9px;padding:2px 6px;border-radius:3px;font-weight:500;flex-shrink:0;margin-top:1px">'+badgeLabel+'</span>';
-      h += '<div style="flex:1;min-width:0">';
+      h += '<div style="flex:1;min-width:0;word-break:break-word;overflow-wrap:break-word">';
       if (iss.title) h += '<div style="font-size:11px;font-weight:500">'+(''+iss.title).replace(/</g,'&lt;')+'</div>';
       else if (iss.source === 'operating') {
         var code = _getIssueTestCode(iss);
