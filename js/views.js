@@ -1071,10 +1071,14 @@ function _escJsArg(s) { return (''+(s||'')).replace(/\\/g,'\\\\').replace(/'/g,"
 
 var TEST_TYPES = ['Test of Design', 'Test of Effectiveness', 'Substantive'];
 var _buwpCurrentProcId = null; // ID du Process Audit Universe actuellement sélectionné
+var _buwpShowEmpty = false; // Afficher les Process sans tests BU ? (par défaut : non)
 
 V['bu-work-program']=()=>`
   <div class="topbar">
     <div class="tbtitle">BU Work Program</div>
+    <div style="display:flex;gap:7px">
+      <button id="buwp-toggle-empty" class="bs" onclick="buwpToggleShowEmpty()" style="font-size:11px;padding:4px 10px"></button>
+    </div>
   </div>
   <div class="content">
     <div style="font-size:11px;color:var(--text-2);margin-bottom:10px;font-style:italic">Référentiel des tests substantifs standardisés. S'appuie sur les processus de l'Audit Universe (renommer là-bas se répercute ici). Pour chaque process, ajoute la liste des tests à réaliser dans un audit BU.</div>
@@ -1085,13 +1089,54 @@ V['bu-work-program']=()=>`
   </div>`;
 
 I['bu-work-program']=()=>{
+  // Sélection par défaut : 1er Process avec tests BU si on masque les vides,
+  // sinon 1er Process tout court
   if (!_buwpCurrentProcId || !(PROCESSES||[]).find(function(p){return p.id===_buwpCurrentProcId && !p.archived;})) {
-    var first = (PROCESSES||[]).find(function(p){return !p.archived;});
+    var first;
+    if (!_buwpShowEmpty) {
+      // chercher le 1er Process qui a des tests
+      first = (PROCESSES||[]).find(function(p){
+        if (p.archived) return false;
+        var c = _buCounts(p.id);
+        return c.tests > 0;
+      });
+    }
+    if (!first) {
+      first = (PROCESSES||[]).find(function(p){return !p.archived;});
+    }
     _buwpCurrentProcId = first ? first.id : null;
   }
+  _updateBuwpToggleBtn();
   renderBuwpMaster();
   renderBuwpDetail();
 };
+
+// Met à jour le label du bouton toggle selon l'état
+function _updateBuwpToggleBtn() {
+  var btn = document.getElementById('buwp-toggle-empty');
+  if (!btn) return;
+  btn.textContent = _buwpShowEmpty ? 'Masquer les non-couverts' : 'Afficher tous les process';
+}
+
+// Toggle affichage des Process sans tests
+function buwpToggleShowEmpty() {
+  _buwpShowEmpty = !_buwpShowEmpty;
+  // Si on masque maintenant et que le Process sélectionné n'a pas de tests,
+  // on bascule vers le 1er Process couvert
+  if (!_buwpShowEmpty && _buwpCurrentProcId) {
+    var c = _buCounts(_buwpCurrentProcId);
+    if (c.tests === 0) {
+      var firstWithTests = (PROCESSES||[]).find(function(p){
+        if (p.archived) return false;
+        return _buCounts(p.id).tests > 0;
+      });
+      _buwpCurrentProcId = firstWithTests ? firstWithTests.id : null;
+    }
+  }
+  _updateBuwpToggleBtn();
+  renderBuwpMaster();
+  renderBuwpDetail();
+}
 
 function _getBuEntry(auditProcessId) {
   return (BU_PROCESSES||[]).find(function(b){return b.auditProcessId===auditProcessId;});
@@ -1106,6 +1151,10 @@ function _buCounts(auditProcessId) {
 
 function renderBuwpMaster() {
   var procs = (PROCESSES||[]).filter(function(p){return !p.archived;});
+  // Si on masque les non-couverts, ne garder que ceux qui ont des tests
+  if (!_buwpShowEmpty) {
+    procs = procs.filter(function(p){return _buCounts(p.id).tests > 0;});
+  }
   // Hiérarchie : Univers > Domaine > Process
   var hierarchy = {};
   procs.forEach(function(p){
@@ -1125,7 +1174,11 @@ function renderBuwpMaster() {
 
   var h = '';
   if (!procs.length) {
-    h += '<div style="padding:1.5rem;text-align:center;color:var(--text-3);font-size:11px">Aucun processus dans l\'Audit Universe.<br>Ajoute des Processes côté Audit Universe pour les voir ici.</div>';
+    if (!_buwpShowEmpty) {
+      h += '<div style="padding:1.5rem;text-align:center;color:var(--text-3);font-size:11px">Aucun process avec tests BU pour le moment.<br><br>Cliquez sur « Afficher tous les process » en haut à droite pour voir tous les Process de l\'Audit Universe et commencer à ajouter des tests.</div>';
+    } else {
+      h += '<div style="padding:1.5rem;text-align:center;color:var(--text-3);font-size:11px">Aucun processus dans l\'Audit Universe.<br>Ajoute des Processes côté Audit Universe pour les voir ici.</div>';
+    }
   } else {
     universList.forEach(function(univ){
       h += '<div style="background:#3C3489;color:#fff;font-weight:700;padding:6px 10px;font-size:10px;letter-spacing:.5px;text-transform:uppercase">'+(''+univ).replace(/</g,'&lt;')+'</div>';
