@@ -5022,6 +5022,50 @@ function _wpBu(d) {
   return d.workProgramBU;
 }
 
+// Liste des Process à pré-inclure automatiquement en mode "Design only"
+// au démarrage de tout audit BU. L'auditeur peut les retirer si non pertinents.
+var DESIGN_ONLY_AUTO_PROCESSES = [
+  'ESRs',
+  'Corp Control & Compliance',
+  'Intellectual Property',
+  'Reporting & Forecasting',
+];
+
+// Injecte automatiquement les Process à revoir en Design only (si pas déjà fait).
+// Utilise un flag persistant `wp._designOnlyAutoSeeded` pour ne le faire qu'une seule fois.
+// Renvoie true si une modification a été faite (pour déclencher une sauvegarde).
+function _seedDesignOnlyProcesses(wp) {
+  if (wp._designOnlyAutoSeeded) return false;
+  var changed = false;
+  DESIGN_ONLY_AUTO_PROCESSES.forEach(function(procName){
+    // Chercher le Process correspondant dans l'Audit Universe (par nom)
+    var p = (PROCESSES||[]).find(function(x){
+      return !x.archived && x.proc === procName;
+    });
+    if (!p) return; // Process pas trouvé dans Audit Universe, on skip silencieusement
+    // Vérifier qu'il n'est pas déjà couvert
+    if (wp.processes.find(function(wpp){return wpp.auditProcessId===p.id;})) return;
+    // Ajouter en mode Design only
+    wp.processes.push({
+      id: 'wpp_'+Date.now()+'_'+Math.floor(Math.random()*100000),
+      auditProcessId: p.id,
+      owners: [],
+      coverageMode: 'design_only',
+      tests: [],
+    });
+    changed = true;
+  });
+  // Marquer comme seedé même si rien n'a été ajouté (par exemple si tous les Process sont déjà là)
+  wp._designOnlyAutoSeeded = true;
+  return changed || true; // On considère qu'il y a eu un changement (au minimum le flag)
+}
+
+// État de pliage par Process (UI uniquement, pas persisté en DB)
+// Tous les Process sont repliés par défaut.
+var _wpBuExpanded = {};
+// État de pliage par test (pour afficher/masquer les détails inline)
+var _wpBuTestExpanded = {};
+
 function renderWorkProgramBuSection() {
   var a = AUDIT_PLAN.find(function(x){return x.id===CA;});
   var d = getAudData(CA);
@@ -5030,6 +5074,15 @@ function renderWorkProgramBuSection() {
   var isPreparer = (a.assignedTo||a.auditeurs||[]).indexOf(CU&&CU.id)>=0 || isAdmin;
   // Le bouton "Uploader le BU Work Program" est masqué après le 1er upload
   var alreadyUploaded = !!wp.buWorkProgramUploaded;
+
+  // Auto-inclusion des 4 Process Design only au 1er chargement
+  if (isPreparer && !wp._designOnlyAutoSeeded) {
+    var seeded = _seedDesignOnlyProcesses(wp);
+    if (seeded) {
+      // Sauvegarder en arrière-plan (sans bloquer le rendu)
+      saveAuditData(CA).catch(function(e){console.warn('[WP-BU] auto-seed save error:', e);});
+    }
+  }
 
   var html = '';
   html += '<div class="cd" style="margin-bottom:1rem">';
@@ -5077,6 +5130,7 @@ function renderWpBuProcessCard(wpp, isPreparer) {
   var owners = wpp.owners || [];
   var mode = _wppCoverageMode(wpp);
   var isDesignOnly = (mode === 'design_only');
+  var expanded = !!_wpBuExpanded[wpp.id];
 
   // Couleurs selon le mode (chip discret)
   var modeBadgeBg = isDesignOnly ? '#FAEEDA' : '#E1F5EE';
@@ -5084,71 +5138,78 @@ function renderWpBuProcessCard(wpp, isPreparer) {
   var modeBadgeLabel = isDesignOnly ? 'DESIGN ONLY' : 'DESIGN + OPERATING';
 
   var h = '';
-  h += '<div style="border:.5px solid var(--border);border-radius:6px;margin-bottom:8px;background:#fff">';
-  // Header de la carte Process
-  h += '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:.5px solid #f0f0f0;background:#fafafa;gap:10px">';
+  h += '<div style="border:.5px solid var(--border);border-radius:6px;margin-bottom:6px;background:#fff;overflow:hidden">';
+
+  // ─── Header compact (1 ligne, cliquable pour plier/déplier) ─────
+  h += '<div style="display:flex;align-items:center;gap:10px;padding:9px 12px;background:#fafafa;cursor:pointer" onclick="toggleWpBuProcess(\''+_escJsArg(wpp.id)+'\')">';
+  h += '<span style="font-size:10px;color:var(--text-3);width:10px;flex-shrink:0">'+(expanded?'▼':'▶')+'</span>';
   h += '<div style="flex:1;min-width:0">';
-  h += '<div style="font-size:13px;font-weight:500;display:flex;align-items:center;gap:6px;flex-wrap:wrap">';
-  h += '<span>'+(''+procName).replace(/</g,'&lt;')+'</span>';
-  h += '<span style="background:'+modeBadgeBg+';color:'+modeBadgeColor+';font-size:9px;padding:2px 7px;border-radius:3px;font-weight:600;letter-spacing:.3px">'+modeBadgeLabel+'</span>';
+  h += '<div style="font-size:12px;font-weight:500">'+(''+procName).replace(/</g,'&lt;')+'</div>';
+  if (hierarchy) h += '<div style="font-size:9px;color:var(--text-3)">'+(''+hierarchy).replace(/</g,'&lt;')+'</div>';
   h += '</div>';
-  if (hierarchy) h += '<div style="font-size:10px;color:var(--text-3);margin-top:1px">'+(''+hierarchy).replace(/</g,'&lt;')+'</div>';
-  // Méta selon mode
+  h += '<span style="background:'+modeBadgeBg+';color:'+modeBadgeColor+';font-size:9px;padding:2px 7px;border-radius:3px;font-weight:600;letter-spacing:.3px;flex-shrink:0">'+modeBadgeLabel+'</span>';
   if (isDesignOnly) {
-    h += '<div style="font-size:11px;color:var(--text-3);margin-top:3px;font-style:italic">'
-      + 'Revue de conception uniquement (pas de tests)'
-      + ' · '+(owners.length?owners.length+(owners.length>1?' owners':' owner'):'aucun owner')
-      + '</div>';
+    h += '<span style="font-size:10px;color:var(--text-3);font-style:italic;flex-shrink:0">revue conception · '+(owners.length?owners.length+(owners.length>1?' owners':' owner'):'aucun owner')+'</span>';
   } else {
-    h += '<div style="font-size:11px;color:var(--purple);margin-top:3px">'
-      + testCount+(testCount>1?' tests':' test')
-      + (adhocCount?' · '+adhocCount+' ad hoc':'')
-      + ' · '+(owners.length?owners.length+(owners.length>1?' owners':' owner'):'aucun owner')
-      + '</div>';
+    h += '<span style="font-size:10px;color:var(--text-3);flex-shrink:0">'+testCount+(testCount>1?' tests':' test')+(adhocCount?' ('+adhocCount+' ad hoc)':'')+' · '+(owners.length?owners.length+(owners.length>1?' owners':' owner'):'aucun owner')+'</span>';
   }
-  h += '</div>';
   if (isPreparer) {
-    h += '<div style="display:flex;gap:5px;flex-shrink:0;align-items:center;flex-wrap:wrap;justify-content:flex-end">';
-    // Sélecteur Mode (combo A+C : modifiable à tout moment)
-    h += '<select onchange="setWpBuCoverageMode(\''+_escJsArg(wpp.id)+'\',this.value)" style="font-size:10px;padding:3px 6px;border:1px solid var(--border);border-radius:3px;background:#fff;font-weight:500" title="Mode de couverture du Process">';
-    h += '<option value="design_and_operating"'+(mode==='design_and_operating'?' selected':'')+'>Design + Operating</option>';
-    h += '<option value="design_only"'+(mode==='design_only'?' selected':'')+'>Design only</option>';
+    h += '<div style="display:flex;gap:4px;flex-shrink:0" onclick="event.stopPropagation()">';
+    h += '<select onchange="setWpBuCoverageMode(\''+_escJsArg(wpp.id)+'\',this.value)" style="font-size:9px;padding:2px 5px;border:.5px solid var(--border);border-radius:3px;background:#fff" title="Mode de couverture">';
+    h += '<option value="design_and_operating"'+(mode==='design_and_operating'?' selected':'')+'>D+O</option>';
+    h += '<option value="design_only"'+(mode==='design_only'?' selected':'')+'>D only</option>';
     h += '</select>';
-    h += '<button class="bs" style="font-size:10px;padding:3px 8px" onclick="showWpBuOwnersModal(\''+_escJsArg(wpp.id)+'\')">Owners</button>';
-    h += '<button class="bd" style="font-size:10px;padding:3px 8px" onclick="removeWpBuProcess(\''+_escJsArg(wpp.id)+'\')" title="Retirer ce process de l\'audit">Retirer</button>';
+    h += '<button class="bs" style="font-size:9px;padding:2px 6px" onclick="showWpBuOwnersModal(\''+_escJsArg(wpp.id)+'\')">Owners</button>';
+    h += '<button class="bd" style="font-size:9px;padding:2px 6px" onclick="removeWpBuProcess(\''+_escJsArg(wpp.id)+'\')" title="Retirer">Retirer</button>';
     h += '</div>';
   }
   h += '</div>';
 
-  // Si Design only : on n'affiche pas les tests (mais ils restent en mémoire si on switch ensuite)
-  if (!isDesignOnly) {
-    // Liste des tests
-    h += '<div style="padding:8px 14px">';
-    if (!testCount) {
-      h += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:8px 0;text-align:center">Aucun test pour ce process. ';
-      if (isPreparer) h += 'Cliquez sur « + Ajouter un test hors BU Work Program » pour en créer un.';
+  // ─── Contenu déplié ──────────────────────────────────────────────
+  if (expanded) {
+    if (isDesignOnly) {
+      h += '<div style="padding:10px 14px;font-size:11px;color:var(--text-3);font-style:italic;text-align:center;border-top:.5px dashed #e0e0e0">';
+      if (testCount > 0) {
+        h += testCount+(testCount>1?' tests':' test')+' masqué'+(testCount>1?'s':'')+' (mode Design only). Pour les afficher à nouveau, repasse en mode « D+O ».';
+      } else {
+        h += 'Process en mode Design only — pas de tests substantifs. Les Issues Design seront saisies à l\'étape Interviews.';
+      }
       h += '</div>';
     } else {
-      (wpp.tests||[]).forEach(function(t, ti){
-        h += renderWpBuTestRow(wpp.id, t, ti, isPreparer);
-      });
-    }
-    if (isPreparer) {
-      h += '<div style="text-align:center;padding:6px 0 2px">';
-      h += '<button class="bs" style="font-size:11px;padding:4px 10px" onclick="addWpBuAdHocTest(\''+_escJsArg(wpp.id)+'\')">+ Ajouter un test hors BU Work Program</button>';
+      // Table compacte des tests
+      h += '<div style="border-top:.5px solid #f0f0f0">';
+      if (!testCount) {
+        h += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:10px;text-align:center">Aucun test pour ce process.</div>';
+      } else {
+        h += '<table style="width:100%;border-collapse:collapse;font-size:11px">';
+        (wpp.tests||[]).forEach(function(t){
+          h += renderWpBuTestRowCompact(wpp.id, t, isPreparer);
+        });
+        h += '</table>';
+      }
+      if (isPreparer) {
+        h += '<div style="text-align:center;padding:6px 0;border-top:.5px solid #f0f0f0">';
+        h += '<button class="bs" style="font-size:10px;padding:3px 9px" onclick="addWpBuAdHocTest(\''+_escJsArg(wpp.id)+'\')">+ Ajouter un test hors BU Work Program</button>';
+        h += '</div>';
+      }
       h += '</div>';
     }
-    h += '</div>';
-  } else if (testCount > 0) {
-    // Mode Design only mais des tests existent (cas où on a switché depuis Design+Operating)
-    // → afficher un message d'info avec compteur, l'auditeur peut switcher en arrière pour les voir
-    h += '<div style="padding:8px 14px;font-size:10px;color:var(--text-3);font-style:italic;text-align:center">'
-      + testCount+(testCount>1?' tests':' test')+' masqué'+(testCount>1?'s':'')+' (mode Design only). Pour les afficher à nouveau, repasse en mode « Design + Operating ».'
-      + '</div>';
   }
 
   h += '</div>';
   return h;
+}
+
+// Toggle pliage d'un Process
+function toggleWpBuProcess(wppId) {
+  _wpBuExpanded[wppId] = !_wpBuExpanded[wppId];
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+// Toggle pliage d'un test
+function toggleWpBuTest(testId) {
+  _wpBuTestExpanded[testId] = !_wpBuTestExpanded[testId];
+  document.getElementById('det-content').innerHTML = renderDetContent();
 }
 
 // Setter du mode de couverture
@@ -5170,38 +5231,62 @@ async function setWpBuCoverageMode(wppId, mode) {
 
 
 
-function renderWpBuTestRow(wppId, t, idx, isPreparer) {
+// ─── Test : ligne compacte (vue par défaut) ─────────────────────
+// Affiche : Code | Énoncé | Type | bouton "Détail/Replier"
+// Cliquer sur la ligne ou "Détail" déplie le test inline.
+function renderWpBuTestRowCompact(wppId, t, isPreparer) {
+  var expanded = !!_wpBuTestExpanded[t.id];
   var typeColor = t.testType==='Test of Effectiveness' ? '#0C447C' :
                   t.testType==='Substantive' ? '#854F0B' : '#085041';
   var typeBg = t.testType==='Test of Effectiveness' ? '#E6F1FB' :
                t.testType==='Substantive' ? '#FAEEDA' : '#E1F5EE';
-  if (!Array.isArray(t.pbc)) t.pbc = [];
-  var sourceBadge = '';
-  if (t.source === 'adhoc') {
-    sourceBadge = '<span style="background:#FBEAF0;color:#993556;font-size:9px;padding:2px 6px;border-radius:3px">ad hoc</span>';
-  } else if (t.modifiedFromRef) {
-    sourceBadge = '<span style="background:#FAEEDA;color:#854F0B;font-size:9px;padding:2px 6px;border-radius:3px" title="Modifié depuis le référentiel">modifié</span>';
-  } else {
-    sourceBadge = '<span style="background:#E1F5EE;color:#085041;font-size:9px;padding:2px 6px;border-radius:3px">référentiel</span>';
-  }
+  var sourceTag = '';
+  if (t.source === 'adhoc') sourceTag = ' <span style="font-size:8px;color:#993556;font-style:italic">(ad hoc)</span>';
+  else if (t.modifiedFromRef) sourceTag = ' <span style="font-size:8px;color:#854F0B;font-style:italic">(modifié)</span>';
+
+  // Énoncé tronqué si trop long (les détails complets seront dans la vue dépliée)
+  var statement = (t.statement || '(sans énoncé)').replace(/</g,'&lt;');
+  var maxLen = 90;
+  var truncated = statement.length > maxLen ? statement.slice(0, maxLen-1)+'…' : statement;
 
   var h = '';
-  h += '<div style="border:.5px solid var(--border);border-radius:5px;padding:9px 11px;margin-bottom:6px;background:#fff;position:relative">';
-  if (isPreparer) {
-    h += '<button onclick="removeWpBuTest(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\')" title="Supprimer ce test" style="position:absolute;top:7px;right:7px;background:#fff;border:.5px solid var(--border);color:var(--text-3);border-radius:4px;width:22px;height:22px;cursor:pointer;font-size:13px;padding:0;line-height:1">×</button>';
-  }
-  // Code + Type + Source
-  h += '<div style="display:flex;gap:5px;align-items:center;margin-bottom:6px;padding-right:30px">';
+  h += '<tr style="border-top:.5px solid #f0f0f0;cursor:pointer" onclick="toggleWpBuTest(\''+_escJsArg(t.id)+'\')">';
+  h += '<td style="padding:6px 8px;width:90px;vertical-align:middle;white-space:nowrap">';
+  h += '<span style="font-size:9px;color:var(--text-3);width:8px;display:inline-block;margin-right:3px">'+(expanded?'▼':'▶')+'</span>';
   h += '<span style="background:var(--purple);color:#fff;font-size:9px;padding:2px 6px;border-radius:3px;font-family:monospace;letter-spacing:.4px">'+(t.code||'').replace(/</g,'&lt;')+'</span>';
-  h += '<span style="background:'+typeBg+';color:'+typeColor+';font-size:9px;padding:2px 6px;border-radius:3px">'+(t.testType||'').replace(/</g,'&lt;')+'</span>';
-  h += sourceBadge;
-  h += '</div>';
-  // Énoncé
+  h += '</td>';
+  h += '<td style="padding:6px 8px;vertical-align:middle">'+truncated+sourceTag+'</td>';
+  h += '<td style="padding:6px 8px;width:100px;vertical-align:middle"><span style="background:'+typeBg+';color:'+typeColor+';font-size:9px;padding:2px 6px;border-radius:3px">'+(t.testType||'').replace(/</g,'&lt;')+'</span></td>';
+  if (isPreparer) {
+    h += '<td style="padding:6px 8px;width:60px;vertical-align:middle;text-align:right" onclick="event.stopPropagation()">';
+    h += '<button class="bs" style="font-size:9px;padding:2px 6px" onclick="toggleWpBuTest(\''+_escJsArg(t.id)+'\')">'+(expanded?'Replier':'Détail')+'</button>';
+    h += '</td>';
+  }
+  h += '</tr>';
+  // Si déplié : 1 ligne supplémentaire qui contient les détails inline
+  if (expanded) {
+    h += '<tr style="background:#fafafa">';
+    h += '<td colspan="'+(isPreparer?4:3)+'" style="padding:0">';
+    h += renderWpBuTestRowDetail(wppId, t, isPreparer);
+    h += '</td></tr>';
+  }
+  return h;
+}
+
+// ─── Test : détail déplié inline (édition complète) ──────────────
+// Affiche tous les champs éditables : énoncé, objectif, type, sample, PBC...
+// + bouton "Supprimer ce test" en bas.
+function renderWpBuTestRowDetail(wppId, t, isPreparer) {
+  if (!Array.isArray(t.pbc)) t.pbc = [];
+
+  var h = '';
+  h += '<div style="padding:10px 14px;border-top:.5px dashed #e0e0e0;background:#fafafa">';
+  // Énoncé éditable
   h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Énoncé du test</label>';
   if (isPreparer) {
     h += '<textarea onchange="setWpBuTestField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'statement\',this.value)" style="width:100%;min-height:38px;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;resize:vertical;font-family:inherit;box-sizing:border-box;margin-bottom:5px">'+(''+(t.statement||'')).replace(/</g,'&lt;')+'</textarea>';
   } else {
-    h += '<div style="font-size:11px;padding:5px 8px;background:#fafafa;border-radius:3px;margin-bottom:5px">'+(''+(t.statement||'—')).replace(/</g,'&lt;')+'</div>';
+    h += '<div style="font-size:11px;padding:5px 8px;background:#fff;border-radius:3px;margin-bottom:5px">'+(''+(t.statement||'—')).replace(/</g,'&lt;')+'</div>';
   }
   // Objectif + Type
   h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:5px">';
@@ -5269,6 +5354,12 @@ function renderWpBuTestRow(wppId, t, idx, isPreparer) {
     });
   }
   h += '</div>';
+  // Bouton supprimer le test (en bas, discret)
+  if (isPreparer) {
+    h += '<div style="text-align:right;margin-top:8px">';
+    h += '<button class="bd" style="font-size:9px;padding:2px 7px" onclick="removeWpBuTest(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\')">Supprimer ce test</button>';
+    h += '</div>';
+  }
   h += '</div>';
   return h;
 }
