@@ -1379,14 +1379,10 @@ function renderBuwpProcessCard(p, isAdmin) {
 // ─── Ligne compacte d'un test (table) + détail inline si déplié ──
 function renderBuwpTestRow(auditProcessId, t, isAdmin) {
   var expanded = !!_buwpExpandedTests[t.id];
-  var typeColor = t.testType==='Test of Effectiveness' ? '#0C447C' :
-                  t.testType==='Substantive' ? '#854F0B' : '#085041';
-  var typeBg = t.testType==='Test of Effectiveness' ? '#E6F1FB' :
-               t.testType==='Substantive' ? '#FAEEDA' : '#E1F5EE';
 
   // Énoncé tronqué pour la ligne compacte
   var statement = (t.statement || '(sans énoncé)').replace(/</g,'&lt;');
-  var maxLen = 90;
+  var maxLen = 110;
   var truncated = statement.length > maxLen ? statement.slice(0, maxLen-1)+'…' : statement;
 
   var h = '';
@@ -1396,7 +1392,6 @@ function renderBuwpTestRow(auditProcessId, t, isAdmin) {
   h += '<span style="background:var(--purple);color:#fff;font-size:9px;padding:2px 6px;border-radius:3px;font-family:monospace;letter-spacing:.4px">'+(t.code||'').replace(/</g,'&lt;')+'</span>';
   h += '</td>';
   h += '<td style="padding:6px 8px;vertical-align:middle">'+truncated+'</td>';
-  h += '<td style="padding:6px 8px;width:100px;vertical-align:middle"><span style="background:'+typeBg+';color:'+typeColor+';font-size:9px;padding:2px 6px;border-radius:3px">'+(t.testType||'').replace(/</g,'&lt;')+'</span></td>';
   h += '<td style="padding:6px 8px;width:60px;vertical-align:middle;text-align:right" onclick="event.stopPropagation()">';
   h += '<button class="bs" style="font-size:9px;padding:2px 6px" onclick="toggleBuwpTest(\''+_escJsArg(t.id)+'\')">'+(expanded?'Replier':'Détail')+'</button>';
   h += '</td>';
@@ -1405,7 +1400,7 @@ function renderBuwpTestRow(auditProcessId, t, isAdmin) {
   // Si déplié : ligne supplémentaire avec le détail éditable inline
   if (expanded) {
     h += '<tr style="background:#fafafa">';
-    h += '<td colspan="4" style="padding:0">';
+    h += '<td colspan="3" style="padding:0">';
     h += renderBuwpTestDetail(auditProcessId, t, isAdmin);
     h += '</td></tr>';
   }
@@ -1427,29 +1422,22 @@ function renderBuwpTestDetail(auditProcessId, t, isAdmin) {
     h += '<div style="font-size:11px;padding:5px 8px;background:#fff;border-radius:3px;margin-bottom:5px">'+(''+(t.statement||'—')).replace(/</g,'&lt;')+'</div>';
   }
 
-  // Objectif + Type
-  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:5px">';
-  h += '<div>';
-  h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Objectif</label>';
+  // Objectif (zone large, style assurance)
+  h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Objectif (assurance / contrôle interne)</label>';
   if (isAdmin) {
-    h += '<input value="'+_escAttr(t.objective)+'" onchange="setBuTestField(\''+_escJsArg(auditProcessId)+'\',\''+_escJsArg(t.id)+'\',\'objective\',this.value)" style="width:100%;font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box"/>';
+    h += '<textarea onchange="setBuTestField(\''+_escJsArg(auditProcessId)+'\',\''+_escJsArg(t.id)+'\',\'objective\',this.value)" style="width:100%;min-height:38px;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;resize:vertical;font-family:inherit;box-sizing:border-box;margin-bottom:5px" placeholder="ex : S\'assurer que...">'+(''+(t.objective||'')).replace(/</g,'&lt;')+'</textarea>';
   } else {
-    h += '<div style="font-size:11px;padding:4px 7px">'+(''+(t.objective||'—')).replace(/</g,'&lt;')+'</div>';
+    h += '<div style="font-size:11px;padding:5px 8px;background:#fff;border-radius:3px;margin-bottom:5px">'+(''+(t.objective||'—')).replace(/</g,'&lt;')+'</div>';
   }
-  h += '</div>';
-  h += '<div>';
-  h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Type de test</label>';
+
+  // Assertions COSO (zone large, format puces, monospace pour bien aligner)
+  h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Assertions COSO testées</label>';
   if (isAdmin) {
-    h += '<select onchange="setBuTestField(\''+_escJsArg(auditProcessId)+'\',\''+_escJsArg(t.id)+'\',\'testType\',this.value)" style="width:100%;font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:3px;background:#fff">';
-    TEST_TYPES.forEach(function(tt){
-      h += '<option'+(t.testType===tt?' selected':'')+'>'+tt+'</option>';
-    });
-    h += '</select>';
+    h += '<textarea onchange="setBuTestField(\''+_escJsArg(auditProcessId)+'\',\''+_escJsArg(t.id)+'\',\'assertions\',this.value)" style="width:100%;min-height:60px;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;line-height:1.5;box-sizing:border-box;margin-bottom:1px" placeholder="• Complétude (...)\n• Existence (...)\n• Exactitude (...)">'+(''+(t.assertions||'')).replace(/</g,'&lt;')+'</textarea>';
+    h += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-bottom:7px">Une assertion par ligne, précédée d\'une puce « • »</div>';
   } else {
-    h += '<div style="font-size:11px;padding:4px 7px">'+(''+(t.testType||'—')).replace(/</g,'&lt;')+'</div>';
+    h += '<div style="font-size:11px;padding:5px 8px;background:#fff;border-radius:3px;margin-bottom:7px;white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;line-height:1.5">'+(''+(t.assertions||'—')).replace(/</g,'&lt;')+'</div>';
   }
-  h += '</div>';
-  h += '</div>';
 
   // Sampling hint
   h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Méthode / sample (orientation pour la sélection)</label>';
@@ -5415,17 +5403,13 @@ async function setWpBuCoverageMode(wppId, mode) {
 // Cliquer sur la ligne ou "Détail" déplie le test inline.
 function renderWpBuTestRowCompact(wppId, t, isPreparer) {
   var expanded = !!_wpBuTestExpanded[t.id];
-  var typeColor = t.testType==='Test of Effectiveness' ? '#0C447C' :
-                  t.testType==='Substantive' ? '#854F0B' : '#085041';
-  var typeBg = t.testType==='Test of Effectiveness' ? '#E6F1FB' :
-               t.testType==='Substantive' ? '#FAEEDA' : '#E1F5EE';
   var sourceTag = '';
   if (t.source === 'adhoc') sourceTag = ' <span style="font-size:8px;color:#993556;font-style:italic">(ad hoc)</span>';
   else if (t.modifiedFromRef) sourceTag = ' <span style="font-size:8px;color:#854F0B;font-style:italic">(modifié)</span>';
 
   // Énoncé tronqué si trop long (les détails complets seront dans la vue dépliée)
   var statement = (t.statement || '(sans énoncé)').replace(/</g,'&lt;');
-  var maxLen = 90;
+  var maxLen = 110;
   var truncated = statement.length > maxLen ? statement.slice(0, maxLen-1)+'…' : statement;
 
   var h = '';
@@ -5435,7 +5419,6 @@ function renderWpBuTestRowCompact(wppId, t, isPreparer) {
   h += '<span style="background:var(--purple);color:#fff;font-size:9px;padding:2px 6px;border-radius:3px;font-family:monospace;letter-spacing:.4px">'+(t.code||'').replace(/</g,'&lt;')+'</span>';
   h += '</td>';
   h += '<td style="padding:6px 8px;vertical-align:middle">'+truncated+sourceTag+'</td>';
-  h += '<td style="padding:6px 8px;width:100px;vertical-align:middle"><span style="background:'+typeBg+';color:'+typeColor+';font-size:9px;padding:2px 6px;border-radius:3px">'+(t.testType||'').replace(/</g,'&lt;')+'</span></td>';
   if (isPreparer) {
     h += '<td style="padding:6px 8px;width:60px;vertical-align:middle;text-align:right" onclick="event.stopPropagation()">';
     h += '<button class="bs" style="font-size:9px;padding:2px 6px" onclick="toggleWpBuTest(\''+_escJsArg(t.id)+'\')">'+(expanded?'Replier':'Détail')+'</button>';
@@ -5445,7 +5428,7 @@ function renderWpBuTestRowCompact(wppId, t, isPreparer) {
   // Si déplié : 1 ligne supplémentaire qui contient les détails inline
   if (expanded) {
     h += '<tr style="background:#fafafa">';
-    h += '<td colspan="'+(isPreparer?4:3)+'" style="padding:0">';
+    h += '<td colspan="'+(isPreparer?3:2)+'" style="padding:0">';
     h += renderWpBuTestRowDetail(wppId, t, isPreparer);
     h += '</td></tr>';
   }
@@ -5467,29 +5450,22 @@ function renderWpBuTestRowDetail(wppId, t, isPreparer) {
   } else {
     h += '<div style="font-size:11px;padding:5px 8px;background:#fff;border-radius:3px;margin-bottom:5px">'+(''+(t.statement||'—')).replace(/</g,'&lt;')+'</div>';
   }
-  // Objectif + Type
-  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:5px">';
-  h += '<div>';
-  h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Objectif</label>';
+  // Objectif (zone large, style assurance)
+  h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Objectif (assurance / contrôle interne)</label>';
   if (isPreparer) {
-    h += '<input value="'+_escAttr(t.objective)+'" onchange="setWpBuTestField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'objective\',this.value)" style="width:100%;font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box"/>';
+    h += '<textarea onchange="setWpBuTestField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'objective\',this.value)" style="width:100%;min-height:38px;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;resize:vertical;font-family:inherit;box-sizing:border-box;margin-bottom:5px" placeholder="ex : S\'assurer que...">'+(''+(t.objective||'')).replace(/</g,'&lt;')+'</textarea>';
   } else {
-    h += '<div style="font-size:11px;padding:4px 7px">'+(''+(t.objective||'—')).replace(/</g,'&lt;')+'</div>';
+    h += '<div style="font-size:11px;padding:5px 8px;background:#fff;border-radius:3px;margin-bottom:5px">'+(''+(t.objective||'—')).replace(/</g,'&lt;')+'</div>';
   }
-  h += '</div>';
-  h += '<div>';
-  h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Type de test</label>';
+
+  // Assertions COSO (zone large, monospace pour bien aligner les puces)
+  h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Assertions COSO testées</label>';
   if (isPreparer) {
-    h += '<select onchange="setWpBuTestField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'testType\',this.value)" style="width:100%;font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:3px;background:#fff">';
-    TEST_TYPES.forEach(function(tt){
-      h += '<option'+(t.testType===tt?' selected':'')+'>'+tt+'</option>';
-    });
-    h += '</select>';
+    h += '<textarea onchange="setWpBuTestField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'assertions\',this.value)" style="width:100%;min-height:60px;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;line-height:1.5;box-sizing:border-box;margin-bottom:1px" placeholder="• Complétude (...)\n• Existence (...)\n• Exactitude (...)">'+(''+(t.assertions||'')).replace(/</g,'&lt;')+'</textarea>';
+    h += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-bottom:7px">Une assertion par ligne, précédée d\'une puce « • »</div>';
   } else {
-    h += '<div style="font-size:11px;padding:4px 7px">'+(''+(t.testType||'—')).replace(/</g,'&lt;')+'</div>';
+    h += '<div style="font-size:11px;padding:5px 8px;background:#fff;border-radius:3px;margin-bottom:7px;white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;line-height:1.5">'+(''+(t.assertions||'—')).replace(/</g,'&lt;')+'</div>';
   }
-  h += '</div>';
-  h += '</div>';
   // Sampling
   h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Méthode / sample (combien et comment)</label>';
   if (isPreparer) {
