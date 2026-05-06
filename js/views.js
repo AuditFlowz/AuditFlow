@@ -1342,7 +1342,7 @@ function renderBuwpProcessCard(p, isAdmin) {
   var h = '';
   h += '<div style="border:.5px solid var(--border);border-radius:6px;margin-bottom:6px;background:#fff;overflow:hidden">';
 
-  // Header compact (1 ligne, cliquable)
+  // Header compact (1 ligne, cliquable pour plier/déplier)
   h += '<div style="display:flex;align-items:center;gap:10px;padding:9px 12px;background:#fafafa;cursor:pointer" onclick="toggleBuwpProcess(\''+_escJsArg(p.id)+'\')">';
   h += '<span style="font-size:10px;color:var(--text-3);width:10px;flex-shrink:0">'+(expanded?'▼':'▶')+'</span>';
   h += '<div style="flex:1;min-width:0">';
@@ -1350,24 +1350,23 @@ function renderBuwpProcessCard(p, isAdmin) {
   if (hierarchy) h += '<div style="font-size:9px;color:var(--text-3)">'+(''+hierarchy).replace(/</g,'&lt;')+'</div>';
   h += '</div>';
   h += '<span style="font-size:10px;color:var(--text-3);flex-shrink:0">'+testCount+(testCount>1?' tests':' test')+'</span>';
+  // Bouton "+ Ajouter un test" : à droite, dans le header (stop propagation pour ne pas plier/déplier)
+  if (isAdmin) {
+    h += '<button class="bs" style="font-size:10px;padding:3px 8px;flex-shrink:0" onclick="event.stopPropagation();addBuTest(\''+_escJsArg(p.id)+'\')">+ Ajouter un test</button>';
+  }
   h += '</div>';
 
   // Contenu déplié
   if (expanded) {
     h += '<div style="border-top:.5px solid #f0f0f0">';
     if (!testCount) {
-      h += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:10px;text-align:center">Aucun test pour ce process.</div>';
+      h += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:10px;text-align:center">Aucun test pour ce process. Cliquez sur « + Ajouter un test » dans l\'en-tête.</div>';
     } else {
       h += '<table style="width:100%;border-collapse:collapse;font-size:11px">';
       tests.forEach(function(t){
         h += renderBuwpTestRow(p.id, t, isAdmin);
       });
       h += '</table>';
-    }
-    if (isAdmin) {
-      h += '<div style="text-align:center;padding:6px 0;border-top:.5px solid #f0f0f0">';
-      h += '<button class="bs" style="font-size:11px;padding:4px 10px" onclick="addBuTest(\''+_escJsArg(p.id)+'\')">+ Ajouter un test</button>';
-      h += '</div>';
     }
     h += '</div>';
   }
@@ -5326,6 +5325,10 @@ function renderWpBuProcessCard(wpp, isPreparer) {
     h += '<option value="design_and_operating"'+(mode==='design_and_operating'?' selected':'')+'>D+O</option>';
     h += '<option value="design_only"'+(mode==='design_only'?' selected':'')+'>D only</option>';
     h += '</select>';
+    // "+ Test" : seulement en mode D+O (pas de tests à ajouter en mode Design only)
+    if (!isDesignOnly) {
+      h += '<button class="bs" style="font-size:9px;padding:2px 6px" onclick="addWpBuAdHocTest(\''+_escJsArg(wpp.id)+'\')" title="Ajouter un test hors BU Work Program">+ Test</button>';
+    }
     h += '<button class="bs" style="font-size:9px;padding:2px 6px" onclick="showWpBuOwnersModal(\''+_escJsArg(wpp.id)+'\')">Owners</button>';
     h += '<button class="bd" style="font-size:9px;padding:2px 6px" onclick="removeWpBuProcess(\''+_escJsArg(wpp.id)+'\')" title="Retirer">Retirer</button>';
     h += '</div>';
@@ -5346,18 +5349,13 @@ function renderWpBuProcessCard(wpp, isPreparer) {
       // Table compacte des tests
       h += '<div style="border-top:.5px solid #f0f0f0">';
       if (!testCount) {
-        h += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:10px;text-align:center">Aucun test pour ce process.</div>';
+        h += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:10px;text-align:center">Aucun test pour ce process. Cliquez sur « + Test » dans l\'en-tête pour en ajouter un.</div>';
       } else {
         h += '<table style="width:100%;border-collapse:collapse;font-size:11px">';
         (wpp.tests||[]).forEach(function(t){
           h += renderWpBuTestRowCompact(wpp.id, t, isPreparer);
         });
         h += '</table>';
-      }
-      if (isPreparer) {
-        h += '<div style="text-align:center;padding:6px 0;border-top:.5px solid #f0f0f0">';
-        h += '<button class="bs" style="font-size:10px;padding:3px 9px" onclick="addWpBuAdHocTest(\''+_escJsArg(wpp.id)+'\')">+ Ajouter un test hors BU Work Program</button>';
-        h += '</div>';
       }
       h += '</div>';
     }
