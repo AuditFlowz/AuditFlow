@@ -33,21 +33,14 @@ async function getMsalApp() {
 }
 
 // Scopes Graph requis par AuditFlow.
-// Calendars.ReadWrite + Mail.Send + OnlineMeetings.ReadWrite ont été ajoutés
-// pour permettre la création de réunions Kick-off avec invitations Outlook + Teams,
-// ainsi que l'envoi du rapport et des demandes de Management Response.
-//
-// Ces 3 scopes ne sont PAS encore "admin-consented" sur le tenant Axway,
-// donc lors du 1er login après ajout, l'utilisateur verra une popup OAuth
-// listant les nouveaux scopes ("Allow AuditFlow to read your calendar...").
-// MSAL gère ce cas standard.
+// NOTE : les scopes Calendars.ReadWrite, Mail.Send, OnlineMeetings.ReadWrite
+// ont été temporairement retirés en attendant le Grant admin consent côté IT Axway.
+// La connexion bloquait car le tenant exige admin consent même pour user consent.
+// L'envoi des invitations Kick-off / rapport / MR se fait pour l'instant via mailto:.
 var GRAPH_SCOPES = [
   'Sites.ReadWrite.All',
   'Files.ReadWrite',
-  'User.Read',
-  'Calendars.ReadWrite',
-  'Mail.Send',
-  'OnlineMeetings.ReadWrite'
+  'User.Read'
 ];
 var _redirectCount = 0; // Compteur en mémoire (reset à chaque chargement)
 
