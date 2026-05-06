@@ -973,77 +973,235 @@ V['plan-process']=()=>`
 
 I['plan-process']=()=>renderProcTable();
 
+// État UI pour le tri/filtre du tableau Audit Universe
+// (en mémoire seulement, pas persisté)
+var _puFilterUniv = '';   // '' = tous
+var _puFilterDom = '';    // '' = tous
+var _puFilterText = '';   // recherche par nom de Process
+var _puSortCol = 'univ';  // 'univ' | 'dom' | 'proc' | 'risk'
+var _puSortDir = 'asc';   // 'asc' | 'desc'
+
 function renderProcTable(){
-  // Construire la hiérarchie : { universName: { domainName: [process, ...] } }
-  var hierarchy = {};
-  PROCESSES.filter(function(p){return !p.archived;}).forEach(function(p){
-    var u = p.univers || '(Sans univers)';
-    var d = p.dom || '(Sans domaine)';
-    if (!hierarchy[u]) hierarchy[u] = {};
-    if (!hierarchy[u][d]) hierarchy[u][d] = [];
-    hierarchy[u][d].push(p);
+  // Construire la liste plate des Process (non archivés)
+  var allProcs = PROCESSES.filter(function(p){return !p.archived;});
+
+  // Listes uniques pour les selects de filtre (avant filtrage)
+  var allUniverses = {};
+  var allDomains = {};
+  allProcs.forEach(function(p){
+    if (p.univers) allUniverses[p.univers] = true;
+    if (p.dom) allDomains[p.dom] = true;
   });
-  // Ordre fixe pour les Univers (selon ton référentiel)
   var UNIVERS_ORDER = ['GOVERNANCE', 'EDITION (Factory)', 'DISTRIBUTION', 'SUPPORT FUNCTIONS'];
-  var universList = Object.keys(hierarchy).sort(function(a,b){
+  var universList = Object.keys(allUniverses).sort(function(a,b){
     var ia=UNIVERS_ORDER.indexOf(a), ib=UNIVERS_ORDER.indexOf(b);
     if (ia<0) ia=999; if (ib<0) ib=999;
     if (ia!==ib) return ia-ib;
     return a.localeCompare(b, 'fr', {sensitivity:'base'});
   });
+  var domainList = Object.keys(allDomains).sort(function(a,b){return a.localeCompare(b, 'fr', {sensitivity:'base'});});
 
-  var h='<thead><tr>'
-    +'<th style="width:340px">Univers / Domaine / Processus</th>'
-    +'<th style="width:120px">Niveau de risque</th>'
-    +'<th style="width:180px">'+(CU&&CU.role==='admin'?'Actions':'Risques')+'</th>'
-    +'</tr></thead><tbody>';
+  // Appliquer les filtres
+  var filtered = allProcs.filter(function(p){
+    if (_puFilterUniv && (p.univers||'') !== _puFilterUniv) return false;
+    if (_puFilterDom && (p.dom||'') !== _puFilterDom) return false;
+    if (_puFilterText) {
+      var needle = _puFilterText.toLowerCase();
+      if ((p.proc||'').toLowerCase().indexOf(needle) < 0) return false;
+    }
+    return true;
+  });
 
-  if(!universList.length){
-    h+='<tr><td colspan="3" style="text-align:center;color:var(--text-3);padding:2rem">Aucun processus. Cliquez sur "+ Domaine" pour commencer.</td></tr>';
+  // Niveaux de risque pour le tri (asc = du plus faible au plus fort)
+  var riskOrder = {'faible':1, 'modéré':2, 'élevé':3, 'critique':4};
+  function getRiskLevel(p) {
+    return (p.riskRefs && p.riskRefs.length)
+      ? computeProcRiskLevelFromRefs(p.riskRefs)
+      : (p.riskLevel || 'faible');
+  }
+
+  // Tri
+  filtered.sort(function(a, b){
+    var va, vb;
+    if (_puSortCol === 'univ') {
+      var ai = UNIVERS_ORDER.indexOf(a.univers||''); if (ai<0) ai=999;
+      var bi = UNIVERS_ORDER.indexOf(b.univers||''); if (bi<0) bi=999;
+      if (ai !== bi) va = ai, vb = bi;
+      else va = (a.univers||'').toLowerCase(), vb = (b.univers||'').toLowerCase();
+    } else if (_puSortCol === 'dom') {
+      va = (a.dom||'').toLowerCase(); vb = (b.dom||'').toLowerCase();
+    } else if (_puSortCol === 'proc') {
+      va = (a.proc||'').toLowerCase(); vb = (b.proc||'').toLowerCase();
+    } else if (_puSortCol === 'risk') {
+      va = riskOrder[getRiskLevel(a)] || 0;
+      vb = riskOrder[getRiskLevel(b)] || 0;
+    }
+    var cmp;
+    if (typeof va === 'number' && typeof vb === 'number') cmp = va - vb;
+    else cmp = (''+va).localeCompare(''+vb, 'fr', {sensitivity:'base'});
+    // Tri secondaire par Univers > Domaine > Process pour stabilité
+    if (cmp === 0 && _puSortCol !== 'univ') {
+      var au = UNIVERS_ORDER.indexOf(a.univers||''); if (au<0) au=999;
+      var bu = UNIVERS_ORDER.indexOf(b.univers||''); if (bu<0) bu=999;
+      cmp = au - bu;
+    }
+    if (cmp === 0 && _puSortCol !== 'proc') {
+      cmp = (a.proc||'').localeCompare(b.proc||'', 'fr', {sensitivity:'base'});
+    }
+    return _puSortDir === 'desc' ? -cmp : cmp;
+  });
+
+  // ─── Construire le HTML (filtres + tableau) ────────────────────
+  var isAdmin = (CU && CU.role==='admin');
+
+  // Barre de filtres (au-dessus du tableau)
+  var filterBar = '<div style="display:flex;gap:8px;align-items:center;padding:10px 12px;background:#fafafa;border:.5px solid var(--border);border-bottom:none;border-radius:6px 6px 0 0;flex-wrap:wrap">';
+  filterBar += '<span style="font-size:11px;color:var(--text-3);font-weight:500;text-transform:uppercase;letter-spacing:.4px">Filtrer</span>';
+  // Filtre Univers
+  filterBar += '<select onchange="_puSetFilter(\'univ\',this.value)" style="font-size:11px;padding:4px 8px;border:.5px solid var(--border);border-radius:3px;background:#fff">';
+  filterBar += '<option value="">Tous les univers</option>';
+  universList.forEach(function(u){
+    filterBar += '<option value="'+_escAttr(u)+'"'+(_puFilterUniv===u?' selected':'')+'>'+(''+u).replace(/</g,'&lt;')+'</option>';
+  });
+  filterBar += '</select>';
+  // Filtre Domaine
+  filterBar += '<select onchange="_puSetFilter(\'dom\',this.value)" style="font-size:11px;padding:4px 8px;border:.5px solid var(--border);border-radius:3px;background:#fff">';
+  filterBar += '<option value="">Tous les domaines</option>';
+  domainList.forEach(function(dd){
+    filterBar += '<option value="'+_escAttr(dd)+'"'+(_puFilterDom===dd?' selected':'')+'>'+(''+dd).replace(/</g,'&lt;')+'</option>';
+  });
+  filterBar += '</select>';
+  // Recherche texte
+  filterBar += '<input type="text" placeholder="Rechercher un Process..." value="'+_escAttr(_puFilterText)+'" oninput="_puSetFilter(\'text\',this.value)" style="font-size:11px;padding:4px 8px;border:.5px solid var(--border);border-radius:3px;background:#fff;flex:1;min-width:160px;max-width:280px"/>';
+  // Compteur + reset
+  filterBar += '<span style="font-size:11px;color:var(--text-3);margin-left:auto">'+filtered.length+' / '+allProcs.length+' process</span>';
+  if (_puFilterUniv || _puFilterDom || _puFilterText) {
+    filterBar += '<button class="bs" style="font-size:11px;padding:4px 8px" onclick="_puResetFilters()">Réinitialiser</button>';
+  }
+  filterBar += '</div>';
+
+  // En-têtes de tableau avec icône de tri
+  function sortIcon(col) {
+    if (_puSortCol !== col) return '<span style="opacity:.3;margin-left:3px">⇅</span>';
+    return _puSortDir === 'asc'
+      ? '<span style="margin-left:3px">▲</span>'
+      : '<span style="margin-left:3px">▼</span>';
+  }
+  function sortableTh(col, label, width) {
+    return '<th style="width:'+width+';cursor:pointer;user-select:none" onclick="_puToggleSort(\''+col+'\')">'+label+sortIcon(col)+'</th>';
+  }
+
+  var h = '';
+  h += '<thead><tr>';
+  h += sortableTh('univ', 'Univers', '17%');
+  h += sortableTh('dom', 'Domaine', '22%');
+  h += sortableTh('proc', 'Process', '24%');
+  h += sortableTh('risk', 'Risque', '11%');
+  h += '<th style="width:9%">Risques</th>';
+  h += '<th style="width:17%">Actions</th>';
+  h += '</tr></thead><tbody>';
+
+  if (!filtered.length) {
+    h += '<tr><td colspan="6" style="text-align:center;color:var(--text-3);padding:2rem;font-style:italic">';
+    if (allProcs.length === 0) h += 'Aucun processus. Cliquez sur "+ Domaine" pour commencer.';
+    else h += 'Aucun process ne correspond aux filtres. Essaie de réinitialiser.';
+    h += '</td></tr>';
   } else {
-    universList.forEach(function(univ){
-      // En-tête Univers (foncé)
-      h+='<tr><td colspan="3" style="background:#3C3489;color:#fff;font-weight:700;padding:8px 12px;font-size:12px;letter-spacing:.5px;text-transform:uppercase">'+(''+univ).replace(/</g,'&lt;')+'</td></tr>';
-      var domains = Object.keys(hierarchy[univ]).sort(function(a,b){return a.localeCompare(b, 'fr', {sensitivity:'base'});});
-      domains.forEach(function(dom){
-        var rows = hierarchy[univ][dom].slice().sort(function(a,b){
-          return (a.proc||'').localeCompare(b.proc||'', 'fr', {sensitivity:'base'});
-        });
-        // En-tête Domaine
-        h+='<tr><td colspan="3" style="background:#EEEDFE;color:#3C3489;font-weight:600;padding:6px 12px 6px 24px;font-size:11px;display:flex;align-items:center;justify-content:space-between;width:100%">';
-        h+='<span>'+(''+dom).replace(/</g,'&lt;')+'</span>';
-        if(CU&&CU.role==='admin'){
-          h+='<button class="bs" style="font-size:10px;padding:2px 7px" onclick="showRenameDomainModal(\''+_escQ(dom)+'\')">Renommer</button>';
-        }
-        h+='</td></tr>';
+    filtered.forEach(function(p){
+      var idx = PROCESSES.indexOf(p);
+      var effectiveLevel = getRiskLevel(p);
+      var riskCell = riskLabel(effectiveLevel);
+      var refCount = (p.riskRefs||[]).length;
 
-        rows.forEach(function(p){
-          var idx=PROCESSES.indexOf(p);
-          var effectiveLevel = (p.riskRefs && p.riskRefs.length)
-            ? computeProcRiskLevelFromRefs(p.riskRefs)
-            : (p.riskLevel || 'faible');
-          var riskCell = riskLabel(effectiveLevel);
-          var refCount = (p.riskRefs||[]).length;
-          var refCountBadge = refCount
-            ? '<span class="badge bpc" style="font-size:9px;margin-left:4px">'+refCount+'</span>'
-            : '<span class="badge bpl" style="font-size:9px;margin-left:4px">0</span>';
-          var adminCell=CU&&CU.role==='admin'
-            ?'<td style="white-space:nowrap">'
-              +'<button class="bs" style="font-size:10px;padding:2px 7px" onclick="showProcRisksModal(\''+p.id+'\')">⚠ Risques'+refCountBadge+'</button> '
-              +'<button class="bs" style="font-size:10px;padding:2px 7px" onclick="showEditProcModal('+idx+')">Modifier</button> '
-              +'<button class="bd" style="font-size:10px;padding:2px 7px" onclick="archiveProc('+idx+')">Archiver</button>'
-              +'</td>'
-            :'<td><button class="bs" style="font-size:10px;padding:2px 7px" onclick="showProcRisksModal(\''+p.id+'\')">⚠ Risques'+refCountBadge+'</button></td>';
-          h+='<tr>';
-          h+='<td style="font-weight:500;font-size:12px;padding-left:36px">'+(''+p.proc).replace(/</g,'&lt;')+'</td>';
-          h+='<td>'+riskCell+'</td>';
-          h+=adminCell;
-          h+='</tr>';
-        });
-      });
+      // Compteur de risques : caché si 0, pill neutre si > 0
+      var risksCell = refCount > 0
+        ? '<button class="bs" style="font-size:10px;padding:2px 8px;background:#f1efe8;color:#5f5e5a;border:.5px solid #d3d1c7;border-radius:3px;cursor:pointer" onclick="showProcRisksModal(\''+p.id+'\')" title="Voir les risques liés">⚠ '+refCount+'</button>'
+        : (isAdmin
+            ? '<button class="bs" style="font-size:10px;padding:2px 8px;color:var(--text-3);opacity:.6" onclick="showProcRisksModal(\''+p.id+'\')" title="Aucun risque lié">—</button>'
+            : '<span style="color:var(--text-3);font-size:11px">—</span>');
+
+      // Cellule Univers : avec bouton Renommer au survol (admin only)
+      var univName = (p.univers||'(sans)').replace(/</g,'&lt;');
+      var univCell = isAdmin
+        ? '<td class="hover-rename" style="font-size:11px;color:var(--text-2);position:relative">'
+            + '<span>'+univName+'</span>'
+            + '<button class="rename-btn" onclick="event.stopPropagation();showRenameUniversModal(\''+_escJsArg(p.univers||'')+'\')" style="font-size:9px;padding:1px 5px;margin-left:6px;border:.5px solid var(--border);border-radius:3px;background:#fff;cursor:pointer;color:var(--text-3);opacity:0;transition:opacity .15s">Renommer</button>'
+          + '</td>'
+        : '<td style="font-size:11px;color:var(--text-2)">'+univName+'</td>';
+
+      // Cellule Domaine : avec bouton Renommer au survol (admin only)
+      var domName = (p.dom||'(sans)').replace(/</g,'&lt;');
+      var domCell = isAdmin
+        ? '<td class="hover-rename" style="font-size:11px;color:var(--text-2);position:relative">'
+            + '<span>'+domName+'</span>'
+            + '<button class="rename-btn" onclick="event.stopPropagation();showRenameDomainModal(\''+_escJsArg(p.dom||'')+'\')" style="font-size:9px;padding:1px 5px;margin-left:6px;border:.5px solid var(--border);border-radius:3px;background:#fff;cursor:pointer;color:var(--text-3);opacity:0;transition:opacity .15s">Renommer</button>'
+          + '</td>'
+        : '<td style="font-size:11px;color:var(--text-2)">'+domName+'</td>';
+
+      // Cellule Actions
+      var actionsCell = isAdmin
+        ? '<td style="white-space:nowrap">'
+            + '<button class="bs" style="font-size:10px;padding:2px 7px" onclick="showEditProcModal('+idx+')" title="Modifier le Process">Modifier</button> '
+            + '<button class="bd" style="font-size:10px;padding:2px 7px" onclick="archiveProc('+idx+')" title="Archiver le Process">Archiver</button>'
+          + '</td>'
+        : '<td><span style="font-size:10px;color:var(--text-3)">—</span></td>';
+
+      h += '<tr>';
+      h += univCell;
+      h += domCell;
+      h += '<td style="font-weight:500;font-size:12px">'+(''+p.proc).replace(/</g,'&lt;')+'</td>';
+      h += '<td>'+riskCell+'</td>';
+      h += '<td>'+risksCell+'</td>';
+      h += actionsCell;
+      h += '</tr>';
     });
   }
-  document.getElementById('pp-tbl').innerHTML=h+'</tbody>';
+
+  // Style hover pour révéler les boutons Renommer (injection one-shot)
+  if (!document.getElementById('pp-hover-style')) {
+    var st = document.createElement('style');
+    st.id = 'pp-hover-style';
+    st.textContent = '#pp-tbl tr:hover .rename-btn{opacity:1!important}';
+    document.head.appendChild(st);
+  }
+
+  // Injecter dans le DOM
+  var tbl = document.getElementById('pp-tbl');
+  if (tbl) {
+    tbl.innerHTML = h + '</tbody>';
+    // Insérer la barre de filtres juste avant la table (si pas déjà là)
+    var existingBar = document.getElementById('pp-filter-bar');
+    if (existingBar) existingBar.remove();
+    var barDiv = document.createElement('div');
+    barDiv.id = 'pp-filter-bar';
+    barDiv.innerHTML = filterBar;
+    tbl.parentNode.insertBefore(barDiv.firstChild, tbl);
+  }
+}
+
+// ─── Setters de filtre/tri (pour les controls ci-dessus) ──────────
+function _puSetFilter(kind, val) {
+  if (kind === 'univ') _puFilterUniv = val;
+  else if (kind === 'dom') _puFilterDom = val;
+  else if (kind === 'text') _puFilterText = val;
+  renderProcTable();
+}
+
+function _puResetFilters() {
+  _puFilterUniv = '';
+  _puFilterDom = '';
+  _puFilterText = '';
+  renderProcTable();
+}
+
+function _puToggleSort(col) {
+  if (_puSortCol === col) {
+    _puSortDir = (_puSortDir === 'asc') ? 'desc' : 'asc';
+  } else {
+    _puSortCol = col;
+    _puSortDir = 'asc';
+  }
+  renderProcTable();
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -1491,6 +1649,27 @@ function showRenameDomainModal(dom){
       addHist('edit','Domaine "'+dom+'" renommé en "'+newName+'"');
       renderProcTable();
       toast('Renommé ✓');
+    });
+}
+
+// Renommer un Univers (propage le changement à tous les Process qui l'utilisent)
+function showRenameUniversModal(univ){
+  openModal('Renommer l\'univers "'+univ+'"',
+    '<div><label>Nouveau nom</label><input id="m-univ-rename" value="'+_escAttr(univ)+'"/></div>',
+    function(){
+      var newName=document.getElementById('m-univ-rename').value.trim();
+      if(!newName){toast('Nom obligatoire');return;}
+      var count = 0;
+      PROCESSES.forEach(function(p){
+        if(p.univers===univ){
+          p.univers=newName;
+          saveProcessFull(p).catch(console.warn);
+          count++;
+        }
+      });
+      addHist('edit','Univers "'+univ+'" renommé en "'+newName+'" ('+count+' process)');
+      renderProcTable();
+      toast('Renommé ✓ ('+count+' process)');
     });
 }
 
