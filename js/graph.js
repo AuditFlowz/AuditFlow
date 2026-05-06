@@ -32,7 +32,23 @@ async function getMsalApp() {
   return _msalApp;
 }
 
-var GRAPH_SCOPES = ['Sites.ReadWrite.All', 'Files.ReadWrite', 'User.Read'];
+// Scopes Graph requis par AuditFlow.
+// Calendars.ReadWrite + Mail.Send + OnlineMeetings.ReadWrite ont été ajoutés
+// pour permettre la création de réunions Kick-off avec invitations Outlook + Teams,
+// ainsi que l'envoi du rapport et des demandes de Management Response.
+//
+// Ces 3 scopes ne sont PAS encore "admin-consented" sur le tenant Axway,
+// donc lors du 1er login après ajout, l'utilisateur verra une popup OAuth
+// listant les nouveaux scopes ("Allow AuditFlow to read your calendar...").
+// MSAL gère ce cas standard.
+var GRAPH_SCOPES = [
+  'Sites.ReadWrite.All',
+  'Files.ReadWrite',
+  'User.Read',
+  'Calendars.ReadWrite',
+  'Mail.Send',
+  'OnlineMeetings.ReadWrite'
+];
 var _redirectCount = 0; // Compteur en mémoire (reset à chaque chargement)
 
 // Stub pour compatibilité avec app.js (l'ancien nom)
@@ -1034,6 +1050,236 @@ function syncTeamMembers() {
   });
 
   console.log('[SP] TM sync — ' + Object.keys(TM).length + ' membres disponibles');
+}
+
+// ════════════════════════════════════════════════════════════════
+//  GRAPH — OUTLOOK CALENDAR + MEETINGS
+//  Permet de :
+//   - Trouver des créneaux libres communs aux participants (findMeetingTimes)
+//   - Voir le calendrier détaillé des participants sur une plage (getSchedule)
+//   - Créer une réunion Outlook avec invitations + lien Teams (createOutlookEvent)
+//
+//  Toutes ces fonctions tournent au nom de l'utilisateur connecté
+//  (scopes Delegated). Si l'utilisateur n'a pas autorisé les scopes,
+//  Graph renvoie 403 — on traite l'erreur en remontant un message clair.
+// ════════════════════════════════════════════════════════════════
+
+/**
+ * Vérifie si une erreur Graph est due à un manque de permissions
+ * (l'utilisateur doit re-consentir).
+ */
+function _isGraphPermissionError(err) {
+  var msg = (err && (err.message || err.toString())) || '';
+  return msg.indexOf('403') >= 0 || msg.indexOf('Forbidden') >= 0 ||
+         msg.indexOf('AADSTS65001') >= 0 || // user/admin consent required
+         msg.indexOf('insufficient privileges') >= 0;
+}
+
+/**
+ * Construit un message d'erreur user-friendly à afficher dans la UI.
+ */
+function _graphPermissionErrorMessage(action) {
+  return 'AuditFlow n\'a pas les permissions pour ' + action +
+         '. Reconnectez-vous (déconnexion + reconnexion) pour accepter les nouvelles permissions Outlook.';
+}
+
+/**
+ * Trouve des créneaux de réunion suggérés pour un ensemble de participants.
+ * @param {Array<string>} attendeeEmails — emails des participants (au moins 1)
+ * @param {number} durationMinutes — durée en minutes (défaut 60)
+ * @param {Object} opts — { startDate, endDate, isOrganizerOptional }
+ * @returns {Promise<Array>} liste de suggestions { start, end, confidence, attendeeAvailability }
+ *
+ * Doc Microsoft : POST /me/findMeetingTimes
+ *   https://learn.microsoft.com/en-us/graph/api/user-findmeetingtimes
+ */
+async function findMeetingTimes(attendeeEmails, durationMinutes, opts) {
+  if (!attendeeEmails || !attendeeEmails.length) {
+    throw new Error('Au moins un participant requis');
+  }
+  durationMinutes = durationMinutes || 60;
+  opts = opts || {};
+
+  // Plage par défaut : aujourd'hui + 7 jours
+  var now = new Date();
+  var startDate = opts.startDate || now;
+  var endDate = opts.endDate || new Date(now.getTime() + 7 * 86400000);
+
+  var token = await getGraphToken();
+  if (!token) throw new Error('Token Graph non disponible');
+
+  // Construire le payload findMeetingTimes
+  var body = {
+    attendees: attendeeEmails.map(function(email) {
+      return {
+        emailAddress: { address: email, name: email },
+        type: 'required'
+      };
+    }),
+    timeConstraint: {
+      activityDomain: 'work',
+      timeSlots: [{
+        start: { dateTime: startDate.toISOString(), timeZone: 'UTC' },
+        end:   { dateTime: endDate.toISOString(),   timeZone: 'UTC' }
+      }]
+    },
+    meetingDuration: 'PT' + durationMinutes + 'M', // ISO 8601 duration
+    maxCandidates: 10,
+    isOrganizerOptional: !!opts.isOrganizerOptional,
+    returnSuggestionReasons: true,
+    minimumAttendeePercentage: 100, // tous doivent être dispos
+  };
+
+  try {
+    var resp = await fetch('https://graph.microsoft.com/v1.0/me/findMeetingTimes', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + token,
+        'Content-Type': 'application/json',
+        'Prefer': 'outlook.timezone="UTC"'
+      },
+      body: JSON.stringify(body)
+    });
+    if (!resp.ok) {
+      var errText = await resp.text();
+      throw new Error('Graph findMeetingTimes ' + resp.status + ': ' + errText);
+    }
+    var data = await resp.json();
+    return data.meetingTimeSuggestions || [];
+  } catch (e) {
+    console.error('[Graph] findMeetingTimes error:', e);
+    if (_isGraphPermissionError(e)) {
+      throw new Error(_graphPermissionErrorMessage('accéder à votre calendrier'));
+    }
+    throw e;
+  }
+}
+
+/**
+ * Récupère le calendrier détaillé (free/busy) des participants sur une plage donnée.
+ * @param {Array<string>} attendeeEmails
+ * @param {Date} startDate
+ * @param {Date} endDate
+ * @returns {Promise<Array>} liste des schedules par email
+ *
+ * Doc Microsoft : POST /me/calendar/getSchedule
+ */
+async function getSchedule(attendeeEmails, startDate, endDate) {
+  if (!attendeeEmails || !attendeeEmails.length) {
+    throw new Error('Au moins un participant requis');
+  }
+  var token = await getGraphToken();
+  if (!token) throw new Error('Token Graph non disponible');
+
+  var body = {
+    schedules: attendeeEmails,
+    startTime: { dateTime: startDate.toISOString(), timeZone: 'UTC' },
+    endTime:   { dateTime: endDate.toISOString(),   timeZone: 'UTC' },
+    availabilityViewInterval: 60 // créneaux d'1h
+  };
+
+  try {
+    var resp = await fetch('https://graph.microsoft.com/v1.0/me/calendar/getSchedule', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + token,
+        'Content-Type': 'application/json',
+        'Prefer': 'outlook.timezone="UTC"'
+      },
+      body: JSON.stringify(body)
+    });
+    if (!resp.ok) {
+      var errText = await resp.text();
+      throw new Error('Graph getSchedule ' + resp.status + ': ' + errText);
+    }
+    var data = await resp.json();
+    return data.value || [];
+  } catch (e) {
+    console.error('[Graph] getSchedule error:', e);
+    if (_isGraphPermissionError(e)) {
+      throw new Error(_graphPermissionErrorMessage('accéder au calendrier des participants'));
+    }
+    throw e;
+  }
+}
+
+/**
+ * Crée un événement Outlook (réunion) avec invitations automatiques + lien Teams.
+ * @param {Object} payload {
+ *   subject, bodyHtml,
+ *   start (Date), end (Date),
+ *   attendees [{email, name, type}], (type = 'required' ou 'optional')
+ *   location (optionnel)
+ *   addTeamsLink (boolean, défaut true)
+ * }
+ * @returns {Promise<Object>} l'event créé { id, webLink, onlineMeeting: { joinUrl } }
+ *
+ * Doc Microsoft : POST /me/events
+ */
+async function createOutlookEvent(payload) {
+  if (!payload || !payload.subject || !payload.start || !payload.end) {
+    throw new Error('Payload incomplet (subject, start, end requis)');
+  }
+  var token = await getGraphToken();
+  if (!token) throw new Error('Token Graph non disponible');
+
+  var addTeamsLink = payload.addTeamsLink !== false; // true par défaut
+
+  var body = {
+    subject: payload.subject,
+    body: {
+      contentType: 'HTML',
+      content: payload.bodyHtml || ''
+    },
+    start: {
+      dateTime: payload.start.toISOString(),
+      timeZone: 'UTC'
+    },
+    end: {
+      dateTime: payload.end.toISOString(),
+      timeZone: 'UTC'
+    },
+    attendees: (payload.attendees || []).map(function(a) {
+      return {
+        emailAddress: {
+          address: a.email,
+          name: a.name || a.email
+        },
+        type: a.type || 'required'
+      };
+    }),
+    isOnlineMeeting: addTeamsLink,
+    onlineMeetingProvider: addTeamsLink ? 'teamsForBusiness' : undefined,
+    allowNewTimeProposals: true,
+    responseRequested: true,
+  };
+  if (payload.location) {
+    body.location = { displayName: payload.location };
+  }
+
+  try {
+    var resp = await fetch('https://graph.microsoft.com/v1.0/me/events', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + token,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(body)
+    });
+    if (!resp.ok) {
+      var errText = await resp.text();
+      throw new Error('Graph createEvent ' + resp.status + ': ' + errText);
+    }
+    var event = await resp.json();
+    console.log('[Graph] Outlook event créé:', event.id, 'webLink:', event.webLink);
+    return event;
+  } catch (e) {
+    console.error('[Graph] createOutlookEvent error:', e);
+    if (_isGraphPermissionError(e)) {
+      throw new Error(_graphPermissionErrorMessage('créer une réunion dans votre calendrier'));
+    }
+    throw e;
+  }
 }
 
 // ── Initialiser MSAL au chargement ──────────────────────────
