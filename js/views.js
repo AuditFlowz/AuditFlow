@@ -5061,6 +5061,12 @@ function renderWorkProgramBuSection() {
   return html;
 }
 
+// Helper backward compat : un wpp sans coverageMode est considéré comme design_and_operating
+// (ce qui correspond à l'ancien comportement par défaut où tout Process avait des tests)
+function _wppCoverageMode(wpp) {
+  return wpp.coverageMode || 'design_and_operating';
+}
+
 function renderWpBuProcessCard(wpp, isPreparer) {
   // Récupérer les infos du Process depuis Audit Universe (lien vivant pour le nom)
   var p = (PROCESSES||[]).find(function(x){return x.id===wpp.auditProcessId;});
@@ -5069,49 +5075,100 @@ function renderWpBuProcessCard(wpp, isPreparer) {
   var testCount = (wpp.tests||[]).length;
   var adhocCount = (wpp.tests||[]).filter(function(t){return t.source==='adhoc';}).length;
   var owners = wpp.owners || [];
+  var mode = _wppCoverageMode(wpp);
+  var isDesignOnly = (mode === 'design_only');
+
+  // Couleurs selon le mode (chip discret)
+  var modeBadgeBg = isDesignOnly ? '#FAEEDA' : '#E1F5EE';
+  var modeBadgeColor = isDesignOnly ? '#854F0B' : '#085041';
+  var modeBadgeLabel = isDesignOnly ? 'DESIGN ONLY' : 'DESIGN + OPERATING';
 
   var h = '';
   h += '<div style="border:.5px solid var(--border);border-radius:6px;margin-bottom:8px;background:#fff">';
   // Header de la carte Process
-  h += '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:.5px solid #f0f0f0;background:#fafafa">';
+  h += '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:.5px solid #f0f0f0;background:#fafafa;gap:10px">';
   h += '<div style="flex:1;min-width:0">';
-  h += '<div style="font-size:13px;font-weight:500">'+(''+procName).replace(/</g,'&lt;')+'</div>';
+  h += '<div style="font-size:13px;font-weight:500;display:flex;align-items:center;gap:6px;flex-wrap:wrap">';
+  h += '<span>'+(''+procName).replace(/</g,'&lt;')+'</span>';
+  h += '<span style="background:'+modeBadgeBg+';color:'+modeBadgeColor+';font-size:9px;padding:2px 7px;border-radius:3px;font-weight:600;letter-spacing:.3px">'+modeBadgeLabel+'</span>';
+  h += '</div>';
   if (hierarchy) h += '<div style="font-size:10px;color:var(--text-3);margin-top:1px">'+(''+hierarchy).replace(/</g,'&lt;')+'</div>';
-  h += '<div style="font-size:11px;color:var(--purple);margin-top:3px">'
-    + testCount+(testCount>1?' tests':' test')
-    + (adhocCount?' · '+adhocCount+' ad hoc':'')
-    + ' · '+(owners.length?owners.length+(owners.length>1?' owners':' owner'):'aucun owner')
-    + '</div>';
+  // Méta selon mode
+  if (isDesignOnly) {
+    h += '<div style="font-size:11px;color:var(--text-3);margin-top:3px;font-style:italic">'
+      + 'Revue de conception uniquement (pas de tests)'
+      + ' · '+(owners.length?owners.length+(owners.length>1?' owners':' owner'):'aucun owner')
+      + '</div>';
+  } else {
+    h += '<div style="font-size:11px;color:var(--purple);margin-top:3px">'
+      + testCount+(testCount>1?' tests':' test')
+      + (adhocCount?' · '+adhocCount+' ad hoc':'')
+      + ' · '+(owners.length?owners.length+(owners.length>1?' owners':' owner'):'aucun owner')
+      + '</div>';
+  }
   h += '</div>';
   if (isPreparer) {
-    h += '<div style="display:flex;gap:5px;flex-shrink:0">';
+    h += '<div style="display:flex;gap:5px;flex-shrink:0;align-items:center;flex-wrap:wrap;justify-content:flex-end">';
+    // Sélecteur Mode (combo A+C : modifiable à tout moment)
+    h += '<select onchange="setWpBuCoverageMode(\''+_escJsArg(wpp.id)+'\',this.value)" style="font-size:10px;padding:3px 6px;border:1px solid var(--border);border-radius:3px;background:#fff;font-weight:500" title="Mode de couverture du Process">';
+    h += '<option value="design_and_operating"'+(mode==='design_and_operating'?' selected':'')+'>Design + Operating</option>';
+    h += '<option value="design_only"'+(mode==='design_only'?' selected':'')+'>Design only</option>';
+    h += '</select>';
     h += '<button class="bs" style="font-size:10px;padding:3px 8px" onclick="showWpBuOwnersModal(\''+_escJsArg(wpp.id)+'\')">Owners</button>';
     h += '<button class="bd" style="font-size:10px;padding:3px 8px" onclick="removeWpBuProcess(\''+_escJsArg(wpp.id)+'\')" title="Retirer ce process de l\'audit">Retirer</button>';
     h += '</div>';
   }
   h += '</div>';
 
-  // Liste des tests
-  h += '<div style="padding:8px 14px">';
-  if (!testCount) {
-    h += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:8px 0;text-align:center">Aucun test pour ce process. ';
-    if (isPreparer) h += 'Cliquez sur « + Ajouter un test hors BU Work Program » pour en créer un.';
+  // Si Design only : on n'affiche pas les tests (mais ils restent en mémoire si on switch ensuite)
+  if (!isDesignOnly) {
+    // Liste des tests
+    h += '<div style="padding:8px 14px">';
+    if (!testCount) {
+      h += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:8px 0;text-align:center">Aucun test pour ce process. ';
+      if (isPreparer) h += 'Cliquez sur « + Ajouter un test hors BU Work Program » pour en créer un.';
+      h += '</div>';
+    } else {
+      (wpp.tests||[]).forEach(function(t, ti){
+        h += renderWpBuTestRow(wpp.id, t, ti, isPreparer);
+      });
+    }
+    if (isPreparer) {
+      h += '<div style="text-align:center;padding:6px 0 2px">';
+      h += '<button class="bs" style="font-size:11px;padding:4px 10px" onclick="addWpBuAdHocTest(\''+_escJsArg(wpp.id)+'\')">+ Ajouter un test hors BU Work Program</button>';
+      h += '</div>';
+    }
     h += '</div>';
-  } else {
-    (wpp.tests||[]).forEach(function(t, ti){
-      h += renderWpBuTestRow(wpp.id, t, ti, isPreparer);
-    });
+  } else if (testCount > 0) {
+    // Mode Design only mais des tests existent (cas où on a switché depuis Design+Operating)
+    // → afficher un message d'info avec compteur, l'auditeur peut switcher en arrière pour les voir
+    h += '<div style="padding:8px 14px;font-size:10px;color:var(--text-3);font-style:italic;text-align:center">'
+      + testCount+(testCount>1?' tests':' test')+' masqué'+(testCount>1?'s':'')+' (mode Design only). Pour les afficher à nouveau, repasse en mode « Design + Operating ».'
+      + '</div>';
   }
-  if (isPreparer) {
-    h += '<div style="text-align:center;padding:6px 0 2px">';
-    h += '<button class="bs" style="font-size:11px;padding:4px 10px" onclick="addWpBuAdHocTest(\''+_escJsArg(wpp.id)+'\')">+ Ajouter un test hors BU Work Program</button>';
-    h += '</div>';
-  }
-  h += '</div>';
 
   h += '</div>';
   return h;
 }
+
+// Setter du mode de couverture
+async function setWpBuCoverageMode(wppId, mode) {
+  var d = getAudData(CA);
+  var wp = (d.workProgramBU && Array.isArray(d.workProgramBU.processes))
+    ? d.workProgramBU.processes : [];
+  var wpp = wp.find(function(x){return x.id===wppId;});
+  if (!wpp) return;
+  wpp.coverageMode = mode;
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+  if (mode === 'design_only') {
+    toast('Mode Design only — les tests sont masqués');
+  } else {
+    toast('Mode Design + Operating');
+  }
+}
+
+
 
 function renderWpBuTestRow(wppId, t, idx, isPreparer) {
   var typeColor = t.testType==='Test of Effectiveness' ? '#0C447C' :
@@ -5324,6 +5381,7 @@ function showUploadBuWorkProgramModal() {
         id: 'wpp_'+Date.now()+'_'+Math.floor(Math.random()*100000),
         auditProcessId: procId,
         owners: [],
+        coverageMode: 'design_and_operating', // Process avec tests → mode complet par défaut
         tests: copiedTests,
       });
       added++;
@@ -5422,6 +5480,7 @@ function showAddBuProcessFromUniverseModal() {
         id: 'wpp_'+Date.now()+'_'+Math.floor(Math.random()*100000),
         auditProcessId: procId,
         owners: [],
+        coverageMode: 'design_only', // Process sans tests → mode design only par défaut
         tests: [],
       });
       added++;
@@ -6416,18 +6475,29 @@ function renderTestingsBuSection() {
   var isAdmin = CU && CU.role==='admin';
   var isPreparer = (a.assignedTo||a.auditeurs||[]).indexOf(CU&&CU.id)>=0 || isAdmin;
 
-  var wp = (d.workProgramBU && Array.isArray(d.workProgramBU.processes))
+  var wpAll = (d.workProgramBU && Array.isArray(d.workProgramBU.processes))
     ? d.workProgramBU.processes : [];
+  // Ne lister que les Process en mode "Design + Operating" (les "Design only" n'ont pas de tests à exécuter)
+  var wp = wpAll.filter(function(wpp){return _wppCoverageMode(wpp) === 'design_and_operating';});
+  var designOnlyCount = wpAll.length - wp.length;
 
   var html = '';
   html += '<div class="cd" style="margin-bottom:1rem">';
   html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">';
-  html += '<span style="font-size:13px;font-weight:500">Testings <span style="color:var(--text-3);font-weight:400">— '+wp.length+' process couvert'+(wp.length>1?'s':'')+'</span></span>';
+  html += '<span style="font-size:13px;font-weight:500">Testings <span style="color:var(--text-3);font-weight:400">— '+wp.length+' process à tester'+(wp.length>1?'s':'')+'</span></span>';
   html += '</div>';
-  html += '<div style="font-size:11px;color:var(--text-3);font-style:italic;margin-bottom:14px">Réalise les tests substantifs définis au Work Program. Pour chaque anomalie identifiée, remonte une issue Operating qui pourra être agrégée dans un finding à l\'étape Report.</div>';
+  html += '<div style="font-size:11px;color:var(--text-3);font-style:italic;margin-bottom:14px">Réalise les tests substantifs définis au Work Program. Pour chaque anomalie identifiée, remonte une issue Operating qui pourra être agrégée dans un finding à l\'étape Report.';
+  if (designOnlyCount > 0) {
+    html += ' <span style="color:#854F0B">'+designOnlyCount+' process en mode Design only ne sont pas affichés ici (ils sont revus à l\'étape Interviews uniquement).</span>';
+  }
+  html += '</div>';
 
   if (!wp.length) {
-    html += '<div style="font-size:12px;color:var(--text-3);font-style:italic;padding:1.5rem;text-align:center;border:1px dashed var(--border);border-radius:6px">Aucun Process couvert dans cet audit. Retourne à l\'étape Work Program pour en ajouter.</div>';
+    if (wpAll.length > 0) {
+      html += '<div style="font-size:12px;color:var(--text-3);font-style:italic;padding:1.5rem;text-align:center;border:1px dashed var(--border);border-radius:6px">Tous les Process couverts sont en mode <strong>Design only</strong> (revus en interview uniquement). Aucun test substantif à réaliser ici.</div>';
+    } else {
+      html += '<div style="font-size:12px;color:var(--text-3);font-style:italic;padding:1.5rem;text-align:center;border:1px dashed var(--border);border-radius:6px">Aucun Process couvert dans cet audit. Retourne à l\'étape Work Program pour en ajouter.</div>';
+    }
     html += '</div>';
     return html;
   }
