@@ -4875,7 +4875,10 @@ function renderKickoffGenerateBanner() {
   html += '<span>'+(planningCount?'✓':'○')+' Planning ('+planningCount+'/5)</span>';
   html += '</div>';
   html += '</div>';
+  html += '<div style="display:flex;gap:8px;align-items:center">';
+  html += '<button class="bs" style="font-size:12px;padding:7px 14px;background:#fff;color:#3C3489;border:1px solid #3C3489;font-weight:500" onclick="composeKickoffEmail()" title="Ouvrir Outlook avec un mail pré-rempli pour les participants">📧 Préparer la convocation</button>';
   html += '<button class="bp" style="font-size:13px;padding:8px 18px;background:#3C3489;color:#fff;font-weight:500" onclick="generateKickoffPptx(CA)">⬇ Générer le Kick Off</button>';
+  html += '</div>';
   html += '</div>';
   if (!subProcCount && !interviewsCount && !planningCount) {
     html += '<div style="font-size:10px;color:#854F0B;margin-top:10px;padding:6px 10px;background:#FAEEDA;border-radius:4px;font-style:italic">⚠ Aucune information saisie en étape Work Program. Le PowerPoint sera généré avec des sections vides à compléter manuellement.</div>';
@@ -5990,6 +5993,183 @@ async function removeKickoffInterview(idx) {
   d.kickoffPrep.interviews.splice(idx, 1);
   await saveAuditData(CA);
   document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+// ════════════════════════════════════════════════════════════════
+//  KICK-OFF — Préparation du mail d'invitation (mailto:)
+//  Ouvre Outlook avec destinataires + sujet + corps pré-remplis.
+//  L'utilisateur ajoute la date/heure et le lien Teams dans Outlook.
+// ════════════════════════════════════════════════════════════════
+
+/**
+ * Récupère la liste des participants du Kick-off (Auditeurs + Process Owners + Interviewees).
+ * Retourne un objet { all: [{name, email, role}], summary: {auditors, owners, interviewees} }
+ * Dédoublonne par email (case insensitive).
+ */
+function _gatherKickoffParticipants(audit, kickoffPrep) {
+  var byEmail = {}; // dédup par email lowercase
+  var summary = {auditors: 0, owners: 0, interviewees: 0};
+
+  function add(name, email, role) {
+    if (!email) return;
+    var key = email.trim().toLowerCase();
+    if (!key || byEmail[key]) return; // skip si déjà ajouté
+    byEmail[key] = {name: (name || email).trim(), email: email.trim(), role: role};
+    summary[role + 's']++;
+  }
+
+  // 1. Auditeurs assignés (depuis AUDIT_PLAN.auditeurs → IDs vers TM)
+  var auditeurIds = Array.isArray(audit && audit.auditeurs) ? audit.auditeurs : [];
+  auditeurIds.forEach(function(uid) {
+    var tm = (typeof TM !== 'undefined' && TM[uid]) ? TM[uid] : null;
+    if (tm && tm.email) {
+      add(tm.name, tm.email, 'auditor');
+    }
+  });
+
+  // 2. Process Owners (depuis kickoffPrep.subProcesses)
+  var subProcs = (kickoffPrep && Array.isArray(kickoffPrep.subProcesses))
+    ? kickoffPrep.subProcesses : [];
+  subProcs.forEach(function(sp) {
+    if (sp && sp.email) {
+      add(sp.owners, sp.email, 'owner');
+    }
+  });
+
+  // 3. Interviewees (depuis kickoffPrep.interviews)
+  var interviews = (kickoffPrep && Array.isArray(kickoffPrep.interviews))
+    ? kickoffPrep.interviews : [];
+  interviews.forEach(function(itw) {
+    if (itw && itw.email) {
+      add(itw.contact, itw.email, 'interviewee');
+    }
+  });
+
+  // Convertir l'objet en tableau (préserve ordre d'insertion JS)
+  var all = Object.keys(byEmail).map(function(k) { return byEmail[k]; });
+  return {all: all, summary: summary};
+}
+
+/**
+ * Construit le sujet de l'email.
+ */
+function _buildKickoffSubject(audit) {
+  var titre = (audit && audit.titre) || 'Audit interne';
+  return 'Kick-off — ' + titre;
+}
+
+/**
+ * Construit le corps texte du mail (mailto: ne supporte que le texte brut).
+ * Garde-fous : sous ~1500 caractères pour éviter la troncature côté client mail.
+ */
+function _buildKickoffBody(audit, kickoffPrep, participants) {
+  var titre = (audit && audit.titre) || 'l\'audit';
+  var annee = (audit && audit.annee) || '';
+  var type = (audit && audit.type) || '';
+  var planning = (kickoffPrep && kickoffPrep.planning) || {};
+  var subProcs = (kickoffPrep && Array.isArray(kickoffPrep.subProcesses))
+    ? kickoffPrep.subProcesses : [];
+
+  var lines = [];
+  lines.push('Bonjour,');
+  lines.push('');
+  lines.push('Dans le cadre de l\'audit interne ' + titre + (annee ? ' (' + annee + ')' : '') + ', nous organisons la réunion de Kick-off.');
+  lines.push('');
+  lines.push('Cette réunion permettra de présenter :');
+  lines.push('  • Le contexte et les objectifs de l\'audit');
+  lines.push('  • Le périmètre couvert');
+  lines.push('  • Le planning prévisionnel (interviews, testings, restitution)');
+  lines.push('  • Les attentes vis-à-vis des équipes auditées');
+  lines.push('');
+
+  // Périmètre
+  if (subProcs.length > 0) {
+    lines.push('Périmètre couvert :');
+    subProcs.forEach(function(sp) {
+      if (sp.name) lines.push('  • ' + sp.name + (sp.owners ? ' — ' + sp.owners : ''));
+    });
+    lines.push('');
+  }
+
+  // Planning
+  var hasPlanning = planning.kickOff || planning.interviews || planning.testing || planning.report;
+  if (hasPlanning) {
+    lines.push('Planning prévisionnel :');
+    if (planning.kickOff)     lines.push('  • Kick-off : ' + planning.kickOff);
+    if (planning.interviews)  lines.push('  • Interviews : semaine du ' + planning.interviews);
+    if (planning.testing)     lines.push('  • Testing : semaine du ' + planning.testing);
+    if (planning.report)      lines.push('  • Rapport : semaine du ' + planning.report);
+    if (planning.restitution) lines.push('  • Restitution : ' + planning.restitution);
+    lines.push('');
+  }
+
+  lines.push('Merci de me confirmer votre disponibilité afin que je vous envoie une invitation Outlook (avec lien Teams).');
+  lines.push('');
+  lines.push('Bien cordialement,');
+  if (typeof CU !== 'undefined' && CU && CU.name) {
+    lines.push(CU.name);
+  }
+  lines.push('— Audit interne');
+
+  return lines.join('\r\n'); // \r\n recommandé pour mailto:
+}
+
+/**
+ * Génère et ouvre le mailto: dans le client mail par défaut (Outlook).
+ * Appelé depuis le bouton "Préparer la convocation Kick-off".
+ */
+function composeKickoffEmail() {
+  var audit = (AUDIT_PLAN || []).find(function(a) { return a.id === CA; });
+  if (!audit) {
+    toast('Audit introuvable');
+    return;
+  }
+  var d = getAudData(CA);
+  var kickoffPrep = d.kickoffPrep || {};
+
+  // Collecter les participants
+  var data = _gatherKickoffParticipants(audit, kickoffPrep);
+  if (!data.all.length) {
+    toast('Aucun participant avec email — ajoutez des emails dans les owners et interviews');
+    return;
+  }
+
+  // Avertir si beaucoup de destinataires (limite mailto:)
+  if (data.all.length > 30) {
+    if (!confirm(data.all.length + ' destinataires détectés. Certains clients mail limitent les mailto: longs. Continuer ?')) {
+      return;
+    }
+  }
+
+  // Construire le mailto:
+  var emails = data.all.map(function(p) { return p.email; }).join(',');
+  var subject = _buildKickoffSubject(audit);
+  var body = _buildKickoffBody(audit, kickoffPrep, data.all);
+
+  // encodeURIComponent pour le sujet et le body
+  var mailtoUrl = 'mailto:' + encodeURIComponent(emails)
+    + '?subject=' + encodeURIComponent(subject)
+    + '&body=' + encodeURIComponent(body);
+
+  // Vérifier la longueur (limite ~2000 caractères sur certains clients mail)
+  if (mailtoUrl.length > 2000) {
+    console.warn('[Kickoff Mail] mailto: long (' + mailtoUrl.length + ' chars), peut être tronqué côté client mail');
+  }
+
+  // Log pour debug + history
+  console.log('[Kickoff Mail] Ouverture Outlook avec', data.all.length, 'destinataires');
+  console.log('  -', data.summary.auditors, 'auditeurs');
+  console.log('  -', data.summary.owners, 'owners');
+  console.log('  -', data.summary.interviewees, 'interviewees');
+
+  if (typeof addHist === 'function') {
+    addHist('email', 'Kick-off — convocation préparée pour ' + data.all.length + ' destinataire(s) ('
+      + data.summary.auditors + ' auditeurs, ' + data.summary.owners + ' owners, ' + data.summary.interviewees + ' interviewees)');
+  }
+
+  // Ouvrir le mailto:
+  window.location.href = mailtoUrl;
+  toast('📧 Outlook ouvert avec ' + data.all.length + ' destinataire(s)');
 }
 
 // ─── Sections métier (Phase 3/4 - placeholder pour l'instant) ─────────────────
