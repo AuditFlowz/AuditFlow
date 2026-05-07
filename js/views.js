@@ -5272,7 +5272,7 @@ function renderWorkProgramBuSection() {
     if (!alreadyUploaded) {
       html += '<button class="bp" style="font-size:11px;padding:4px 10px" onclick="showUploadBuWorkProgramModal()">↓ Uploader le BU Work Program</button>';
     }
-    html += '<button class="bs" style="font-size:11px;padding:4px 10px" onclick="showAddBuProcessFromUniverseModal()">+ Ajouter un Process hors BU Work Program</button>';
+    html += '<button class="bs" style="font-size:11px;padding:4px 10px" onclick="showAddBuProcessFromUniverseModal()">+ Définir le scope d\'audit</button>';
     html += '</div>';
   }
   html += '</div>';
@@ -5284,6 +5284,9 @@ function renderWorkProgramBuSection() {
     if (isPreparer) html += 'Commence par « Uploader le BU Work Program » pour importer le référentiel, ou ajoute un Process spécifique.';
     html += '</div>';
   } else {
+    // ─── Tableau Owners (en haut) ─────────────────────────────────
+    html += renderWpBuOwnersTable(wp, isPreparer);
+    // ─── Liste des Process / Tests ────────────────────────────────
     wp.processes.forEach(function(wpp){
       html += renderWpBuProcessCard(wpp, isPreparer);
     });
@@ -5291,6 +5294,108 @@ function renderWorkProgramBuSection() {
 
   html += '</div>';
   return html;
+}
+
+// ════════════════════════════════════════════════════════════════
+//  TABLEAU OWNERS (en haut de la step Work Program)
+//  Source de vérité unique pour les owners et leurs emails.
+//  Alimente la présentation Kick Off et le mail de convocation.
+// ════════════════════════════════════════════════════════════════
+function renderWpBuOwnersTable(wp, isPreparer) {
+  // Synthèse : nombre total owners + emails
+  var totalOwners = 0;
+  var totalEmails = 0;
+  var processWithoutOwners = 0;
+  var ownersWithoutEmail = 0;
+  wp.processes.forEach(function(wpp){
+    var owners = wpp.owners || [];
+    if (!owners.length) processWithoutOwners++;
+    owners.forEach(function(o){
+      totalOwners++;
+      if ((o.email||'').trim()) totalEmails++;
+      else ownersWithoutEmail++;
+    });
+  });
+
+  var h = '';
+  h += '<div style="margin-bottom:14px;border:.5px solid var(--border);border-radius:6px;background:#fff">';
+
+  // Header + synthèse
+  h += '<div style="padding:9px 12px 9px 12px;border-bottom:.5px solid #f0f0f0">';
+  h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">';
+  h += '<span style="font-size:13px;font-weight:500">Process Owners — Scope d\'audit</span>';
+  h += '</div>';
+  h += '<div style="font-size:11px;color:var(--text-3);font-style:italic">Liste des owners et emails par process en scope. Ces informations alimentent la présentation Kick Off et le mail de convocation.</div>';
+  // Synthèse colorée
+  var summaryBg, summaryColor, summaryIcon, summaryText;
+  if (totalOwners === 0) {
+    summaryBg = '#FAEEDA'; summaryColor = '#854F0B'; summaryIcon = '⚠';
+    summaryText = 'Aucun owner défini. Ajoute au moins un owner par process.';
+  } else if (ownersWithoutEmail > 0 || processWithoutOwners > 0) {
+    summaryBg = '#FAEEDA'; summaryColor = '#854F0B'; summaryIcon = '⚠';
+    summaryText = wp.processes.length+' process · '+totalOwners+' owners · '+totalEmails+' emails — ';
+    var problems = [];
+    if (processWithoutOwners > 0) problems.push(processWithoutOwners+' process sans owner');
+    if (ownersWithoutEmail > 0) problems.push(ownersWithoutEmail+' owner(s) sans email');
+    summaryText += problems.join(', ');
+  } else {
+    summaryBg = '#E1F5EE'; summaryColor = '#085041'; summaryIcon = '✓';
+    summaryText = wp.processes.length+' process · '+totalOwners+' owners · '+totalEmails+' emails. Tous les owners ont un email.';
+  }
+  h += '<div style="margin-top:6px;padding:6px 10px;background:'+summaryBg+';color:'+summaryColor+';border-radius:4px;font-size:11px;display:flex;align-items:center;gap:6px">';
+  h += '<span>'+summaryIcon+'</span><span>'+summaryText+'</span>';
+  h += '</div>';
+  h += '</div>';
+
+  // Tableau (1 ligne par Process)
+  h += '<table style="width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed">';
+  h += '<colgroup><col style="width:32%"/><col style="width:68%"/></colgroup>';
+  h += '<thead><tr>';
+  h += '<th style="background:#fafafa;color:var(--text-2);padding:7px 10px;font-weight:500;font-size:10px;text-align:left;text-transform:uppercase;letter-spacing:.4px;border-bottom:.5px solid #f0f0f0">Process</th>';
+  h += '<th style="background:#fafafa;color:var(--text-2);padding:7px 10px;font-weight:500;font-size:10px;text-align:left;text-transform:uppercase;letter-spacing:.4px;border-bottom:.5px solid #f0f0f0">Owners &amp; emails</th>';
+  h += '</tr></thead><tbody>';
+
+  wp.processes.forEach(function(wpp){
+    // Récupérer le nom du Process depuis Audit Universe (lien vivant)
+    var p = (PROCESSES||[]).find(function(x){return x.id===wpp.auditProcessId;});
+    var procName = p ? p.proc : '(Process introuvable)';
+    var loc = p ? ((p.univers||'') + (p.univers && p.dom ? ' > ' : '') + (p.dom||'')) : '';
+
+    h += '<tr style="border-bottom:.5px solid #f0f0f0">';
+    // Cell Process
+    h += '<td style="padding:8px 10px;vertical-align:top">';
+    h += '<div style="font-weight:500;font-size:12px">'+(''+procName).replace(/</g,'&lt;')+'</div>';
+    if (loc) h += '<div style="font-size:9px;color:var(--text-3);margin-top:1px">'+(''+loc).replace(/</g,'&lt;')+'</div>';
+    h += '</td>';
+    // Cell Owners
+    h += '<td style="padding:6px 10px;vertical-align:top">';
+    var owners = wpp.owners || [];
+    if (!owners.length) {
+      h += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:3px 0">Aucun owner défini.</div>';
+    } else {
+      owners.forEach(function(o){
+        h += '<div style="display:flex;align-items:center;gap:5px;padding:2px 0">';
+        if (isPreparer) {
+          h += '<input value="'+_escAttr(o.name)+'" placeholder="Nom" onchange="setWpBuOwner(\''+_escJsArg(wpp.id)+'\',\''+_escJsArg(o.id)+'\',\'name\',this.value)" style="flex:0 0 110px;font-size:11px;padding:3px 6px;border:.5px solid var(--border);border-radius:3px;background:#fff"/>';
+          h += '<input value="'+_escAttr(o.email)+'" type="email" placeholder="email" onchange="setWpBuOwner(\''+_escJsArg(wpp.id)+'\',\''+_escJsArg(o.id)+'\',\'email\',this.value)" style="flex:1;font-size:11px;padding:3px 6px;border:.5px solid var(--border);border-radius:3px;background:#fff;color:var(--text-2);min-width:0"/>';
+          h += '<button onclick="removeWpBuOwner(\''+_escJsArg(wpp.id)+'\',\''+_escJsArg(o.id)+'\')" title="Supprimer" style="background:#fff;border:.5px solid var(--border);color:var(--text-3);border-radius:3px;width:18px;height:20px;line-height:1;cursor:pointer;padding:0;font-size:11px;flex-shrink:0">×</button>';
+        } else {
+          h += '<span style="flex:0 0 110px;font-size:11px;font-weight:500">'+(''+(o.name||'')).replace(/</g,'&lt;')+'</span>';
+          h += '<span style="flex:1;font-size:11px;color:var(--text-2)">'+(''+(o.email||'')).replace(/</g,'&lt;')+'</span>';
+        }
+        h += '</div>';
+      });
+    }
+    if (isPreparer) {
+      h += '<button class="bs" style="font-size:10px;padding:2px 7px;background:transparent;border:.5px dashed var(--border);color:var(--text-2);margin-top:3px" onclick="addWpBuOwner(\''+_escJsArg(wpp.id)+'\')">+ Ajouter un owner</button>';
+    }
+    h += '</td>';
+    h += '</tr>';
+  });
+
+  h += '</tbody></table>';
+  h += '</div>';
+  return h;
 }
 
 // Helper backward compat : un wpp sans coverageMode est considéré comme design_and_operating
@@ -5342,7 +5447,6 @@ function renderWpBuProcessCard(wpp, isPreparer) {
     if (!isDesignOnly) {
       h += '<button class="bs" style="font-size:9px;padding:2px 6px" onclick="addWpBuAdHocTest(\''+_escJsArg(wpp.id)+'\')" title="Ajouter un test hors BU Work Program">+ Test</button>';
     }
-    h += '<button class="bs" style="font-size:9px;padding:2px 6px" onclick="showWpBuOwnersModal(\''+_escJsArg(wpp.id)+'\')">Owners</button>';
     h += '<button class="bd" style="font-size:9px;padding:2px 6px" onclick="removeWpBuProcess(\''+_escJsArg(wpp.id)+'\')" title="Retirer">Retirer</button>';
     h += '</div>';
   }
@@ -5721,7 +5825,7 @@ function showAddBuProcessFromUniverseModal() {
   });
   body += '</div>';
 
-  openModal('Ajouter un Process hors BU Work Program', body, async function(){
+  openModal('Définir le scope d\'audit', body, async function(){
     var checked = document.querySelectorAll('.add-bu-univ-cb:checked');
     if (!checked.length) {
       toast('Aucun process sélectionné');
@@ -5931,13 +6035,13 @@ async function addWpBuOwner(wppId) {
     email: '',
   });
   await saveAuditData(CA);
-  var body = document.getElementById('bu-owners-body');
-  if (body) body.innerHTML = renderWpBuOwnersBody(wpp);
-  // Refresh aussi la vue principale (compteur d'owners)
+  // Refresh la vue principale (le tableau Owners + les compteurs sur les cartes Process)
   if (document.getElementById('det-content')) {
     document.getElementById('det-content').innerHTML = renderDetContent();
-    // Réafficher la modale après le re-render
   }
+  // Backward compat : si la modale Owners est encore ouverte (legacy), refresh-la aussi
+  var body = document.getElementById('bu-owners-body');
+  if (body) body.innerHTML = renderWpBuOwnersBody(wpp);
 }
 
 async function setWpBuOwner(wppId, ownerId, field, val) {
@@ -6037,7 +6141,22 @@ function _gatherKickoffParticipants(audit, kickoffPrep) {
     }
   });
 
-  // 2. Process Owners (depuis kickoffPrep.subProcesses)
+  // 2. Process Owners (depuis Work Program — wpp.owners est la source de vérité)
+  //    NOTE : auparavant on lisait kickoffPrep.subProcesses[].email, mais on a unifié
+  //    la saisie dans le tableau Owners du Work Program (Sujet 3).
+  var d = (typeof CA !== 'undefined' && typeof getAudData === 'function') ? getAudData(CA) : null;
+  var wpProcesses = (d && d.workProgramBU && Array.isArray(d.workProgramBU.processes))
+    ? d.workProgramBU.processes : [];
+  wpProcesses.forEach(function(wpp) {
+    (wpp.owners || []).forEach(function(o) {
+      if (o && o.email) {
+        add(o.name, o.email, 'owner');
+      }
+    });
+  });
+
+  // 2bis. Backward-compat : si kickoffPrep.subProcesses contient encore des emails
+  //    (audits anciens, avant la migration), on les remonte aussi (dédup auto par email).
   var subProcs = (kickoffPrep && Array.isArray(kickoffPrep.subProcesses))
     ? kickoffPrep.subProcesses : [];
   subProcs.forEach(function(sp) {
@@ -8224,7 +8343,7 @@ function switchDetTab(tab){
   document.getElementById('det-content').innerHTML=renderDetContent();
 }
 
-var REQUIRED_DOCS={0:['Audit Planning Memo'],1:['Work Program'],2:['Kick Off Slides','Meeting Invitation'],3:['Narratif'],4:['Testing Strategy'],5:['Testing Documentation'],6:['Rapport']};
+var REQUIRED_DOCS={0:['Audit Planning Memo'],1:[],2:['Kick Off Slides','Meeting Invitation'],3:['Narratif'],4:['Testing Strategy'],5:['Testing Documentation'],6:['Rapport']};
 function getMissingDocs(stepIndex,docs){var required=REQUIRED_DOCS[stepIndex];if(!required||!required.length)return[];var uploadedNames=(docs||[]).map(function(f){return f.name.toLowerCase();});return required.filter(function(req){return!uploadedNames.some(function(name){return name.indexOf(req.toLowerCase())!==-1;});});}
 // ── Workflow d'étape : finalisation + revue ────────────────────
 // Structure : d.stepStates[stepIdx] = { status, finalizedBy, finalizedAt, reviewedBy, reviewedAt }
