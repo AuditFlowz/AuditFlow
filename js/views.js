@@ -4815,7 +4815,7 @@ function renderNotesSection() {
   return html;
 }
 
-// ─── ÉTAPE 7 (CS=6) : Bandeau de génération du Audit Report ───────────
+// ─── ÉTAPE 7 (CS=6) : Bandeau Audit Report (génération + draft + final) ─
 function renderAuditReportGenerateBanner() {
   var d = getAudData(CA);
   var findings = Array.isArray(d.findings) ? d.findings : [];
@@ -4829,11 +4829,20 @@ function renderAuditReportGenerateBanner() {
   var maturityFilled = !!maturity;
   var mgtRespCount = mgtResp.filter(function(r){return r.action;}).length;
 
+  // Approche A : draft + final
+  var attR = d.attachments && d.attachments.report;
+  var draftR = attR && (attR.draft || (attR.webUrl && !attR.draft && !attR.final ? attR : null));
+  var finalR = attR && attR.final;
+  var hasDraft = !!(draftR && draftR.webUrl);
+  var hasFinal = !!(finalR && finalR.webUrl);
+
   var html = '<div class="card" style="margin-bottom:.75rem;background:linear-gradient(135deg,#FAEEDA 0%,#FFF4D9 100%);border:.5px solid #FAC775">';
-  html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">';
+
+  // En-tête + indicateurs de complétude
+  html += '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">';
   html += '<div style="flex:1;min-width:200px">';
   html += '<div style="font-size:14px;font-weight:600;color:#854F0B;margin-bottom:4px">📄 Audit Report</div>';
-  html += '<div style="font-size:11px;color:#BA7517;margin-bottom:8px">Génération automatique du rapport d\'audit PowerPoint à partir des données de l\'audit.</div>';
+  html += '<div style="font-size:11px;color:#BA7517;margin-bottom:8px">Génération du rapport d\'audit PowerPoint et publication sur SharePoint pour partage avec les parties prenantes.</div>';
   html += '<div style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:#854F0B">';
   html += '<span>'+(findingsCount?'✓':'○')+' Findings ('+findingsComplete+'/'+findingsCount+' complets)</span>';
   html += '<span>'+(testedControls.length?'✓':'○')+' Tests ('+testedControls.length+')</span>';
@@ -4841,13 +4850,56 @@ function renderAuditReportGenerateBanner() {
   html += '<span>'+(mgtRespCount?'✓':'○')+' Mgt Responses ('+mgtRespCount+')</span>';
   html += '</div>';
   html += '</div>';
-  html += '<button class="bp" style="font-size:13px;padding:8px 18px;background:#854F0B;color:#fff;font-weight:500" onclick="generateAuditReportPptx(CA)">⬇ Générer le Audit Report</button>';
+
+  // Boutons d'action principaux (génération initiale + alternatives upload)
+  html += '<div style="display:flex;gap:8px;flex-direction:column;align-items:stretch;min-width:220px">';
+  if (!hasDraft) {
+    // Pas encore de draft : 2 options principales
+    html += '<button class="bp" style="font-size:13px;padding:8px 16px;background:#854F0B;color:#fff;font-weight:500" onclick="publishReportRegenerate()" title="Générer le rapport et le publier comme draft sur SharePoint">⬇ Générer le rapport (draft)</button>';
+    html += '<button class="bs" style="font-size:11px;padding:5px 10px;border:.5px solid #854F0B;color:#854F0B" onclick="publishReportUpload()" title="Uploader un PPT existant comme draft (sans passer par la génération)">📁 Importer un PPT existant</button>';
+  } else {
+    // Draft existe → 2 options : régénérer ou remplacer
+    html += '<button class="bs" style="font-size:11px;padding:5px 10px;border:.5px solid #FAC775;color:#854F0B" onclick="publishReportRegenerate()" title="Régénérer le draft (écrase le draft mais pas le final)">🔄 Régénérer le draft</button>';
+    html += '<button class="bs" style="font-size:11px;padding:5px 10px;border:.5px solid #FAC775;color:#854F0B" onclick="publishReportUpload()" title="Remplacer le draft par un fichier Office">📁 Remplacer le draft</button>';
+  }
   html += '</div>';
+  html += '</div>';
+
+  // Avertissements complétude
   if (!findingsCount) {
     html += '<div style="font-size:10px;color:#854F0B;margin-top:10px;padding:6px 10px;background:#FAEEDA;border-radius:4px;font-style:italic">⚠ Aucun finding défini. Le rapport sera généré sans détail de findings.</div>';
   } else if (findingsComplete < findingsCount) {
     html += '<div style="font-size:10px;color:#854F0B;margin-top:10px;padding:6px 10px;background:#FAEEDA;border-radius:4px;font-style:italic">ⓘ '+(findingsCount-findingsComplete)+' finding(s) incomplet(s) (Potential Risk, Owner ou Risk Level manquant). Ils apparaîtront avec « — » dans le rapport.</div>';
   }
+
+  // Bandeaux draft / final si dispo
+  if (hasDraft || hasFinal) {
+    html += '<div style="display:flex;flex-direction:column;gap:6px;margin-top:10px">';
+    if (hasDraft) {
+      var draftDate = (draftR.uploadedAt||'').slice(0,10);
+      var draftEditUrl = toEditableOfficeUrl(draftR.webUrl);
+      html += '<div style="font-size:11px;color:#854F0B;padding:7px 10px;background:#FFF4D9;border:.5px solid #FAC775;border-radius:4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
+      html += '<span>📝</span>';
+      html += '<span style="flex:1;min-width:160px"><strong style="font-weight:500">Draft</strong> · publié le '+draftDate+(draftR.uploadedBy?' par '+draftR.uploadedBy.replace(/</g,'&lt;'):'')+'</span>';
+      html += '<a href="'+draftEditUrl.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener" style="font-size:10px;padding:3px 8px;background:#854F0B;color:#fff;border:.5px solid #854F0B;border-radius:3px;text-decoration:none;font-weight:500">✏ Modifier draft</a>';
+      html += '<button class="bp" style="font-size:10px;padding:3px 8px;background:#3C3489;color:#fff;border:.5px solid #3C3489;border-radius:3px;font-weight:500" onclick="finalizeReport()" title="Copier le draft actuel comme version finale (la version qui sera partagée)">📌 Marquer comme version finale</button>';
+      html += '</div>';
+    }
+    if (hasFinal) {
+      var finalDate = (finalR.finalizedAt||'').slice(0,10);
+      var finalEditUrl = toEditableOfficeUrl(finalR.webUrl);
+      html += '<div style="font-size:11px;color:#085041;padding:7px 10px;background:#E1F5EE;border:.5px solid #A6E2CD;border-radius:4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
+      html += '<span>📌</span>';
+      html += '<span style="flex:1;min-width:160px"><strong style="font-weight:500">Version finale</strong> · figée le '+finalDate+(finalR.finalizedBy?' par '+finalR.finalizedBy.replace(/</g,'&lt;'):'')+' &middot; <em>Lien envoyé dans la demande MR (étape suivante)</em></span>';
+      html += '<a href="'+finalEditUrl.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener" style="font-size:10px;padding:3px 8px;background:#3C3489;color:#fff;border:.5px solid #3C3489;border-radius:3px;text-decoration:none;font-weight:500">✏ Modifier final</a>';
+      html += '<a href="'+finalR.webUrl.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener" style="font-size:10px;padding:3px 8px;background:#fff;color:#085041;border:.5px solid #A6E2CD;border-radius:3px;text-decoration:none">Ouvrir →</a>';
+      html += '</div>';
+    } else if (hasDraft) {
+      html += '<div style="font-size:10px;color:#BA7517;font-style:italic;padding:3px 10px">Aucune version finale — la demande MR (étape suivante) ne pourra être envoyée qu\'après le marquage final.</div>';
+    }
+    html += '</div>';
+  }
+
   html += '</div>';
   return html;
 }
@@ -5892,7 +5944,7 @@ function showAddBuProcessFromUniverseModal() {
     return a.localeCompare(b, 'fr', {sensitivity:'base'});
   });
 
-  var body = '<div style="font-size:11px;color:var(--text-3);margin-bottom:10px">Coche les Process à ajouter à l\'audit. Aucun test ne sera pré-rempli — à toi d\'ajouter les tests ad hoc nécessaires ensuite.</div>';
+  var body = '<div style="font-size:11px;color:var(--text-3);margin-bottom:10px">Coche les Process à ajouter à l\'audit. Les tests du référentiel BU Work Program seront automatiquement importés (en mode Design + Operating). Tu pourras retirer/modifier les tests ensuite, ou basculer en mode Design only si nécessaire.</div>';
   body += '<div id="add-bu-univ-body">';
   universList.forEach(function(univ){
     body += '<div style="background:#3C3489;color:#fff;font-weight:700;padding:6px 10px;font-size:10px;letter-spacing:.5px;text-transform:uppercase;margin-bottom:4px">'+(''+univ).replace(/</g,'&lt;')+'</div>';
@@ -5904,14 +5956,18 @@ function showAddBuProcessFromUniverseModal() {
         // Indique si ce Process a des tests dans le référentiel BU (info utile)
         var refEntry = (BU_PROCESSES||[]).find(function(b){return b.auditProcessId===p.id;});
         var refTestCount = (refEntry && refEntry.tests) ? refEntry.tests.length : 0;
+        // Process spécial Design Only ?
+        var isDesignOnlyProc = DESIGN_ONLY_AUTO_PROCESSES.indexOf(p.proc) >= 0;
         body += '<label style="display:flex;align-items:center;gap:8px;padding:7px 16px;cursor:pointer;border-bottom:.5px solid #f0f0f0">';
         body += '<input type="checkbox" class="add-bu-univ-cb" value="'+_escAttr(p.id)+'" style="width:14px;height:14px;flex-shrink:0"/>';
         body += '<div style="flex:1;min-width:0">';
         body += '<div style="font-size:12px;font-weight:500">'+(''+p.proc).replace(/</g,'&lt;')+'</div>';
-        if (refTestCount>0) {
-          body += '<div style="font-size:10px;color:var(--purple);font-style:italic">'+refTestCount+' test'+(refTestCount>1?'s':'')+' dispo dans le référentiel BU (mais non importés ici — utilise « Uploader » pour l\'import en bloc)</div>';
+        if (isDesignOnlyProc) {
+          body += '<div style="font-size:10px;color:#854F0B;font-style:italic">Process spécial → mode <strong>Design only</strong> par défaut</div>';
+        } else if (refTestCount>0) {
+          body += '<div style="font-size:10px;color:#085041;font-style:italic">'+refTestCount+' test'+(refTestCount>1?'s':'')+' du référentiel BU seront importés (mode D+O)</div>';
         } else {
-          body += '<div style="font-size:10px;color:var(--text-3);font-style:italic">aucun test dans le référentiel BU</div>';
+          body += '<div style="font-size:10px;color:var(--text-3);font-style:italic">Aucun test dans le référentiel BU — à toi d\'ajouter des tests ad hoc (mode D+O)</div>';
         }
         body += '</div>';
         body += '</label>';
@@ -5929,21 +5985,53 @@ function showAddBuProcessFromUniverseModal() {
     var d2 = getAudData(CA);
     var wp2 = _wpBu(d2);
     var added = 0;
+    var totalTestsImported = 0;
     checked.forEach(function(cb){
       var procId = cb.value;
       if (wp2.processes.find(function(x){return x.auditProcessId===procId;})) return;
+      // Trouver le Process pour décider du mode (D+O ou Design only selon la liste spéciale)
+      var proc = (PROCESSES||[]).find(function(p){return p.id===procId;});
+      var isDesignOnlyProc = proc && DESIGN_ONLY_AUTO_PROCESSES.indexOf(proc.proc) >= 0;
+      var mode = isDesignOnlyProc ? 'design_only' : 'design_and_operating';
+
+      // Importer les tests du référentiel BU (sauf Design only qui n'a pas besoin de tests substantifs)
+      var importedTests = [];
+      if (!isDesignOnlyProc) {
+        var refEntry = (BU_PROCESSES||[]).find(function(b){return b.auditProcessId===procId;});
+        if (refEntry && Array.isArray(refEntry.tests)) {
+          refEntry.tests.forEach(function(refTest){
+            // Cloner profondément le test pour éviter de modifier le référentiel
+            var clonedTest = JSON.parse(JSON.stringify(refTest));
+            // Réassigner un ID unique au test cloné (et à ses PBC)
+            clonedTest.id = 'wpbut_'+Date.now()+'_'+Math.floor(Math.random()*100000);
+            clonedTest.source = 'reference'; // marqueur pour distinguer du test ad hoc
+            if (Array.isArray(clonedTest.pbc)) {
+              clonedTest.pbc.forEach(function(pbcDoc){
+                pbcDoc.id = 'wpbupbc_'+Date.now()+'_'+Math.floor(Math.random()*100000);
+                // Initialiser le statut PBC (par audit, pas dans le référentiel)
+                if (!pbcDoc.status) pbcDoc.status = 'todo';
+              });
+            }
+            importedTests.push(clonedTest);
+            totalTestsImported++;
+          });
+        }
+      }
+
       wp2.processes.push({
         id: 'wpp_'+Date.now()+'_'+Math.floor(Math.random()*100000),
         auditProcessId: procId,
         owners: [],
-        coverageMode: 'design_only', // Process sans tests → mode design only par défaut
-        tests: [],
+        coverageMode: mode,
+        tests: importedTests,
       });
       added++;
     });
     await saveAuditData(CA);
     document.getElementById('det-content').innerHTML = renderDetContent();
-    toast(added+' process ajouté'+(added>1?'s':'')+' ✓');
+    var msg = added+' process ajouté'+(added>1?'s':'')+' ✓';
+    if (totalTestsImported > 0) msg += ' ('+totalTestsImported+' test'+(totalTestsImported>1?'s':'')+' importé'+(totalTestsImported>1?'s':'')+')';
+    toast(msg);
   }, { wide: true });
 }
 
@@ -8162,72 +8250,49 @@ function renderMaturitySection() {
 //   1. Publier le rapport final sur SharePoint (re-générer OU upload Office)
 //   2. Envoyer la demande de Management Response aux owners avec le lien
 // ════════════════════════════════════════════════════════════════════
+// ─── ÉTAPE 8 (CS=8) : Bandeau pour envoyer la demande Management Response ─
+//   Le rapport doit avoir été marqué comme version finale en étape 7 (Audit Report).
+//   Cette étape ne fait que l'envoi du mail aux parties prenantes.
 function renderReportPublicationBanner() {
   var d = getAudData(CA);
   var attR = d.attachments && d.attachments.report;
-  // Backward-compat ancien format plat
-  var draftR = attR && (attR.draft || (attR.webUrl && !attR.draft && !attR.final ? attR : null));
   var finalR = attR && attR.final;
-  var hasDraft = !!(draftR && draftR.webUrl);
+  // Backward-compat ancien format plat sans final
+  if (!finalR && attR && attR.webUrl && !attR.draft) {
+    finalR = attR;
+  }
   var hasFinal = !!(finalR && finalR.webUrl);
 
   var html = '<div class="card" style="margin-bottom:.75rem;background:linear-gradient(135deg,#FAEEDA 0%,#FFF4D9 100%);border:.5px solid #FAC775">';
 
-  // Header + intro
-  html += '<div style="margin-bottom:10px">';
-  html += '<div style="font-size:14px;font-weight:600;color:#854F0B;margin-bottom:4px">📤 Publication du rapport</div>';
-  if (!hasDraft && !hasFinal) {
-    html += '<div style="font-size:11px;color:#BA7517;line-height:1.5">Publie un draft du rapport sur SharePoint pour pouvoir l\'éditer dans PowerPoint Online. Quand la version est satisfaisante, marque-la comme finale pour pouvoir envoyer la demande de Management Response.</div>';
+  html += '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">';
+  html += '<div style="flex:1;min-width:240px">';
+  html += '<div style="font-size:14px;font-weight:600;color:#854F0B;margin-bottom:4px">📧 Demande de Management Response</div>';
+
+  if (!hasFinal) {
+    html += '<div style="font-size:11px;color:#BA7517;line-height:1.5">Aucune version finale du rapport n\'est disponible. Retourne à l\'étape <strong>Audit Report</strong> pour générer le rapport et le marquer comme version finale.</div>';
   } else {
-    html += '<div style="font-size:11px;color:#BA7517;line-height:1.5">Le draft peut être modifié librement. La version finale est utilisée dans la demande de Management Response.</div>';
-  }
-  html += '</div>';
-
-  // Bandeaux draft / final (2 colonnes simulées en stack vertical)
-  html += '<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px">';
-
-  // Bandeau DRAFT
-  if (hasDraft) {
-    var draftDate = (draftR.uploadedAt||'').slice(0,10);
-    var draftEditUrl = toEditableOfficeUrl(draftR.webUrl);
-    html += '<div style="font-size:11px;color:#854F0B;padding:7px 10px;background:#FFF4D9;border:.5px solid #FAC775;border-radius:4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
-    html += '<span>📝</span>';
-    html += '<span style="flex:1;min-width:160px"><strong style="font-weight:500">Draft</strong> · publié le '+draftDate+(draftR.uploadedBy?' par '+draftR.uploadedBy.replace(/</g,'&lt;'):'')+'</span>';
-    html += '<a href="'+draftEditUrl.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener" style="font-size:10px;padding:3px 8px;background:#854F0B;color:#fff;border:.5px solid #854F0B;border-radius:3px;text-decoration:none;font-weight:500">✏ Modifier draft</a>';
-    html += '<button class="bp" style="font-size:10px;padding:3px 8px;background:#3C3489;color:#fff;border:.5px solid #3C3489;border-radius:3px;font-weight:500" onclick="finalizeReport()" title="Copier le draft actuel comme version finale (la version qui sera partagée)">📌 Marquer comme version finale</button>';
-    html += '</div>';
-  }
-
-  // Bandeau FINAL
-  if (hasFinal) {
     var finalDate = (finalR.finalizedAt||'').slice(0,10);
+    var by = finalR.finalizedBy ? ' par '+finalR.finalizedBy : '';
     var finalEditUrl = toEditableOfficeUrl(finalR.webUrl);
-    html += '<div style="font-size:11px;color:#085041;padding:7px 10px;background:#E1F5EE;border:.5px solid #A6E2CD;border-radius:4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
-    html += '<span>📌</span>';
-    html += '<span style="flex:1;min-width:160px"><strong style="font-weight:500">Version finale</strong> · figée le '+finalDate+(finalR.finalizedBy?' par '+finalR.finalizedBy.replace(/</g,'&lt;'):'')+' &middot; <em>Lien envoyé dans la demande MR</em></span>';
-    html += '<a href="'+finalEditUrl.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener" style="font-size:10px;padding:3px 8px;background:#3C3489;color:#fff;border:.5px solid #3C3489;border-radius:3px;text-decoration:none;font-weight:500">✏ Modifier final</a>';
-    html += '<a href="'+finalR.webUrl.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener" style="font-size:10px;padding:3px 8px;background:#fff;color:#085041;border:.5px solid #A6E2CD;border-radius:3px;text-decoration:none">Ouvrir →</a>';
+    html += '<div style="font-size:11px;color:#085041;background:#E1F5EE;padding:6px 10px;border-radius:4px;border:.5px solid #A6E2CD;line-height:1.5">';
+    html += '<strong style="font-weight:500">Version finale</strong> figée le '+finalDate+by+' &middot; ';
+    html += '<a href="'+finalEditUrl.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener" style="color:#3C3489;text-decoration:underline;font-weight:500">✏ Modifier dans PowerPoint</a>';
+    html += ' &middot; ';
+    html += '<a href="'+finalR.webUrl.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener" style="color:#085041;text-decoration:underline">Ouvrir →</a>';
     html += '</div>';
-  } else if (hasDraft) {
-    html += '<div style="font-size:10px;color:#BA7517;font-style:italic;padding:3px 10px">Aucune version finale — la demande MR ne peut pas encore être envoyée. Marque le draft comme version finale.</div>';
+    html += '<div style="font-size:11px;color:#BA7517;line-height:1.5;margin-top:6px">Envoyer la demande de Management Response aux owners avec le lien vers le rapport. Le mail leur demandera de compléter la slide « Management Response » pour chaque finding identifié.</div>';
   }
-
   html += '</div>';
 
-  // Boutons d'action principaux
-  html += '<div style="display:flex;gap:8px;flex-wrap:wrap">';
-  if (!hasDraft) {
-    // Pas de draft : 2 options pour le créer
-    html += '<button class="bp" style="font-size:12px;padding:7px 14px;background:#854F0B;color:#fff;font-weight:500" onclick="publishReportRegenerate()" title="Re-générer le rapport depuis l\'app et publier le draft">📤 Publier draft (re-générer)</button>';
-    html += '<button class="bs" style="font-size:12px;padding:7px 14px;border:1px solid #854F0B;color:#854F0B" onclick="publishReportUpload()" title="Uploader la version Office finale comme draft">📁 Publier draft (mon fichier)</button>';
+  // Bouton d'action
+  html += '<div style="display:flex;gap:8px;flex-direction:column;align-items:stretch;min-width:200px">';
+  if (hasFinal) {
+    html += '<button class="bp" style="font-size:12px;padding:7px 14px;background:#854F0B;color:#fff;font-weight:500" onclick="composeMgtRespEmail()" title="Envoyer la demande de Management Response aux owners">📧 Envoyer la demande MR</button>';
   } else {
-    // Draft existe : on peut envoyer (si final dispo) ou re-publier le draft
-    if (hasFinal) {
-      html += '<button class="bp" style="font-size:12px;padding:7px 14px;background:#854F0B;color:#fff;font-weight:500" onclick="composeMgtRespEmail()" title="Envoyer la demande de Management Response aux owners avec le lien vers la version finale">📧 Envoyer la demande MR</button>';
-    }
-    html += '<button class="bs" style="font-size:11px;padding:5px 10px;border:.5px solid #FAC775;color:#854F0B" onclick="publishReportRegenerate()" title="Re-générer le draft depuis l\'app (écrase le draft actuel mais pas le final)">🔄 Re-générer le draft</button>';
-    html += '<button class="bs" style="font-size:11px;padding:5px 10px;border:.5px solid #FAC775;color:#854F0B" onclick="publishReportUpload()" title="Uploader un nouveau fichier comme draft">📁 Remplacer le draft</button>';
+    html += '<button class="bp" style="font-size:12px;padding:7px 14px;background:#aaa;color:#fff;font-weight:500;cursor:not-allowed" disabled title="Marque d\'abord le rapport comme version finale en étape 7">📧 Envoyer la demande MR</button>';
   }
+  html += '</div>';
   html += '</div>';
   html += '</div>';
   return html;
