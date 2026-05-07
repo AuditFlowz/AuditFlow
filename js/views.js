@@ -4852,6 +4852,18 @@ function renderAuditReportGenerateBanner() {
   return html;
 }
 
+// ─── HELPER : Transformer un webUrl SharePoint en lien d'édition Office Online
+//
+// Le webUrl par défaut ouvre le fichier en lecture. En ajoutant ?web=1,
+// SharePoint redirige vers PowerPoint Online en mode édition.
+// L'utilisateur peut éditer + sauvegarde auto vers SharePoint.
+function toEditableOfficeUrl(webUrl) {
+  if (!webUrl) return '';
+  // Si le webUrl contient déjà des query params, on ajoute &web=1, sinon ?web=1
+  var separator = webUrl.indexOf('?') >= 0 ? '&' : '?';
+  return webUrl + separator + 'web=1';
+}
+
 // ─── ÉTAPE 3 (CS=2) : Bandeau de génération du Kick Off ───────────────
 function renderKickoffGenerateBanner() {
   var d = getAudData(CA);
@@ -4888,10 +4900,12 @@ function renderKickoffGenerateBanner() {
   var attachmentKickoff = d.attachments && d.attachments.kickoff;
   if (attachmentKickoff && attachmentKickoff.webUrl) {
     var uploadedDate = (attachmentKickoff.uploadedAt||'').slice(0,10);
-    html += '<div style="font-size:11px;color:#085041;margin-top:10px;padding:7px 10px;background:#E1F5EE;border:.5px solid #A6E2CD;border-radius:4px;display:flex;align-items:center;gap:8px">';
+    var editUrl = toEditableOfficeUrl(attachmentKickoff.webUrl);
+    html += '<div style="font-size:11px;color:#085041;margin-top:10px;padding:7px 10px;background:#E1F5EE;border:.5px solid #A6E2CD;border-radius:4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
     html += '<span>📎</span>';
-    html += '<span style="flex:1">Kick Off disponible sur SharePoint (généré le '+uploadedDate+'). Le mail de convocation contiendra le lien.</span>';
-    html += '<a href="'+attachmentKickoff.webUrl.replace(/"/g,'&quot;')+'" target="_blank" style="font-size:10px;padding:3px 8px;background:#fff;color:#085041;border:.5px solid #A6E2CD;border-radius:3px;text-decoration:none">Ouvrir →</a>';
+    html += '<span style="flex:1;min-width:160px">Kick Off disponible sur SharePoint (généré le '+uploadedDate+'). Le mail de convocation contiendra le lien.</span>';
+    html += '<a href="'+editUrl.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener" style="font-size:10px;padding:3px 8px;background:#3C3489;color:#fff;border:.5px solid #3C3489;border-radius:3px;text-decoration:none;font-weight:500" title="Ouvrir et modifier dans PowerPoint Online (la version SharePoint est mise à jour automatiquement)">✏ Modifier dans PowerPoint</a>';
+    html += '<a href="'+attachmentKickoff.webUrl.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener" style="font-size:10px;padding:3px 8px;background:#fff;color:#085041;border:.5px solid #A6E2CD;border-radius:3px;text-decoration:none" title="Ouvrir en lecture seule">Ouvrir →</a>';
     html += '</div>';
   }
   html += '</div>';
@@ -8067,8 +8081,12 @@ function renderReportPublicationBanner() {
   } else {
     var dt = (attachmentReport.uploadedAt||'').slice(0,10);
     var by = attachmentReport.uploadedBy ? ' par '+attachmentReport.uploadedBy : '';
+    var editUrlReport = toEditableOfficeUrl(attachmentReport.webUrl);
     html += '<div style="font-size:11px;color:#085041;background:#E1F5EE;padding:6px 10px;border-radius:4px;border:.5px solid #A6E2CD;line-height:1.5">';
-    html += '✓ Publié le '+dt+by+' &middot; <a href="'+attachmentReport.webUrl.replace(/"/g,'&quot;')+'" target="_blank" style="color:#085041;text-decoration:underline">Ouvrir sur SharePoint →</a>';
+    html += '✓ Publié le '+dt+by+' &middot; ';
+    html += '<a href="'+editUrlReport.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener" style="color:#3C3489;text-decoration:underline;font-weight:500" title="Ouvrir et modifier dans PowerPoint Online (sauvegarde auto SharePoint)">✏ Modifier dans PowerPoint</a>';
+    html += ' &middot; ';
+    html += '<a href="'+attachmentReport.webUrl.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener" style="color:#085041;text-decoration:underline" title="Ouvrir en lecture seule">Ouvrir sur SharePoint →</a>';
     html += '</div>';
   }
   html += '</div>';
