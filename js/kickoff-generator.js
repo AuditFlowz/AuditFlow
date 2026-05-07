@@ -704,9 +704,9 @@ async function generateKickoffPptx(auditId) {
   const cleanTitle = (ap.titre || 'audit').replace(/[^a-zA-Z0-9_-]/g, '_');
   const today = new Date().toISOString().slice(0, 10);
   const localFileName = `KickOff_${cleanTitle}_${today}.pptx`;
-  // Nom du fichier sur SharePoint : sans la date pour permettre l'écrasement
-  // (politique "1 seule version, la plus récente" — choisie par l'utilisateur)
-  const spFileName = `KickOff.pptx`;
+  // Approche A : 2 fichiers séparés. La génération écrit toujours dans le DRAFT.
+  // Le FINAL est créé par "📌 Marquer comme version finale" (UI dédiée).
+  const spDraftName = `KickOff_draft.pptx`;
 
   try {
     // 1) Téléchargement local (comme avant)
@@ -715,21 +715,23 @@ async function generateKickoffPptx(auditId) {
     if (typeof addHist === 'function') addHist(auditId, `Kick Off Presentation généré (${localFileName})`);
 
     // 2) Upload sur SharePoint (en arrière-plan, ne bloque pas l'UX)
-    //    Permet ensuite d'inclure le lien dans le mail de convocation.
+    //    On écrit dans le DRAFT — le final reste intact si déjà existant.
     if (typeof getOrCreateAuditFolder === 'function' && typeof uploadFileToSharePoint === 'function') {
       try {
-        if (typeof toast === 'function') toast('📤 Sauvegarde sur SharePoint...');
-        // Récupérer le PPT en blob (sans déclencher de re-téléchargement)
+        if (typeof toast === 'function') toast('📤 Sauvegarde sur SharePoint (draft)...');
         const blob = await pres.write({outputType: 'blob'});
-        // Créer/récupérer le dossier de l'audit
         const folderInfo = await getOrCreateAuditFolder(ap);
-        // Upload (replace si existe déjà)
-        const driveItem = await uploadFileToSharePoint(folderInfo.path, spFileName, blob);
-        // Stocker le lien dans audit data
+        const driveItem = await uploadFileToSharePoint(folderInfo.path, spDraftName, blob);
+        // Stocker le lien dans audit data — structure draft/final
         if (typeof getAudData === 'function' && typeof saveAuditData === 'function') {
           const d = getAudData(auditId);
           if (!d.attachments) d.attachments = {};
-          d.attachments.kickoff = {
+          if (!d.attachments.kickoff) d.attachments.kickoff = {};
+          // Migration backward-compat : si on a un vieux format plat (webUrl direct), on le préserve en draft
+          if (d.attachments.kickoff.webUrl && !d.attachments.kickoff.draft && !d.attachments.kickoff.final) {
+            d.attachments.kickoff = { draft: d.attachments.kickoff };
+          }
+          d.attachments.kickoff.draft = {
             webUrl: driveItem.webUrl,
             fileName: driveItem.name,
             uploadedAt: new Date().toISOString(),
@@ -737,9 +739,9 @@ async function generateKickoffPptx(auditId) {
           };
           await saveAuditData(auditId);
         }
-        if (typeof toast === 'function') toast('✓ Sauvegardé sur SharePoint');
-        if (typeof addHist === 'function') addHist(auditId, `Kick Off uploadé sur SharePoint (${folderInfo.path})`);
-        // Re-render pour afficher le lien dans le banner
+        if (typeof toast === 'function') toast('✓ Draft Kick Off sauvegardé sur SharePoint');
+        if (typeof addHist === 'function') addHist(auditId, `Kick Off (draft) uploadé sur SharePoint (${folderInfo.path})`);
+        // Re-render pour afficher les liens
         if (typeof renderDetContent === 'function' && document.getElementById('det-content')) {
           document.getElementById('det-content').innerHTML = renderDetContent();
         }

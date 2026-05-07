@@ -828,7 +828,9 @@ async function generateAuditReportPptx(auditId, options) {
   const cleanTitle = (ap.titre || 'audit').replace(/[^a-zA-Z0-9_-]/g, '_');
   const todayStr = new Date().toISOString().slice(0, 10);
   const localFileName = `AuditReport_${cleanTitle}_${todayStr}.pptx`;
-  const spFileName = `AuditReport.pptx`;
+  // Approche A : 2 fichiers séparés. Toute génération écrit dans le DRAFT.
+  // Le FINAL est créé par "📌 Marquer comme version finale" (UI dédiée).
+  const spDraftName = `AuditReport_draft.pptx`;
 
   try {
     // 1) Téléchargement local — sauf si uploadOnly explicite
@@ -838,9 +840,7 @@ async function generateAuditReportPptx(auditId, options) {
       if (typeof addHist === 'function') addHist(auditId, `Audit Report généré (${localFileName})`);
     }
 
-    // 2) Upload SharePoint — uniquement si demandé (uploadOnly OU appel volontaire)
-    //    Le mode normal (étape 7) n'upload PAS — c'est volontaire (le rapport est draft).
-    //    L'upload est déclenché en étape 8 via "Publier (re-générer)".
+    // 2) Upload SharePoint — uniquement si demandé (uploadOnly = bouton "Publier" en étape 8)
     if (uploadOnly) {
       if (typeof getOrCreateAuditFolder !== 'function' || typeof uploadFileToSharePoint !== 'function') {
         if (typeof toast === 'function') toast('⚠ Helpers SharePoint indisponibles');
@@ -849,11 +849,16 @@ async function generateAuditReportPptx(auditId, options) {
       try {
         const blob = await pres.write({outputType: 'blob'});
         const folderInfo = await getOrCreateAuditFolder(ap);
-        const driveItem = await uploadFileToSharePoint(folderInfo.path, spFileName, blob);
+        const driveItem = await uploadFileToSharePoint(folderInfo.path, spDraftName, blob);
         if (typeof getAudData === 'function' && typeof saveAuditData === 'function') {
           const d = getAudData(auditId);
           if (!d.attachments) d.attachments = {};
-          d.attachments.report = {
+          if (!d.attachments.report) d.attachments.report = {};
+          // Migration backward-compat : vieux format plat → on bascule en draft
+          if (d.attachments.report.webUrl && !d.attachments.report.draft && !d.attachments.report.final) {
+            d.attachments.report = { draft: d.attachments.report };
+          }
+          d.attachments.report.draft = {
             webUrl: driveItem.webUrl,
             fileName: driveItem.name,
             uploadedAt: new Date().toISOString(),
@@ -862,8 +867,8 @@ async function generateAuditReportPptx(auditId, options) {
           };
           await saveAuditData(auditId);
         }
-        if (typeof toast === 'function') toast('✓ Rapport publié sur SharePoint');
-        if (typeof addHist === 'function') addHist(auditId, `Audit Report publié sur SharePoint (${folderInfo.path})`);
+        if (typeof toast === 'function') toast('✓ Draft Rapport publié sur SharePoint');
+        if (typeof addHist === 'function') addHist(auditId, `Audit Report (draft) publié sur SharePoint (${folderInfo.path})`);
       } catch (uploadErr) {
         console.error('[AUDIT_REPORT] Upload SharePoint échoué :', uploadErr);
         if (typeof toast === 'function') toast('⚠ Publication SharePoint échouée (voir console)');

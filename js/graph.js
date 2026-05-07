@@ -365,6 +365,40 @@ async function _uploadLargeFile(driveId, folderPath, fileName, blob, token) {
   return lastResp;
 }
 
+/**
+ * Copie un fichier SharePoint vers un nouveau nom (dans le même dossier ou un autre).
+ * Utilisé pour la promotion draft → final (Approche A).
+ *
+ * Microsoft Graph supporte la copie via /drives/{id}/items/{id}/copy mais c'est ASYNCHRONE
+ * (renvoie 202 Accepted + un Location). Pour simplifier, on télécharge le contenu et on
+ * le ré-uploade avec le nouveau nom (synchrone, robuste pour des PPT < quelques MB).
+ *
+ * @param {string} folderPath — dossier (ex: 'AuditFlow/Audits/2026/Maroc')
+ * @param {string} sourceName — fichier source (ex: 'KickOff_draft.pptx')
+ * @param {string} targetName — fichier cible (ex: 'KickOff_final.pptx')
+ * @returns {Promise<Object>} le driveItem du fichier cible créé
+ */
+async function copyFileInSharePoint(folderPath, sourceName, targetName) {
+  var driveId = await getDriveId();
+  var token = await getGraphToken();
+  if (!token) throw new Error('Token Graph non disponible');
+
+  // 1. Télécharger le contenu du fichier source
+  var srcUrl = 'https://graph.microsoft.com/v1.0/drives/' + driveId
+    + '/root:/' + encodeURIComponent(folderPath + '/' + sourceName) + ':/content';
+  var srcResp = await fetch(srcUrl, {
+    method: 'GET',
+    headers: { 'Authorization': 'Bearer ' + token }
+  });
+  if (!srcResp.ok) {
+    throw new Error('Source introuvable (' + srcResp.status + ') : ' + sourceName);
+  }
+  var blob = await srcResp.blob();
+
+  // 2. Uploader avec le nouveau nom (replace si existe)
+  return await uploadFileToSharePoint(folderPath, targetName, blob);
+}
+
 var _listIds = {};
 async function getListId(listName) {
   if (_listIds[listName]) return _listIds[listName];

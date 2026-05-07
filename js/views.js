@@ -4896,20 +4896,100 @@ function renderKickoffGenerateBanner() {
   if (!subProcCount && !interviewsCount && !planningCount) {
     html += '<div style="font-size:10px;color:#854F0B;margin-top:10px;padding:6px 10px;background:#FAEEDA;border-radius:4px;font-style:italic">⚠ Aucune information saisie en étape Work Program. Le PowerPoint sera généré avec des sections vides à compléter manuellement.</div>';
   }
-  // Afficher le lien SharePoint si le Kick-off a déjà été uploadé
+  // Afficher les liens SharePoint si le Kick-off a été uploadé (Approche A : draft + final)
   var attachmentKickoff = d.attachments && d.attachments.kickoff;
-  if (attachmentKickoff && attachmentKickoff.webUrl) {
-    var uploadedDate = (attachmentKickoff.uploadedAt||'').slice(0,10);
-    var editUrl = toEditableOfficeUrl(attachmentKickoff.webUrl);
-    html += '<div style="font-size:11px;color:#085041;margin-top:10px;padding:7px 10px;background:#E1F5EE;border:.5px solid #A6E2CD;border-radius:4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
-    html += '<span>📎</span>';
-    html += '<span style="flex:1;min-width:160px">Kick Off disponible sur SharePoint (généré le '+uploadedDate+'). Le mail de convocation contiendra le lien.</span>';
-    html += '<a href="'+editUrl.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener" style="font-size:10px;padding:3px 8px;background:#3C3489;color:#fff;border:.5px solid #3C3489;border-radius:3px;text-decoration:none;font-weight:500" title="Ouvrir et modifier dans PowerPoint Online (la version SharePoint est mise à jour automatiquement)">✏ Modifier dans PowerPoint</a>';
-    html += '<a href="'+attachmentKickoff.webUrl.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener" style="font-size:10px;padding:3px 8px;background:#fff;color:#085041;border:.5px solid #A6E2CD;border-radius:3px;text-decoration:none" title="Ouvrir en lecture seule">Ouvrir →</a>';
+  // Backward-compat : ancien format plat → on lit directement webUrl
+  var draftKO = attachmentKickoff && (attachmentKickoff.draft || (attachmentKickoff.webUrl ? attachmentKickoff : null));
+  var finalKO = attachmentKickoff && attachmentKickoff.final;
+
+  if (draftKO || finalKO) {
+    html += '<div style="margin-top:10px;display:flex;flex-direction:column;gap:6px">';
+
+    // Bandeau DRAFT
+    if (draftKO && draftKO.webUrl) {
+      var draftDate = (draftKO.uploadedAt||'').slice(0,10);
+      var draftEditUrl = toEditableOfficeUrl(draftKO.webUrl);
+      html += '<div style="font-size:11px;color:#854F0B;padding:7px 10px;background:#FAEEDA;border:.5px solid #FAC775;border-radius:4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
+      html += '<span>📝</span>';
+      html += '<span style="flex:1;min-width:160px"><strong style="font-weight:500">Draft</strong> · généré le '+draftDate+(draftKO.uploadedBy?' par '+draftKO.uploadedBy.replace(/</g,'&lt;'):'')+'</span>';
+      html += '<a href="'+draftEditUrl.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener" style="font-size:10px;padding:3px 8px;background:#854F0B;color:#fff;border:.5px solid #854F0B;border-radius:3px;text-decoration:none;font-weight:500" title="Ouvrir et modifier le draft dans PowerPoint Online">✏ Modifier draft</a>';
+      html += '<button class="bp" style="font-size:10px;padding:3px 8px;background:#3C3489;color:#fff;border:.5px solid #3C3489;border-radius:3px;font-weight:500" onclick="finalizeKickoff()" title="Copier le draft actuel comme version finale">📌 Marquer comme version finale</button>';
+      html += '</div>';
+    }
+
+    // Bandeau FINAL
+    if (finalKO && finalKO.webUrl) {
+      var finalDate = (finalKO.finalizedAt||'').slice(0,10);
+      var finalEditUrl = toEditableOfficeUrl(finalKO.webUrl);
+      html += '<div style="font-size:11px;color:#085041;padding:7px 10px;background:#E1F5EE;border:.5px solid #A6E2CD;border-radius:4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
+      html += '<span>📌</span>';
+      html += '<span style="flex:1;min-width:160px"><strong style="font-weight:500">Version finale</strong> · figée le '+finalDate+(finalKO.finalizedBy?' par '+finalKO.finalizedBy.replace(/</g,'&lt;'):'')+' &middot; <em>Lien envoyé dans la convocation</em></span>';
+      html += '<a href="'+finalEditUrl.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener" style="font-size:10px;padding:3px 8px;background:#3C3489;color:#fff;border:.5px solid #3C3489;border-radius:3px;text-decoration:none;font-weight:500" title="Ouvrir et modifier la version finale dans PowerPoint Online">✏ Modifier final</a>';
+      html += '<a href="'+finalKO.webUrl.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener" style="font-size:10px;padding:3px 8px;background:#fff;color:#085041;border:.5px solid #A6E2CD;border-radius:3px;text-decoration:none" title="Ouvrir en lecture seule">Ouvrir →</a>';
+      html += '</div>';
+    } else if (draftKO) {
+      // Indication discrète : pas encore de version finale
+      html += '<div style="font-size:10px;color:var(--text-3);font-style:italic;padding:3px 10px">Aucune version finale — la convocation utilisera le draft tant qu\'aucune version finale n\'est marquée.</div>';
+    }
+
     html += '</div>';
   }
   html += '</div>';
   return html;
+}
+
+/**
+ * Copie le draft Kick-off vers final.
+ * Approche A : draft = brouillon modifiable, final = version partagée par mail.
+ */
+async function finalizeKickoff() {
+  var ap = (AUDIT_PLAN||[]).find(function(a){return a.id===CA;});
+  if (!ap) { toast('Audit introuvable'); return; }
+  var d = getAudData(CA);
+  if (!d.attachments) d.attachments = {};
+  if (!d.attachments.kickoff) d.attachments.kickoff = {};
+  // Backward-compat : si format plat, on convertit
+  if (d.attachments.kickoff.webUrl && !d.attachments.kickoff.draft) {
+    d.attachments.kickoff = { draft: d.attachments.kickoff };
+  }
+  var draft = d.attachments.kickoff.draft;
+  if (!draft || !draft.webUrl) {
+    toast('Génère d\'abord un draft du Kick Off');
+    return;
+  }
+
+  // Confirmation si une version finale existe déjà
+  if (d.attachments.kickoff.final && d.attachments.kickoff.final.webUrl) {
+    if (!confirm('Une version finale existe déjà (figée le ' + (d.attachments.kickoff.final.finalizedAt||'').slice(0,10) + '). Cela remplacera la version finale actuelle. Continuer ?')) {
+      return;
+    }
+  }
+
+  if (typeof copyFileInSharePoint !== 'function' || typeof getOrCreateAuditFolder !== 'function') {
+    toast('Helpers SharePoint indisponibles');
+    return;
+  }
+
+  try {
+    toast('📌 Création de la version finale...');
+    var folderInfo = await getOrCreateAuditFolder(ap);
+    var driveItem = await copyFileInSharePoint(folderInfo.path, 'KickOff_draft.pptx', 'KickOff_final.pptx');
+    d.attachments.kickoff.final = {
+      webUrl: driveItem.webUrl,
+      fileName: driveItem.name,
+      finalizedAt: new Date().toISOString(),
+      finalizedBy: (typeof CU !== 'undefined' && CU && CU.name) ? CU.name : '',
+    };
+    await saveAuditData(CA);
+    if (typeof addHist === 'function') addHist(CA, 'Kick Off — version finale figée (' + driveItem.name + ')');
+    toast('✓ Version finale créée — la convocation utilisera ce lien');
+    if (document.getElementById('det-content')) {
+      document.getElementById('det-content').innerHTML = renderDetContent();
+    }
+  } catch (e) {
+    console.error('[finalizeKickoff] error:', e);
+    toast('Erreur : ' + (e.message||e));
+  }
 }
 
 // ─── ÉTAPE 2 (CS=1) : Préparation du Kick Off ─────────────────────────
@@ -6247,13 +6327,28 @@ function _buildKickoffBody(audit, kickoffPrep, participants) {
     lines.push('');
   }
 
-  // Lien SharePoint vers le Kick-off PPT (s'il a été uploadé)
+  // Lien SharePoint vers le Kick-off PPT (priorité : final → draft → format ancien)
   var d = (typeof CA !== 'undefined' && typeof getAudData === 'function') ? getAudData(CA) : null;
-  var attachmentKickoff = d && d.attachments && d.attachments.kickoff;
-  if (attachmentKickoff && attachmentKickoff.webUrl) {
+  var attK = d && d.attachments && d.attachments.kickoff;
+  var koToShare = null;
+  var koShareLabel = '';
+  if (attK) {
+    if (attK.final && attK.final.webUrl) {
+      koToShare = attK.final;
+      koShareLabel = 'figée le ' + (attK.final.finalizedAt||'').slice(0,10);
+    } else if (attK.draft && attK.draft.webUrl) {
+      koToShare = attK.draft;
+      koShareLabel = 'dernière mise à jour le ' + (attK.draft.uploadedAt||'').slice(0,10) + ' (draft)';
+    } else if (attK.webUrl) {
+      // Backward-compat ancien format plat
+      koToShare = attK;
+      koShareLabel = 'dernière mise à jour le ' + (attK.uploadedAt||'').slice(0,10);
+    }
+  }
+  if (koToShare) {
     lines.push('Présentation Kick-off :');
-    lines.push('  ' + attachmentKickoff.webUrl);
-    lines.push('  (Document SharePoint, dernière mise à jour le ' + (attachmentKickoff.uploadedAt||'').slice(0,10) + ')');
+    lines.push('  ' + koToShare.webUrl);
+    lines.push('  (Document SharePoint, ' + koShareLabel + ')');
     lines.push('');
   }
 
@@ -8069,41 +8164,127 @@ function renderMaturitySection() {
 // ════════════════════════════════════════════════════════════════════
 function renderReportPublicationBanner() {
   var d = getAudData(CA);
-  var attachmentReport = d.attachments && d.attachments.report;
-  var isPublished = !!(attachmentReport && attachmentReport.webUrl);
+  var attR = d.attachments && d.attachments.report;
+  // Backward-compat ancien format plat
+  var draftR = attR && (attR.draft || (attR.webUrl && !attR.draft && !attR.final ? attR : null));
+  var finalR = attR && attR.final;
+  var hasDraft = !!(draftR && draftR.webUrl);
+  var hasFinal = !!(finalR && finalR.webUrl);
 
   var html = '<div class="card" style="margin-bottom:.75rem;background:linear-gradient(135deg,#FAEEDA 0%,#FFF4D9 100%);border:.5px solid #FAC775">';
-  html += '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">';
-  html += '<div style="flex:1;min-width:240px">';
+
+  // Header + intro
+  html += '<div style="margin-bottom:10px">';
   html += '<div style="font-size:14px;font-weight:600;color:#854F0B;margin-bottom:4px">📤 Publication du rapport</div>';
-  if (!isPublished) {
-    html += '<div style="font-size:11px;color:#BA7517;line-height:1.5">Une fois la version finale du rapport prête, publie-la sur SharePoint pour permettre l\'envoi de la demande de Management Response avec le lien intégré.</div>';
+  if (!hasDraft && !hasFinal) {
+    html += '<div style="font-size:11px;color:#BA7517;line-height:1.5">Publie un draft du rapport sur SharePoint pour pouvoir l\'éditer dans PowerPoint Online. Quand la version est satisfaisante, marque-la comme finale pour pouvoir envoyer la demande de Management Response.</div>';
   } else {
-    var dt = (attachmentReport.uploadedAt||'').slice(0,10);
-    var by = attachmentReport.uploadedBy ? ' par '+attachmentReport.uploadedBy : '';
-    var editUrlReport = toEditableOfficeUrl(attachmentReport.webUrl);
-    html += '<div style="font-size:11px;color:#085041;background:#E1F5EE;padding:6px 10px;border-radius:4px;border:.5px solid #A6E2CD;line-height:1.5">';
-    html += '✓ Publié le '+dt+by+' &middot; ';
-    html += '<a href="'+editUrlReport.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener" style="color:#3C3489;text-decoration:underline;font-weight:500" title="Ouvrir et modifier dans PowerPoint Online (sauvegarde auto SharePoint)">✏ Modifier dans PowerPoint</a>';
-    html += ' &middot; ';
-    html += '<a href="'+attachmentReport.webUrl.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener" style="color:#085041;text-decoration:underline" title="Ouvrir en lecture seule">Ouvrir sur SharePoint →</a>';
-    html += '</div>';
+    html += '<div style="font-size:11px;color:#BA7517;line-height:1.5">Le draft peut être modifié librement. La version finale est utilisée dans la demande de Management Response.</div>';
   }
   html += '</div>';
 
-  // Boutons d'action
-  html += '<div style="display:flex;gap:8px;flex-direction:column;align-items:stretch;min-width:200px">';
-  if (!isPublished) {
-    html += '<button class="bp" style="font-size:12px;padding:7px 14px;background:#854F0B;color:#fff;font-weight:500" onclick="publishReportRegenerate()" title="Re-générer le rapport depuis l\'app et le publier sur SharePoint">📤 Publier (re-générer)</button>';
-    html += '<button class="bs" style="font-size:12px;padding:7px 14px;border:1px solid #854F0B;color:#854F0B" onclick="publishReportUpload()" title="Uploader la version Office finale">📁 Publier (mon fichier)</button>';
-  } else {
-    html += '<button class="bp" style="font-size:12px;padding:7px 14px;background:#854F0B;color:#fff;font-weight:500" onclick="composeMgtRespEmail()" title="Envoyer la demande de Management Response aux owners">📧 Envoyer la demande MR</button>';
-    html += '<button class="bs" style="font-size:11px;padding:5px 10px;border:.5px solid #FAC775;color:#854F0B" onclick="publishReportRegenerate()" title="Re-générer + remplacer la version actuelle">🔄 Re-publier</button>';
+  // Bandeaux draft / final (2 colonnes simulées en stack vertical)
+  html += '<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px">';
+
+  // Bandeau DRAFT
+  if (hasDraft) {
+    var draftDate = (draftR.uploadedAt||'').slice(0,10);
+    var draftEditUrl = toEditableOfficeUrl(draftR.webUrl);
+    html += '<div style="font-size:11px;color:#854F0B;padding:7px 10px;background:#FFF4D9;border:.5px solid #FAC775;border-radius:4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
+    html += '<span>📝</span>';
+    html += '<span style="flex:1;min-width:160px"><strong style="font-weight:500">Draft</strong> · publié le '+draftDate+(draftR.uploadedBy?' par '+draftR.uploadedBy.replace(/</g,'&lt;'):'')+'</span>';
+    html += '<a href="'+draftEditUrl.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener" style="font-size:10px;padding:3px 8px;background:#854F0B;color:#fff;border:.5px solid #854F0B;border-radius:3px;text-decoration:none;font-weight:500">✏ Modifier draft</a>';
+    html += '<button class="bp" style="font-size:10px;padding:3px 8px;background:#3C3489;color:#fff;border:.5px solid #3C3489;border-radius:3px;font-weight:500" onclick="finalizeReport()" title="Copier le draft actuel comme version finale (la version qui sera partagée)">📌 Marquer comme version finale</button>';
+    html += '</div>';
   }
+
+  // Bandeau FINAL
+  if (hasFinal) {
+    var finalDate = (finalR.finalizedAt||'').slice(0,10);
+    var finalEditUrl = toEditableOfficeUrl(finalR.webUrl);
+    html += '<div style="font-size:11px;color:#085041;padding:7px 10px;background:#E1F5EE;border:.5px solid #A6E2CD;border-radius:4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
+    html += '<span>📌</span>';
+    html += '<span style="flex:1;min-width:160px"><strong style="font-weight:500">Version finale</strong> · figée le '+finalDate+(finalR.finalizedBy?' par '+finalR.finalizedBy.replace(/</g,'&lt;'):'')+' &middot; <em>Lien envoyé dans la demande MR</em></span>';
+    html += '<a href="'+finalEditUrl.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener" style="font-size:10px;padding:3px 8px;background:#3C3489;color:#fff;border:.5px solid #3C3489;border-radius:3px;text-decoration:none;font-weight:500">✏ Modifier final</a>';
+    html += '<a href="'+finalR.webUrl.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener" style="font-size:10px;padding:3px 8px;background:#fff;color:#085041;border:.5px solid #A6E2CD;border-radius:3px;text-decoration:none">Ouvrir →</a>';
+    html += '</div>';
+  } else if (hasDraft) {
+    html += '<div style="font-size:10px;color:#BA7517;font-style:italic;padding:3px 10px">Aucune version finale — la demande MR ne peut pas encore être envoyée. Marque le draft comme version finale.</div>';
+  }
+
   html += '</div>';
+
+  // Boutons d'action principaux
+  html += '<div style="display:flex;gap:8px;flex-wrap:wrap">';
+  if (!hasDraft) {
+    // Pas de draft : 2 options pour le créer
+    html += '<button class="bp" style="font-size:12px;padding:7px 14px;background:#854F0B;color:#fff;font-weight:500" onclick="publishReportRegenerate()" title="Re-générer le rapport depuis l\'app et publier le draft">📤 Publier draft (re-générer)</button>';
+    html += '<button class="bs" style="font-size:12px;padding:7px 14px;border:1px solid #854F0B;color:#854F0B" onclick="publishReportUpload()" title="Uploader la version Office finale comme draft">📁 Publier draft (mon fichier)</button>';
+  } else {
+    // Draft existe : on peut envoyer (si final dispo) ou re-publier le draft
+    if (hasFinal) {
+      html += '<button class="bp" style="font-size:12px;padding:7px 14px;background:#854F0B;color:#fff;font-weight:500" onclick="composeMgtRespEmail()" title="Envoyer la demande de Management Response aux owners avec le lien vers la version finale">📧 Envoyer la demande MR</button>';
+    }
+    html += '<button class="bs" style="font-size:11px;padding:5px 10px;border:.5px solid #FAC775;color:#854F0B" onclick="publishReportRegenerate()" title="Re-générer le draft depuis l\'app (écrase le draft actuel mais pas le final)">🔄 Re-générer le draft</button>';
+    html += '<button class="bs" style="font-size:11px;padding:5px 10px;border:.5px solid #FAC775;color:#854F0B" onclick="publishReportUpload()" title="Uploader un nouveau fichier comme draft">📁 Remplacer le draft</button>';
+  }
   html += '</div>';
   html += '</div>';
   return html;
+}
+
+/**
+ * Copie le draft Rapport vers final.
+ * Approche A : draft = brouillon modifiable, final = version partagée par mail.
+ */
+async function finalizeReport() {
+  var ap = (AUDIT_PLAN||[]).find(function(a){return a.id===CA;});
+  if (!ap) { toast('Audit introuvable'); return; }
+  var d = getAudData(CA);
+  if (!d.attachments) d.attachments = {};
+  if (!d.attachments.report) d.attachments.report = {};
+  // Backward-compat
+  if (d.attachments.report.webUrl && !d.attachments.report.draft) {
+    d.attachments.report = { draft: d.attachments.report };
+  }
+  var draft = d.attachments.report.draft;
+  if (!draft || !draft.webUrl) {
+    toast('Génère ou publie d\'abord un draft du rapport');
+    return;
+  }
+
+  // Confirmation si une version finale existe déjà
+  if (d.attachments.report.final && d.attachments.report.final.webUrl) {
+    if (!confirm('Une version finale existe déjà (figée le ' + (d.attachments.report.final.finalizedAt||'').slice(0,10) + '). Cela remplacera la version finale actuelle. Continuer ?')) {
+      return;
+    }
+  }
+
+  if (typeof copyFileInSharePoint !== 'function' || typeof getOrCreateAuditFolder !== 'function') {
+    toast('Helpers SharePoint indisponibles');
+    return;
+  }
+
+  try {
+    toast('📌 Création de la version finale du rapport...');
+    var folderInfo = await getOrCreateAuditFolder(ap);
+    var driveItem = await copyFileInSharePoint(folderInfo.path, 'AuditReport_draft.pptx', 'AuditReport_final.pptx');
+    d.attachments.report.final = {
+      webUrl: driveItem.webUrl,
+      fileName: driveItem.name,
+      finalizedAt: new Date().toISOString(),
+      finalizedBy: (typeof CU !== 'undefined' && CU && CU.name) ? CU.name : '',
+    };
+    await saveAuditData(CA);
+    if (typeof addHist === 'function') addHist(CA, 'Audit Report — version finale figée (' + driveItem.name + ')');
+    toast('✓ Version finale créée — la demande MR utilisera ce lien');
+    if (document.getElementById('det-content')) {
+      document.getElementById('det-content').innerHTML = renderDetContent();
+    }
+  } catch (e) {
+    console.error('[finalizeReport] error:', e);
+    toast('Erreur : ' + (e.message||e));
+  }
 }
 
 /**
@@ -8153,12 +8334,18 @@ function publishReportUpload() {
     var ap = (AUDIT_PLAN||[]).find(function(a){return a.id===CA;});
     if (!ap) return;
     try {
-      toast('📤 Upload sur SharePoint...');
+      toast('📤 Upload draft sur SharePoint...');
       var folderInfo = await getOrCreateAuditFolder(ap);
-      var driveItem = await uploadFileToSharePoint(folderInfo.path, 'AuditReport.pptx', file);
+      // Approche A : upload vers le DRAFT (le final est figé manuellement)
+      var driveItem = await uploadFileToSharePoint(folderInfo.path, 'AuditReport_draft.pptx', file);
       var d = getAudData(CA);
       if (!d.attachments) d.attachments = {};
-      d.attachments.report = {
+      if (!d.attachments.report) d.attachments.report = {};
+      // Migration backward-compat
+      if (d.attachments.report.webUrl && !d.attachments.report.draft && !d.attachments.report.final) {
+        d.attachments.report = { draft: d.attachments.report };
+      }
+      d.attachments.report.draft = {
         webUrl: driveItem.webUrl,
         fileName: driveItem.name,
         uploadedAt: new Date().toISOString(),
@@ -8166,8 +8353,8 @@ function publishReportUpload() {
         source: 'office_upload',
       };
       await saveAuditData(CA);
-      if (typeof addHist === 'function') addHist(CA, 'Rapport publié sur SharePoint (upload Office)');
-      toast('✓ Rapport publié sur SharePoint');
+      if (typeof addHist === 'function') addHist(CA, 'Rapport (draft) publié sur SharePoint (upload Office)');
+      toast('✓ Draft Rapport publié sur SharePoint');
       if (document.getElementById('det-content')) {
         document.getElementById('det-content').innerHTML = renderDetContent();
       }
@@ -8192,9 +8379,15 @@ function composeMgtRespEmail() {
   if (!audit) { toast('Audit introuvable'); return; }
   var d = getAudData(CA);
 
-  var attachmentReport = d.attachments && d.attachments.report;
-  if (!attachmentReport || !attachmentReport.webUrl) {
-    toast('Publie d\'abord le rapport sur SharePoint');
+  // Approche A : on PARTAGE la version finale (pas le draft). Si pas de final, on bloque.
+  var attR = d.attachments && d.attachments.report;
+  var finalReport = attR && attR.final;
+  // Backward-compat : ancien format plat → on l'accepte aussi comme final
+  if (!finalReport && attR && attR.webUrl && !attR.draft) {
+    finalReport = attR;
+  }
+  if (!finalReport || !finalReport.webUrl) {
+    toast('Marque d\'abord le draft comme version finale (📌 Marquer comme version finale)');
     return;
   }
 
@@ -8251,7 +8444,7 @@ function composeMgtRespEmail() {
   lines.push('Suite aux travaux de l\'audit ' + titre + ', le rapport final est désormais disponible.');
   lines.push('');
   lines.push('Rapport d\'audit :');
-  lines.push('  ' + attachmentReport.webUrl);
+  lines.push('  ' + finalReport.webUrl);
   lines.push('');
   if (findingsCount > 0) {
     lines.push('Le rapport identifie ' + findingsCount + ' finding' + (findingsCount>1?'s':'') + ' pour lesquels nous sollicitons votre Management Response.');
