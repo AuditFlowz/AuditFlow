@@ -202,6 +202,169 @@ async function getDriveId() {
   return data.id;
 }
 
+// ════════════════════════════════════════════════════════════════
+//  SHAREPOINT — Upload de fichiers (Kick-off PPT, Rapport...)
+//
+//  Structure cible : /Documents/AuditFlow/Audits/{année}/{titre audit}/
+//  Permission requise : Files.ReadWrite (déjà accordée)
+// ════════════════════════════════════════════════════════════════
+
+/**
+ * Slugifie un titre d'audit pour utilisation dans un chemin SharePoint.
+ * SharePoint interdit certains caractères dans les noms de dossiers/fichiers.
+ * Caractères interdits : * " : < > ? / \ | et certains autres.
+ */
+function _slugifyForSharePoint(s) {
+  return (s || '')
+    .replace(/[\*\"\:\<\>\?\/\\\|]/g, '_')  // chars interdits SP → _
+    .replace(/\s+/g, ' ')                    // espaces multiples → 1 espace
+    .trim()
+    .substring(0, 80);                       // limiter longueur (SP a une limite de path)
+}
+
+/**
+ * Crée (ou récupère) un dossier dans la doc library SharePoint, en créant
+ * récursivement les dossiers parents si besoin.
+ *
+ * @param {Array<string>} pathSegments — segments du chemin (ex: ['AuditFlow', 'Audits', '2025', 'BU Maroc'])
+ * @returns {Promise<Object>} le driveItem du dossier final
+ */
+async function _ensureFolderPath(pathSegments) {
+  var driveId = await getDriveId();
+  var currentPath = '';
+  var lastFolder = null;
+
+  for (var i = 0; i < pathSegments.length; i++) {
+    var seg = pathSegments[i];
+    if (!seg) continue;
+    var newPath = currentPath ? currentPath + '/' + seg : seg;
+    // Tenter de récupérer le dossier
+    try {
+      var endpoint = '/drives/' + driveId + '/root:/' + encodeURIComponent(newPath);
+      lastFolder = await graphCall('GET', endpoint);
+    } catch (e) {
+      // 404 → on crée
+      // Le parent : tout sauf le dernier segment
+      var parentEndpoint = currentPath
+        ? '/drives/' + driveId + '/root:/' + encodeURIComponent(currentPath) + ':/children'
+        : '/drives/' + driveId + '/root/children';
+      console.log('[SP] Création dossier:', newPath);
+      lastFolder = await graphCall('POST', parentEndpoint, {
+        name: seg,
+        folder: {},
+        '@microsoft.graph.conflictBehavior': 'replace'
+      });
+    }
+    currentPath = newPath;
+  }
+  return lastFolder;
+}
+
+/**
+ * Récupère (ou crée) le dossier SharePoint dédié à un audit.
+ * Structure : /AuditFlow/Audits/{année}/{titre audit slugifié}/
+ *
+ * @param {Object} audit — l'objet audit ({titre, annee})
+ * @returns {Promise<{folder, path}>} le driveItem du dossier + son chemin
+ */
+async function getOrCreateAuditFolder(audit) {
+  var annee = String(audit.annee || new Date().getFullYear());
+  var titre = _slugifyForSharePoint(audit.titre || 'Audit_' + audit.id);
+  var pathSegments = ['AuditFlow', 'Audits', annee, titre];
+  var folder = await _ensureFolderPath(pathSegments);
+  return {
+    folder: folder,
+    path: pathSegments.join('/')
+  };
+}
+
+/**
+ * Upload un fichier (Blob ou ArrayBuffer) vers SharePoint à un chemin donné.
+ * Si le fichier existe déjà, il est REMPLACÉ (conflictBehavior: replace).
+ *
+ * @param {string} folderPath — chemin du dossier (ex: 'AuditFlow/Audits/2025/BU Maroc 2025')
+ * @param {string} fileName — nom du fichier (ex: 'KickOff.pptx')
+ * @param {Blob|ArrayBuffer} content — contenu du fichier
+ * @returns {Promise<Object>} le driveItem créé { id, name, webUrl, ... }
+ */
+async function uploadFileToSharePoint(folderPath, fileName, content) {
+  var driveId = await getDriveId();
+  var token = await getGraphToken();
+  if (!token) throw new Error('Token Graph non disponible');
+
+  // Upload simple (< 4 MB) ou sessions pour fichiers plus gros
+  // Les PPT générés font typiquement < 1 MB, donc upload simple suffit
+  // Si le fichier dépasse 4 MB, il faudra implémenter une upload session
+  var blob = content instanceof Blob ? content : new Blob([content]);
+  if (blob.size > 4 * 1024 * 1024) {
+    return await _uploadLargeFile(driveId, folderPath, fileName, blob, token);
+  }
+
+  // Upload simple : PUT direct
+  var url = 'https://graph.microsoft.com/v1.0/drives/' + driveId
+    + '/root:/' + encodeURIComponent(folderPath + '/' + fileName) + ':/content';
+  var resp = await fetch(url, {
+    method: 'PUT',
+    headers: {
+      'Authorization': 'Bearer ' + token,
+      'Content-Type': blob.type || 'application/octet-stream'
+    },
+    body: blob
+  });
+  if (!resp.ok) {
+    var errText = await resp.text();
+    console.error('[SP Upload] error:', resp.status, errText);
+    throw new Error('Upload échoué (' + resp.status + ') : ' + errText.slice(0, 200));
+  }
+  var driveItem = await resp.json();
+  console.log('[SP Upload] OK:', driveItem.name, '→', driveItem.webUrl);
+  return driveItem;
+}
+
+/**
+ * Upload pour fichiers > 4 MB (utilise une upload session).
+ * Découpé en chunks de 5 MB.
+ */
+async function _uploadLargeFile(driveId, folderPath, fileName, blob, token) {
+  // 1. Créer une upload session
+  var sessionUrl = 'https://graph.microsoft.com/v1.0/drives/' + driveId
+    + '/root:/' + encodeURIComponent(folderPath + '/' + fileName) + ':/createUploadSession';
+  var sessionResp = await fetch(sessionUrl, {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ item: { '@microsoft.graph.conflictBehavior': 'replace' } })
+  });
+  if (!sessionResp.ok) throw new Error('Upload session creation failed: ' + sessionResp.status);
+  var session = await sessionResp.json();
+
+  // 2. Uploader par chunks
+  var chunkSize = 5 * 1024 * 1024; // 5 MB
+  var totalSize = blob.size;
+  var offset = 0;
+  var lastResp = null;
+  while (offset < totalSize) {
+    var end = Math.min(offset + chunkSize, totalSize);
+    var chunk = blob.slice(offset, end);
+    var chunkResp = await fetch(session.uploadUrl, {
+      method: 'PUT',
+      headers: {
+        'Content-Length': String(chunk.size),
+        'Content-Range': 'bytes ' + offset + '-' + (end - 1) + '/' + totalSize
+      },
+      body: chunk
+    });
+    if (!chunkResp.ok && chunkResp.status !== 202) {
+      throw new Error('Chunk upload failed at offset ' + offset + ': ' + chunkResp.status);
+    }
+    if (chunkResp.status === 200 || chunkResp.status === 201) {
+      lastResp = await chunkResp.json();
+    }
+    offset = end;
+  }
+  console.log('[SP Upload] Large file OK:', fileName);
+  return lastResp;
+}
+
 var _listIds = {};
 async function getListId(listName) {
   if (_listIds[listName]) return _listIds[listName];

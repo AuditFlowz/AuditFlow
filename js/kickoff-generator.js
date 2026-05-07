@@ -700,15 +700,54 @@ async function generateKickoffPptx(auditId) {
   });
   ko_addFooter(pres, s11);
 
-  // ─── Téléchargement ─────────────────────────────────────────────────
+  // ─── Téléchargement local + Upload SharePoint ───────────────────────
   const cleanTitle = (ap.titre || 'audit').replace(/[^a-zA-Z0-9_-]/g, '_');
   const today = new Date().toISOString().slice(0, 10);
-  const fileName = `KickOff_${cleanTitle}_${today}.pptx`;
+  const localFileName = `KickOff_${cleanTitle}_${today}.pptx`;
+  // Nom du fichier sur SharePoint : sans la date pour permettre l'écrasement
+  // (politique "1 seule version, la plus récente" — choisie par l'utilisateur)
+  const spFileName = `KickOff.pptx`;
 
   try {
-    await pres.writeFile({fileName: fileName});
+    // 1) Téléchargement local (comme avant)
+    await pres.writeFile({fileName: localFileName});
     if (typeof toast === 'function') toast(`Kick Off généré ✓`);
-    if (typeof addHist === 'function') addHist(auditId, `Kick Off Presentation généré (${fileName})`);
+    if (typeof addHist === 'function') addHist(auditId, `Kick Off Presentation généré (${localFileName})`);
+
+    // 2) Upload sur SharePoint (en arrière-plan, ne bloque pas l'UX)
+    //    Permet ensuite d'inclure le lien dans le mail de convocation.
+    if (typeof getOrCreateAuditFolder === 'function' && typeof uploadFileToSharePoint === 'function') {
+      try {
+        if (typeof toast === 'function') toast('📤 Sauvegarde sur SharePoint...');
+        // Récupérer le PPT en blob (sans déclencher de re-téléchargement)
+        const blob = await pres.write({outputType: 'blob'});
+        // Créer/récupérer le dossier de l'audit
+        const folderInfo = await getOrCreateAuditFolder(ap);
+        // Upload (replace si existe déjà)
+        const driveItem = await uploadFileToSharePoint(folderInfo.path, spFileName, blob);
+        // Stocker le lien dans audit data
+        if (typeof getAudData === 'function' && typeof saveAuditData === 'function') {
+          const d = getAudData(auditId);
+          if (!d.attachments) d.attachments = {};
+          d.attachments.kickoff = {
+            webUrl: driveItem.webUrl,
+            fileName: driveItem.name,
+            uploadedAt: new Date().toISOString(),
+            uploadedBy: (typeof CU !== 'undefined' && CU && CU.name) ? CU.name : '',
+          };
+          await saveAuditData(auditId);
+        }
+        if (typeof toast === 'function') toast('✓ Sauvegardé sur SharePoint');
+        if (typeof addHist === 'function') addHist(auditId, `Kick Off uploadé sur SharePoint (${folderInfo.path})`);
+        // Re-render pour afficher le lien dans le banner
+        if (typeof renderDetContent === 'function' && document.getElementById('det-content')) {
+          document.getElementById('det-content').innerHTML = renderDetContent();
+        }
+      } catch (uploadErr) {
+        console.error('[KICKOFF] Upload SharePoint échoué :', uploadErr);
+        if (typeof toast === 'function') toast('⚠ PPT téléchargé mais upload SharePoint échoué (voir console)');
+      }
+    }
   } catch (err) {
     console.error('[KICKOFF] Erreur génération :', err);
     if (typeof toast === 'function') toast('Erreur lors de la génération');

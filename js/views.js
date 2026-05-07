@@ -4883,6 +4883,16 @@ function renderKickoffGenerateBanner() {
   if (!subProcCount && !interviewsCount && !planningCount) {
     html += '<div style="font-size:10px;color:#854F0B;margin-top:10px;padding:6px 10px;background:#FAEEDA;border-radius:4px;font-style:italic">⚠ Aucune information saisie en étape Work Program. Le PowerPoint sera généré avec des sections vides à compléter manuellement.</div>';
   }
+  // Afficher le lien SharePoint si le Kick-off a déjà été uploadé
+  var attachmentKickoff = d.attachments && d.attachments.kickoff;
+  if (attachmentKickoff && attachmentKickoff.webUrl) {
+    var uploadedDate = (attachmentKickoff.uploadedAt||'').slice(0,10);
+    html += '<div style="font-size:11px;color:#085041;margin-top:10px;padding:7px 10px;background:#E1F5EE;border:.5px solid #A6E2CD;border-radius:4px;display:flex;align-items:center;gap:8px">';
+    html += '<span>📎</span>';
+    html += '<span style="flex:1">Kick Off disponible sur SharePoint (généré le '+uploadedDate+'). Le mail de convocation contiendra le lien.</span>';
+    html += '<a href="'+attachmentKickoff.webUrl.replace(/"/g,'&quot;')+'" target="_blank" style="font-size:10px;padding:3px 8px;background:#fff;color:#085041;border:.5px solid #A6E2CD;border-radius:3px;text-decoration:none">Ouvrir →</a>';
+    html += '</div>';
+  }
   html += '</div>';
   return html;
 }
@@ -6100,6 +6110,16 @@ function _buildKickoffBody(audit, kickoffPrep, participants) {
     if (planning.testing)     lines.push('  • Testing : semaine du ' + planning.testing);
     if (planning.report)      lines.push('  • Rapport : semaine du ' + planning.report);
     if (planning.restitution) lines.push('  • Restitution : ' + planning.restitution);
+    lines.push('');
+  }
+
+  // Lien SharePoint vers le Kick-off PPT (s'il a été uploadé)
+  var d = (typeof CA !== 'undefined' && typeof getAudData === 'function') ? getAudData(CA) : null;
+  var attachmentKickoff = d && d.attachments && d.attachments.kickoff;
+  if (attachmentKickoff && attachmentKickoff.webUrl) {
+    lines.push('Présentation Kick-off :');
+    lines.push('  ' + attachmentKickoff.webUrl);
+    lines.push('  (Document SharePoint, dernière mise à jour le ' + (attachmentKickoff.uploadedAt||'').slice(0,10) + ')');
     lines.push('');
   }
 
