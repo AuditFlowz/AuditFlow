@@ -4616,6 +4616,7 @@ function renderDetContent(){
     }
   } else if (CS === 8) {
     // Étape 9 (index 8) : Management Responses
+    html += renderReportPublicationBanner();
     html += renderMgtRespSection();
   }
 
@@ -8046,6 +8047,238 @@ function renderMaturitySection() {
   html += '</div>';
   return html;
 }
+// ════════════════════════════════════════════════════════════════════
+//  ÉTAPE 8 — BANDEAU PUBLICATION DU RAPPORT + DEMANDE MGT RESPONSE
+//  Permet de :
+//   1. Publier le rapport final sur SharePoint (re-générer OU upload Office)
+//   2. Envoyer la demande de Management Response aux owners avec le lien
+// ════════════════════════════════════════════════════════════════════
+function renderReportPublicationBanner() {
+  var d = getAudData(CA);
+  var attachmentReport = d.attachments && d.attachments.report;
+  var isPublished = !!(attachmentReport && attachmentReport.webUrl);
+
+  var html = '<div class="card" style="margin-bottom:.75rem;background:linear-gradient(135deg,#FAEEDA 0%,#FFF4D9 100%);border:.5px solid #FAC775">';
+  html += '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">';
+  html += '<div style="flex:1;min-width:240px">';
+  html += '<div style="font-size:14px;font-weight:600;color:#854F0B;margin-bottom:4px">📤 Publication du rapport</div>';
+  if (!isPublished) {
+    html += '<div style="font-size:11px;color:#BA7517;line-height:1.5">Une fois la version finale du rapport prête, publie-la sur SharePoint pour permettre l\'envoi de la demande de Management Response avec le lien intégré.</div>';
+  } else {
+    var dt = (attachmentReport.uploadedAt||'').slice(0,10);
+    var by = attachmentReport.uploadedBy ? ' par '+attachmentReport.uploadedBy : '';
+    html += '<div style="font-size:11px;color:#085041;background:#E1F5EE;padding:6px 10px;border-radius:4px;border:.5px solid #A6E2CD;line-height:1.5">';
+    html += '✓ Publié le '+dt+by+' &middot; <a href="'+attachmentReport.webUrl.replace(/"/g,'&quot;')+'" target="_blank" style="color:#085041;text-decoration:underline">Ouvrir sur SharePoint →</a>';
+    html += '</div>';
+  }
+  html += '</div>';
+
+  // Boutons d'action
+  html += '<div style="display:flex;gap:8px;flex-direction:column;align-items:stretch;min-width:200px">';
+  if (!isPublished) {
+    html += '<button class="bp" style="font-size:12px;padding:7px 14px;background:#854F0B;color:#fff;font-weight:500" onclick="publishReportRegenerate()" title="Re-générer le rapport depuis l\'app et le publier sur SharePoint">📤 Publier (re-générer)</button>';
+    html += '<button class="bs" style="font-size:12px;padding:7px 14px;border:1px solid #854F0B;color:#854F0B" onclick="publishReportUpload()" title="Uploader la version Office finale">📁 Publier (mon fichier)</button>';
+  } else {
+    html += '<button class="bp" style="font-size:12px;padding:7px 14px;background:#854F0B;color:#fff;font-weight:500" onclick="composeMgtRespEmail()" title="Envoyer la demande de Management Response aux owners">📧 Envoyer la demande MR</button>';
+    html += '<button class="bs" style="font-size:11px;padding:5px 10px;border:.5px solid #FAC775;color:#854F0B" onclick="publishReportRegenerate()" title="Re-générer + remplacer la version actuelle">🔄 Re-publier</button>';
+  }
+  html += '</div>';
+  html += '</div>';
+  html += '</div>';
+  return html;
+}
+
+/**
+ * Publie le rapport en le re-générant depuis l'app puis en l'uploadant sur SharePoint.
+ * Source : audit-report-generator.js — generateAuditReportPptx avec option uploadOnly
+ */
+async function publishReportRegenerate() {
+  var ap = (AUDIT_PLAN||[]).find(function(a){return a.id===CA;});
+  if (!ap) { toast('Audit introuvable'); return; }
+  if (typeof generateAuditReportPptx !== 'function') {
+    toast('generateAuditReportPptx() introuvable');
+    return;
+  }
+  if (typeof getOrCreateAuditFolder !== 'function' || typeof uploadFileToSharePoint !== 'function') {
+    toast('Helpers SharePoint indisponibles');
+    return;
+  }
+  try {
+    toast('📤 Génération + publication SharePoint...');
+    // Appeler le générateur en mode "upload only" (sans téléchargement local)
+    await generateAuditReportPptx(CA, {uploadOnly: true});
+    // Le générateur stocke directement le lien dans audit.attachments.report
+    if (document.getElementById('det-content')) {
+      document.getElementById('det-content').innerHTML = renderDetContent();
+    }
+  } catch (e) {
+    console.error('[publishReportRegenerate] error:', e);
+    toast('Erreur publication : ' + (e.message||e));
+  }
+}
+
+/**
+ * Publie le rapport en uploadant la version Office finale (drag&drop ou file picker).
+ */
+function publishReportUpload() {
+  var input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation';
+  input.style.display = 'none';
+  input.onchange = async function() {
+    var file = input.files && input.files[0];
+    if (!file) return;
+    if (!/\.pptx$/i.test(file.name)) {
+      toast('Format non supporté : seul .pptx est accepté');
+      return;
+    }
+    var ap = (AUDIT_PLAN||[]).find(function(a){return a.id===CA;});
+    if (!ap) return;
+    try {
+      toast('📤 Upload sur SharePoint...');
+      var folderInfo = await getOrCreateAuditFolder(ap);
+      var driveItem = await uploadFileToSharePoint(folderInfo.path, 'AuditReport.pptx', file);
+      var d = getAudData(CA);
+      if (!d.attachments) d.attachments = {};
+      d.attachments.report = {
+        webUrl: driveItem.webUrl,
+        fileName: driveItem.name,
+        uploadedAt: new Date().toISOString(),
+        uploadedBy: (typeof CU !== 'undefined' && CU && CU.name) ? CU.name : '',
+        source: 'office_upload',
+      };
+      await saveAuditData(CA);
+      if (typeof addHist === 'function') addHist(CA, 'Rapport publié sur SharePoint (upload Office)');
+      toast('✓ Rapport publié sur SharePoint');
+      if (document.getElementById('det-content')) {
+        document.getElementById('det-content').innerHTML = renderDetContent();
+      }
+    } catch (e) {
+      console.error('[publishReportUpload] error:', e);
+      toast('Erreur upload : ' + (e.message||e));
+    }
+  };
+  document.body.appendChild(input);
+  input.click();
+  setTimeout(function(){ input.remove(); }, 1000);
+}
+
+/**
+ * Compose le mail de demande Management Response.
+ * - To  : Auditeurs + Process Owners
+ * - CC  : Interviewees
+ * - Body : demande explicite + lien SharePoint + instruction "slide Management Response"
+ */
+function composeMgtRespEmail() {
+  var audit = (AUDIT_PLAN || []).find(function(a) { return a.id === CA; });
+  if (!audit) { toast('Audit introuvable'); return; }
+  var d = getAudData(CA);
+
+  var attachmentReport = d.attachments && d.attachments.report;
+  if (!attachmentReport || !attachmentReport.webUrl) {
+    toast('Publie d\'abord le rapport sur SharePoint');
+    return;
+  }
+
+  // Collecter destinataires : Auditeurs + Owners en TO, Interviewees en CC
+  var toEmails = {}; // dédup
+  var ccEmails = {};
+
+  // Auditeurs assignés
+  var auditeurIds = Array.isArray(audit.auditeurs) ? audit.auditeurs : [];
+  auditeurIds.forEach(function(uid) {
+    var tm = (typeof TM !== 'undefined' && TM[uid]) ? TM[uid] : null;
+    if (tm && tm.email) toEmails[tm.email.toLowerCase()] = tm.email;
+  });
+
+  // Process Owners (depuis Work Program — source de vérité)
+  var wpProcesses = (d.workProgramBU && Array.isArray(d.workProgramBU.processes))
+    ? d.workProgramBU.processes : [];
+  wpProcesses.forEach(function(wpp) {
+    (wpp.owners||[]).forEach(function(o) {
+      if (o && o.email) toEmails[o.email.toLowerCase()] = o.email;
+    });
+  });
+
+  // Interviewees → CC
+  var interviews = (d.kickoffPrep && Array.isArray(d.kickoffPrep.interviews))
+    ? d.kickoffPrep.interviews : [];
+  interviews.forEach(function(itw) {
+    if (itw && itw.email) {
+      var key = itw.email.toLowerCase();
+      // Ne pas mettre en CC si déjà en TO
+      if (!toEmails[key]) ccEmails[key] = itw.email;
+    }
+  });
+
+  var toList = Object.keys(toEmails).map(function(k){return toEmails[k];});
+  var ccList = Object.keys(ccEmails).map(function(k){return ccEmails[k];});
+
+  if (!toList.length && !ccList.length) {
+    toast('Aucun destinataire avec email — vérifie les Owners et auditeurs');
+    return;
+  }
+
+  // Construction du corps du mail
+  var titre = audit.titre || 'l\'audit';
+  var findingsCount = (d.findings||[]).length;
+
+  // Date butoir suggérée : J+15 jours ouvrés (~3 semaines calendaires)
+  var deadline = new Date(Date.now() + 21 * 86400000);
+  var deadlineStr = deadline.toLocaleDateString('fr-FR', {day:'numeric', month:'long', year:'numeric'});
+
+  var lines = [];
+  lines.push('Bonjour,');
+  lines.push('');
+  lines.push('Suite aux travaux de l\'audit ' + titre + ', le rapport final est désormais disponible.');
+  lines.push('');
+  lines.push('Rapport d\'audit :');
+  lines.push('  ' + attachmentReport.webUrl);
+  lines.push('');
+  if (findingsCount > 0) {
+    lines.push('Le rapport identifie ' + findingsCount + ' finding' + (findingsCount>1?'s':'') + ' pour lesquels nous sollicitons votre Management Response.');
+  } else {
+    lines.push('Nous sollicitons votre Management Response sur les findings identifiés.');
+  }
+  lines.push('');
+  lines.push('Merci de :');
+  lines.push('  1. Consulter le rapport via le lien SharePoint ci-dessus');
+  lines.push('  2. Compléter la slide « Management Response » du rapport avec, pour chaque finding :');
+  lines.push('       • L\'action corrective prévue');
+  lines.push('       • L\'owner désigné côté business');
+  lines.push('       • La date cible de mise en œuvre');
+  lines.push('  3. Nous retourner vos réponses au plus tard le ' + deadlineStr);
+  lines.push('');
+  lines.push('Je reste à votre disposition pour tout échange complémentaire.');
+  lines.push('');
+  lines.push('Bien cordialement,');
+  if (typeof CU !== 'undefined' && CU && CU.name) lines.push(CU.name);
+  lines.push('— Audit interne');
+
+  var subject = 'Rapport d\'audit — ' + titre + ' — Demande de Management Response';
+  var body = lines.join('\r\n');
+
+  // Construction mailto: avec To et CC
+  var mailto = 'mailto:' + encodeURIComponent(toList.join(','));
+  var params = [];
+  if (ccList.length) params.push('cc=' + encodeURIComponent(ccList.join(',')));
+  params.push('subject=' + encodeURIComponent(subject));
+  params.push('body=' + encodeURIComponent(body));
+  mailto += '?' + params.join('&');
+
+  if (mailto.length > 2000) {
+    console.warn('[MR Mail] mailto: long ('+mailto.length+' chars), peut être tronqué');
+  }
+
+  console.log('[MR Mail] Ouverture Outlook —', toList.length, 'TO,', ccList.length, 'CC');
+  if (typeof addHist === 'function') {
+    addHist(CA, 'Demande Management Response préparée pour ' + (toList.length+ccList.length) + ' destinataire(s)');
+  }
+
+  window.location.href = mailto;
+  toast('📧 Outlook ouvert (' + toList.length + ' TO, ' + ccList.length + ' CC)');
+}
+
 function renderMgtRespSection() {
   var d = getAudData(CA);
   if (!d.findings) d.findings = [];

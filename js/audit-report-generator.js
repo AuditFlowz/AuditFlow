@@ -117,7 +117,12 @@ function ar_riskColor(probability, impact) {
 
 // ─── EXPORT PRINCIPAL ──────────────────────────────────────────────────────
 
-async function generateAuditReportPptx(auditId) {
+async function generateAuditReportPptx(auditId, options) {
+  options = options || {};
+  // uploadOnly: si true, le fichier n'est PAS téléchargé localement —
+  // il est uniquement uploadé sur SharePoint (utilisé par "Publier" en étape 8).
+  var uploadOnly = !!options.uploadOnly;
+
   // 1. Vérifier PptxGenJS chargé
   if (typeof PptxGenJS === 'undefined') {
     if (typeof toast === 'function') toast('PptxGenJS non chargé. Rechargez la page.');
@@ -819,15 +824,51 @@ async function generateAuditReportPptx(auditId) {
   });
   ar_addFooter(pres, sA2);
 
-  // ─── Téléchargement ─────────────────────────────────────────────────
+  // ─── Téléchargement local + Upload SharePoint ──────────────────────
   const cleanTitle = (ap.titre || 'audit').replace(/[^a-zA-Z0-9_-]/g, '_');
   const todayStr = new Date().toISOString().slice(0, 10);
-  const fileName = `AuditReport_${cleanTitle}_${todayStr}.pptx`;
+  const localFileName = `AuditReport_${cleanTitle}_${todayStr}.pptx`;
+  const spFileName = `AuditReport.pptx`;
 
   try {
-    await pres.writeFile({fileName: fileName});
-    if (typeof toast === 'function') toast(`Audit Report généré ✓`);
-    if (typeof addHist === 'function') addHist(auditId, `Audit Report généré (${fileName})`);
+    // 1) Téléchargement local — sauf si uploadOnly explicite
+    if (!uploadOnly) {
+      await pres.writeFile({fileName: localFileName});
+      if (typeof toast === 'function') toast(`Audit Report généré ✓`);
+      if (typeof addHist === 'function') addHist(auditId, `Audit Report généré (${localFileName})`);
+    }
+
+    // 2) Upload SharePoint — uniquement si demandé (uploadOnly OU appel volontaire)
+    //    Le mode normal (étape 7) n'upload PAS — c'est volontaire (le rapport est draft).
+    //    L'upload est déclenché en étape 8 via "Publier (re-générer)".
+    if (uploadOnly) {
+      if (typeof getOrCreateAuditFolder !== 'function' || typeof uploadFileToSharePoint !== 'function') {
+        if (typeof toast === 'function') toast('⚠ Helpers SharePoint indisponibles');
+        return;
+      }
+      try {
+        const blob = await pres.write({outputType: 'blob'});
+        const folderInfo = await getOrCreateAuditFolder(ap);
+        const driveItem = await uploadFileToSharePoint(folderInfo.path, spFileName, blob);
+        if (typeof getAudData === 'function' && typeof saveAuditData === 'function') {
+          const d = getAudData(auditId);
+          if (!d.attachments) d.attachments = {};
+          d.attachments.report = {
+            webUrl: driveItem.webUrl,
+            fileName: driveItem.name,
+            uploadedAt: new Date().toISOString(),
+            uploadedBy: (typeof CU !== 'undefined' && CU && CU.name) ? CU.name : '',
+            source: 'regenerated',
+          };
+          await saveAuditData(auditId);
+        }
+        if (typeof toast === 'function') toast('✓ Rapport publié sur SharePoint');
+        if (typeof addHist === 'function') addHist(auditId, `Audit Report publié sur SharePoint (${folderInfo.path})`);
+      } catch (uploadErr) {
+        console.error('[AUDIT_REPORT] Upload SharePoint échoué :', uploadErr);
+        if (typeof toast === 'function') toast('⚠ Publication SharePoint échouée (voir console)');
+      }
+    }
   } catch (err) {
     console.error('[AUDIT_REPORT] Erreur génération :', err);
     if (typeof toast === 'function') toast('Erreur lors de la génération');
