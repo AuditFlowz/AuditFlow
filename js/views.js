@@ -7120,8 +7120,8 @@ async function createKickoffMeetings() {
       var event = await createOutlookEvent({
         subject: subject,
         bodyHtml: bodyHtml,
-        startISO: slot.startISO,
-        endISO: slot.endISO,
+        start: new Date(slot.startISO),
+        end: new Date(slot.endISO),
         attendees: attendees,
         addTeamsLink: _kickoffBooking.options.includeTeams,
       });
