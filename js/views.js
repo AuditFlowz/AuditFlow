@@ -7128,12 +7128,12 @@ async function createKickoffMeetings() {
   document.getElementById('det-content').innerHTML = renderDetContent();
   toast('📅 Création de '+selectedSlots.length+' réunion(s)...');
 
-  // Pré-charger le PPT en base64 si demandé (une seule fois)
+  // Pré-charger le PPT en référence SharePoint si demandé (une seule fois)
   var attachments = [];
   if (_kickoffBooking.options.attachKickoff) {
     var finalKO = d.attachments && d.attachments.kickoff && d.attachments.kickoff.final;
     if (finalKO && finalKO.webUrl) {
-      // On joint le lien SharePoint (pas le contenu binaire) — plus léger
+      // Reference attachment SharePoint (lien cliquable, pas de bytes transférés)
       attachments.push({
         name: finalKO.fileName || 'KickOff_final.pptx',
         url: finalKO.webUrl,
@@ -7141,13 +7141,38 @@ async function createKickoffMeetings() {
     }
   }
 
-  var bodyHtml = '<p>Bonjour,</p>'
-    + '<p>Je vous invite à la réunion de Kick-off de l\'audit <strong>' + (audit.titre||'').replace(/</g,'&lt;') + '</strong>.</p>'
-    + '<p>Cette réunion vise à présenter le périmètre, les objectifs et le planning de la mission.</p>';
+  // Body bilingue EN puis FR, en typo Calibri
+  var auditTitle = (audit.titre || '').replace(/</g,'&lt;');
+  var organizerName = (typeof CU !== 'undefined' && CU && CU.name) ? CU.name : '';
+  var organizerTitle = 'Director of Internal Audit';
+  var organizerTitleFr = 'Directeur de l\'Audit Interne';
+  // Wrapper Calibri sur tout le contenu — Outlook respecte la font-family inline
+  var calibriOpen = '<div style="font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#000">';
+  var calibriClose = '</div>';
+
+  var bodyHtml = calibriOpen
+    // ─── EN ───────────────────────────────────────
+    + '<p>Hello,</p>'
+    + '<p>I invite you to the kick-off meeting of the audit &ldquo;' + auditTitle + '&rdquo;.<br/>'
+    + 'The purpose of this meeting is to present the scope, objectives, and timeline of the audit assignment.</p>';
   if (attachments.length) {
-    bodyHtml += '<p>Le support de présentation est joint à cette invitation (lien SharePoint).</p>';
+    bodyHtml += '<p>The presentation deck is attached to this invitation (SharePoint link).</p>';
   }
-  bodyHtml += '<p>Cordialement,</p><p>'+(typeof CU !== 'undefined' && CU && CU.name ? CU.name : '')+'<br/><em>Audit interne</em></p>';
+  bodyHtml += '<p>Kind regards,<br/>'
+    + organizerName + ' &mdash; ' + organizerTitle + '</p>'
+    // ─── Séparateur ───────────────────────────────
+    + '<p style="color:#888;font-size:10pt">===================================================</p>'
+    // ─── FR ───────────────────────────────────────
+    + '<p>Bonjour,</p>'
+    + '<p>Je vous invite &agrave; la r&eacute;union de Kick-off de l\'audit &laquo;&nbsp;' + auditTitle + '&nbsp;&raquo;.<br/>'
+    + 'Cette r&eacute;union vise &agrave; pr&eacute;senter le p&eacute;rim&egrave;tre, les objectifs et le planning de la mission.</p>';
+  if (attachments.length) {
+    bodyHtml += '<p>Le support de pr&eacute;sentation est joint &agrave; cette invitation (lien SharePoint).</p>';
+  }
+  bodyHtml += '<p>Cordialement,<br/>'
+    + organizerName + '<br/>'
+    + organizerTitleFr + '</p>'
+    + calibriClose;
 
   // Crée les réunions une par une
   var createdEvents = [];
@@ -7176,6 +7201,7 @@ async function createKickoffMeetings() {
         end: new Date(slot.endISO),
         attendees: attendees,
         addTeamsLink: _kickoffBooking.options.includeTeams,
+        attachments: attachments,
       });
       createdEvents.push({
         eventId: event.id,

@@ -1429,6 +1429,37 @@ async function createOutlookEvent(payload) {
 
   var addTeamsLink = payload.addTeamsLink !== false; // true par défaut
 
+  // Préparer les pièces jointes (cf. sendMailWithAttachment)
+  // Pour les fichiers SharePoint, on utilise "reference attachment" (juste un lien, pas de bytes)
+  // Pour les autres (blob/base64), on utilise "file attachment" (bytes inline)
+  var graphAttachments = [];
+  for (var i = 0; i < (payload.attachments||[]).length; i++) {
+    var att = payload.attachments[i];
+    if (att.url) {
+      graphAttachments.push({
+        '@odata.type': '#microsoft.graph.referenceAttachment',
+        name: att.name,
+        sourceUrl: att.url,
+        providerType: 'oneDriveBusiness',
+        permission: 'view',
+        isFolder: false,
+      });
+    } else if (att.blobOrBase64) {
+      var contentBytes;
+      if (typeof att.blobOrBase64 === 'string') {
+        contentBytes = att.blobOrBase64;
+      } else {
+        contentBytes = await _blobToBase64(att.blobOrBase64);
+      }
+      graphAttachments.push({
+        '@odata.type': '#microsoft.graph.fileAttachment',
+        name: att.name,
+        contentType: att.contentType || 'application/octet-stream',
+        contentBytes: contentBytes,
+      });
+    }
+  }
+
   var body = {
     subject: payload.subject,
     body: {
@@ -1459,6 +1490,9 @@ async function createOutlookEvent(payload) {
   };
   if (payload.location) {
     body.location = { displayName: payload.location };
+  }
+  if (graphAttachments.length) {
+    body.attachments = graphAttachments;
   }
 
   try {
