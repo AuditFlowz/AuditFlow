@@ -33,14 +33,19 @@ async function getMsalApp() {
 }
 
 // Scopes Graph requis par AuditFlow.
-// NOTE : les scopes Calendars.ReadWrite, Mail.Send, OnlineMeetings.ReadWrite
-// ont été temporairement retirés en attendant le Grant admin consent côté IT Axway.
-// La connexion bloquait car le tenant exige admin consent même pour user consent.
-// L'envoi des invitations Kick-off / rapport / MR se fait pour l'instant via mailto:.
+// Le grant admin consent a été accordé côté IT Axway pour les 3 scopes additionnels :
+//   - Calendars.ReadWrite : recherche de créneaux + création de réunions Outlook
+//   - Mail.Send : envoi de mails avec pièces jointes (rapport, MR)
+//   - OnlineMeetings.ReadWrite : génération auto du lien Teams
+// L'utilisateur doit re-consentir une seule fois (popup OAuth standard) à la première connexion
+// après ce changement de scopes.
 var GRAPH_SCOPES = [
   'Sites.ReadWrite.All',
   'Files.ReadWrite',
-  'User.Read'
+  'User.Read',
+  'Calendars.ReadWrite',
+  'Mail.Send',
+  'OnlineMeetings.ReadWrite'
 ];
 var _redirectCount = 0; // Compteur en mémoire (reset à chaque chargement)
 
@@ -1479,6 +1484,156 @@ async function createOutlookEvent(payload) {
     }
     throw e;
   }
+}
+
+/**
+ * Envoie un mail via Graph (depuis le compte de l'utilisateur connecté).
+ * Supporte les pièces jointes (en base64) et les destinataires en TO/CC/BCC.
+ *
+ * @param {Object} payload {
+ *   subject, bodyHtml,
+ *   to: [{email, name?}],
+ *   cc: [{email, name?}],
+ *   bcc: [{email, name?}],
+ *   attachments: [{name, contentType, blobOrBase64, url?}],
+ *     // Si url SharePoint dispo, on l'utilise comme reference attachment (plus léger)
+ *     // Sinon on télécharge le contenu et on l'envoie en file attachment base64
+ *   saveToSentItems: bool (défaut true)
+ * }
+ *
+ * Doc Microsoft : POST /me/sendMail
+ *   https://learn.microsoft.com/en-us/graph/api/user-sendmail
+ */
+async function sendMailWithAttachment(payload) {
+  if (!payload || !payload.subject) {
+    throw new Error('Subject obligatoire');
+  }
+  if (!payload.to || !payload.to.length) {
+    throw new Error('Au moins un destinataire (to) requis');
+  }
+  var token = await getGraphToken();
+  if (!token) throw new Error('Token Graph non disponible');
+
+  // Construire la liste des recipients au format Graph
+  function _formatRecipients(arr) {
+    return (arr||[]).map(function(r){
+      return { emailAddress: { address: r.email, name: r.name || r.email } };
+    });
+  }
+
+  // Préparer les pièces jointes
+  // Pour les fichiers SharePoint, on utilise "reference attachment" (juste un lien, pas de bytes)
+  // Pour les autres (blob/base64), on utilise "file attachment" (bytes inline)
+  var graphAttachments = [];
+  for (var i = 0; i < (payload.attachments||[]).length; i++) {
+    var att = payload.attachments[i];
+    if (att.url) {
+      // Reference attachment (lien SharePoint cliquable)
+      graphAttachments.push({
+        '@odata.type': '#microsoft.graph.referenceAttachment',
+        name: att.name,
+        sourceUrl: att.url,
+        providerType: 'oneDriveBusiness',
+        permission: 'view',
+        isFolder: false,
+      });
+    } else if (att.blobOrBase64) {
+      // File attachment (contenu inline en base64)
+      var contentBytes;
+      if (typeof att.blobOrBase64 === 'string') {
+        // déjà en base64
+        contentBytes = att.blobOrBase64;
+      } else {
+        // c'est un Blob → convertir en base64
+        contentBytes = await _blobToBase64(att.blobOrBase64);
+      }
+      graphAttachments.push({
+        '@odata.type': '#microsoft.graph.fileAttachment',
+        name: att.name,
+        contentType: att.contentType || 'application/octet-stream',
+        contentBytes: contentBytes,
+      });
+    }
+  }
+
+  var message = {
+    subject: payload.subject,
+    body: {
+      contentType: 'HTML',
+      content: payload.bodyHtml || '',
+    },
+    toRecipients: _formatRecipients(payload.to),
+    ccRecipients: _formatRecipients(payload.cc),
+    bccRecipients: _formatRecipients(payload.bcc),
+  };
+  if (graphAttachments.length) {
+    message.attachments = graphAttachments;
+  }
+
+  var body = {
+    message: message,
+    saveToSentItems: payload.saveToSentItems !== false,
+  };
+
+  try {
+    var resp = await fetch('https://graph.microsoft.com/v1.0/me/sendMail', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + token,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+    if (!resp.ok) {
+      var errText = await resp.text();
+      throw new Error('Graph sendMail ' + resp.status + ': ' + errText);
+    }
+    console.log('[Graph] Mail envoyé OK :', payload.subject, '→', payload.to.length, 'TO,', (payload.cc||[]).length, 'CC');
+    return { ok: true };
+  } catch (e) {
+    console.error('[Graph] sendMail error:', e);
+    if (_isGraphPermissionError(e)) {
+      throw new Error(_graphPermissionErrorMessage('envoyer un mail depuis votre compte'));
+    }
+    throw e;
+  }
+}
+
+/**
+ * Convertit un Blob en base64 (pour pièces jointes).
+ */
+function _blobToBase64(blob) {
+  return new Promise(function(resolve, reject) {
+    var reader = new FileReader();
+    reader.onload = function() {
+      // result = "data:...;base64,XXXX" — on prend juste la partie après la virgule
+      var idx = reader.result.indexOf(',');
+      resolve(reader.result.substring(idx + 1));
+    };
+    reader.onerror = function() { reject(reader.error); };
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
+ * Télécharge le contenu d'un fichier SharePoint et le renvoie en base64.
+ * Utile pour joindre un PPT déjà uploadé sur SP (ex: Rapport final) en pièce jointe d'un mail.
+ */
+async function downloadSharePointFileAsBase64(folderPath, fileName) {
+  var driveId = await getDriveId();
+  var token = await getGraphToken();
+  if (!token) throw new Error('Token Graph non disponible');
+  var url = 'https://graph.microsoft.com/v1.0/drives/' + driveId
+    + '/root:/' + encodeURIComponent(folderPath + '/' + fileName) + ':/content';
+  var resp = await fetch(url, {
+    method: 'GET',
+    headers: { 'Authorization': 'Bearer ' + token },
+  });
+  if (!resp.ok) {
+    throw new Error('Téléchargement échoué (' + resp.status + ') : ' + folderPath + '/' + fileName);
+  }
+  var blob = await resp.blob();
+  return await _blobToBase64(blob);
 }
 
 // ── Initialiser MSAL au chargement ──────────────────────────
