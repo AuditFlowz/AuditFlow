@@ -6520,6 +6520,7 @@ function _initKickoffBooking() {
     selected: {},      // {slotId: true}
     assignments: {},   // {slotId: {to: ['email'], cc: ['email']}}
     manualSlots: [],   // [{id, startISO, endISO}]
+    adHocContacts: [], // [{email, name, type: 'to'|'cc'}] — contacts ad hoc ajoutés manuellement
     options: {
       includeTeams: true,
       attachKickoff: true,
@@ -6598,6 +6599,23 @@ function _kbGetParticipants() {
     });
   }
 
+  // Ajouts ad hoc (saisis manuellement dans l'UI booking)
+  if (_kickoffBooking && Array.isArray(_kickoffBooking.adHocContacts)) {
+    _kickoffBooking.adHocContacts.forEach(function(c){
+      if (!c || !c.email) return;
+      var key = c.email.toLowerCase();
+      var entry = {email: c.email, name: c.name || c.email, isAdHoc: true};
+      if (c.type === 'cc') {
+        if (!to[key]) cc[key] = entry;
+      } else {
+        // type 'to' (défaut)
+        if (!to[key]) to[key] = entry;
+        // Si déjà en CC, on le promeut en TO
+        if (cc[key]) delete cc[key];
+      }
+    });
+  }
+
   return {
     to: Object.keys(to).map(function(k){return to[k];}),
     cc: Object.keys(cc).map(function(k){return cc[k];})
@@ -6629,16 +6647,48 @@ function renderKickoffBookingSection() {
   html += '</div>';
 
   // Récap participants disponibles
-  if (!participants.to.length) {
+  var hasMain = participants.to.length || participants.cc.length;
+  var adHoc = (_kickoffBooking.adHocContacts || []);
+  if (!hasMain && !adHoc.length) {
     html += '<div style="background:#FAEEDA;border:.5px solid #FAC775;color:#854F0B;padding:8px 10px;border-radius:4px;font-size:11px;margin-bottom:10px">';
-    html += '⚠ Aucun participant avec email. Ajoute des auditeurs (avec email TM), des Owners au Work Program (avec email), ou des Interviewees (avec email).';
+    html += '⚠ Aucun participant avec email. Ajoute des auditeurs (avec email TM), des Owners au Work Program (avec email), des Interviewees, ou utilise « + Ajouter un contact » ci-dessous.';
     html += '</div>';
   } else {
     html += '<div style="background:#fff;border:.5px solid var(--border);padding:8px 10px;border-radius:4px;font-size:11px;margin-bottom:10px">';
     html += '<strong style="font-weight:500;color:#3C3489">'+participants.to.length+' participants TO</strong>';
-    if (participants.cc.length) html += ' · <strong style="font-weight:500;color:#854F0B">'+participants.cc.length+' interviewees CC</strong>';
+    if (participants.cc.length) html += ' · <strong style="font-weight:500;color:#854F0B">'+participants.cc.length+' CC</strong>';
+    if (adHoc.length) html += ' <span style="color:var(--text-3);font-style:italic"> · dont '+adHoc.length+' ad hoc</span>';
     html += '</div>';
   }
+
+  // ─── Zone "Ajouter un contact ad hoc" ─────────────────────────
+  html += '<div style="background:#fff;border:.5px solid var(--border);padding:8px 10px;border-radius:4px;margin-bottom:10px">';
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">';
+  html += '<span style="font-size:11px;color:var(--text-2);font-weight:500">Contacts ad hoc <span style="font-weight:400;color:var(--text-3);font-style:italic">(non listés dans les owners/interviewees)</span></span>';
+  html += '</div>';
+  // Formulaire d'ajout
+  html += '<div style="display:flex;gap:6px;align-items:flex-end;flex-wrap:wrap">';
+  html += '<div style="flex:1;min-width:140px"><label style="font-size:9px;color:var(--text-3);display:block">Email</label><input id="adhoc-email" type="email" placeholder="ex : j.dupont@axway.com" style="width:100%;font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box"/></div>';
+  html += '<div style="flex:1;min-width:120px"><label style="font-size:9px;color:var(--text-3);display:block">Nom (facultatif)</label><input id="adhoc-name" placeholder="ex : J. Dupont" style="width:100%;font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box"/></div>';
+  html += '<div><label style="font-size:9px;color:var(--text-3);display:block">Type</label><select id="adhoc-type" style="font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:3px"><option value="to">TO</option><option value="cc">CC</option></select></div>';
+  html += '<button class="bs" style="font-size:11px;padding:5px 10px" onclick="addAdHocContact()">+ Ajouter</button>';
+  html += '</div>';
+  // Liste des contacts ad hoc déjà ajoutés
+  if (adHoc.length) {
+    html += '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:8px;padding-top:8px;border-top:.5px solid #f0f0f0">';
+    adHoc.forEach(function(c, idx){
+      var bg = c.type === 'cc' ? '#FFF4D9' : '#EEEDFE';
+      var color = c.type === 'cc' ? '#854F0B' : '#3C3489';
+      var border = c.type === 'cc' ? '#FAC775' : '#CECBF6';
+      var label = (c.name || c.email) + ' · ' + (c.type === 'cc' ? 'CC' : 'TO');
+      html += '<span style="font-size:10px;background:'+bg+';color:'+color+';padding:3px 8px;border-radius:10px;border:.5px solid '+border+';display:inline-flex;align-items:center;gap:4px">'
+        + label.replace(/</g,'&lt;')
+        + ' <button onclick="removeAdHocContact('+idx+')" title="Retirer" style="background:transparent;border:none;color:'+color+';font-size:11px;cursor:pointer;padding:0;line-height:1">×</button>'
+        + '</span>';
+    });
+    html += '</div>';
+  }
+  html += '</div>';
 
   // Contrôles de recherche
   html += '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;padding:8px 10px;background:#fff;border-radius:4px;border:.5px solid var(--border)">';
@@ -6876,6 +6926,70 @@ function removeManualSlot(slotId) {
   _kickoffBooking.manualSlots = _kickoffBooking.manualSlots.filter(function(s){return s.id!==slotId;});
   delete _kickoffBooking.selected[slotId];
   delete _kickoffBooking.assignments[slotId];
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+function addAdHocContact() {
+  if (!_kickoffBooking) return;
+  var emailEl = document.getElementById('adhoc-email');
+  var nameEl = document.getElementById('adhoc-name');
+  var typeEl = document.getElementById('adhoc-type');
+  if (!emailEl) return;
+  var email = (emailEl.value || '').trim();
+  var name = (nameEl ? nameEl.value : '').trim();
+  var type = (typeEl ? typeEl.value : 'to');
+
+  // Validation email simple
+  if (!email) { toast('Email obligatoire'); return; }
+  var emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRe.test(email)) { toast('Email invalide'); return; }
+
+  // Empêcher les doublons (insensible à la casse)
+  var lc = email.toLowerCase();
+  if (!Array.isArray(_kickoffBooking.adHocContacts)) _kickoffBooking.adHocContacts = [];
+  var exists = _kickoffBooking.adHocContacts.some(function(c){return c.email.toLowerCase()===lc;});
+  if (exists) { toast('Ce contact est déjà ajouté'); return; }
+
+  _kickoffBooking.adHocContacts.push({
+    email: email,
+    name: name || email,
+    type: (type === 'cc' ? 'cc' : 'to'),
+  });
+
+  // Reset du formulaire (input + name)
+  emailEl.value = '';
+  if (nameEl) nameEl.value = '';
+  if (typeEl) typeEl.value = 'to';
+
+  // Si des créneaux sont déjà chargés, on remet à zéro car la recherche dépend des participants.
+  // (On garde slotsLoaded à false pour inviter à relancer la recherche.)
+  if (_kickoffBooking.slotsLoaded && _kickoffBooking.slots && _kickoffBooking.slots.length) {
+    toast('Contact ajouté ✓ — relance la recherche de créneaux pour en tenir compte');
+  } else {
+    toast('Contact ajouté ✓');
+  }
+
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+function removeAdHocContact(idx) {
+  if (!_kickoffBooking || !Array.isArray(_kickoffBooking.adHocContacts)) return;
+  if (idx < 0 || idx >= _kickoffBooking.adHocContacts.length) return;
+  var removed = _kickoffBooking.adHocContacts[idx];
+  _kickoffBooking.adHocContacts.splice(idx, 1);
+
+  // Nettoyer aussi les assignations existantes pour cet email (ils ne doivent plus apparaître)
+  if (removed && removed.email && _kickoffBooking.assignments) {
+    var lc = removed.email.toLowerCase();
+    Object.keys(_kickoffBooking.assignments).forEach(function(slotId){
+      var a = _kickoffBooking.assignments[slotId];
+      if (a) {
+        a.to = (a.to||[]).filter(function(em){return em.toLowerCase()!==lc;});
+        a.cc = (a.cc||[]).filter(function(em){return em.toLowerCase()!==lc;});
+      }
+    });
+  }
+
   document.getElementById('det-content').innerHTML = renderDetContent();
 }
 
