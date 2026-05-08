@@ -6821,7 +6821,12 @@ function showAddWCGWModalForSP(spId) {
 
 // ─── Ouverture modale "+ Contrôle" pré-remplie avec WCGW + design ─
 function showAddControlForWCGW(wcgwId, designMode) {
-  showAddControlModal({preselectWcgwId: wcgwId, preselectDesign: designMode});
+  // showControlModal attend un objet existing avec ctrl.wcgwId + ctrl.design
+  // isPreset : flag indiquant qu'on pré-sélectionne pour un WCGW (pas une édition)
+  showControlModal({
+    ctrl: {wcgwId: wcgwId, design: designMode || 'existing'},
+    isPreset: true
+  });
 }
 
 
