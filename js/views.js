@@ -6683,21 +6683,22 @@ function _kbGetParticipants() {
   };
 }
 
+// ─── Render UI booking Kick-off (version simplifiée — création manuelle) ──
 function renderKickoffBookingSection() {
   if (!_kickoffBooking || !_kickoffBooking.open) return '';
 
   var participants = _kbGetParticipants();
   var d = getAudData(CA);
   var finalKO = d.attachments && d.attachments.kickoff && d.attachments.kickoff.final;
-
   var tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Paris';
+
   var html = '<div id="kickoff-booking-section" class="card" style="margin-bottom:.75rem;background:linear-gradient(135deg,#EEEDFE 0%,#F5F4FE 100%);border:.5px solid #CECBF6">';
 
   // Header
   html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
   html += '<div>';
-  html += '<div style="font-size:14px;font-weight:600;color:#3C3489">📅 Booker la réunion Kick-off</div>';
-  html += '<div style="font-size:11px;color:#534AB7;margin-top:2px">Recherche les créneaux libres communs et crée les réunions Outlook avec lien Teams.</div>';
+  html += '<div style="font-size:14px;font-weight:600;color:#3C3489">📅 Booker la (les) réunion(s) Kick-off</div>';
+  html += '<div style="font-size:11px;color:#534AB7;margin-top:2px">Saisis manuellement un ou plusieurs créneaux et crée les réunions Outlook avec invitations.</div>';
   html += '</div>';
   html += '<button class="bs" style="font-size:11px;padding:4px 10px" onclick="closeKickoffBookingUI()">× Fermer</button>';
   html += '</div>';
@@ -6707,18 +6708,27 @@ function renderKickoffBookingSection() {
   html += '<span style="margin-right:5px">🕐</span>Horaires en <strong style="font-weight:500">'+tz+'</strong> (ton fuseau). Les invités verront leur fuseau local automatiquement dans Outlook.';
   html += '</div>';
 
-  // Récap participants disponibles
+  // Récap participants
   var hasMain = participants.to.length || participants.cc.length;
   var adHoc = (_kickoffBooking.adHocContacts || []);
   if (!hasMain && !adHoc.length) {
     html += '<div style="background:#FAEEDA;border:.5px solid #FAC775;color:#854F0B;padding:8px 10px;border-radius:4px;font-size:11px;margin-bottom:10px">';
-    html += '⚠ Aucun participant avec email. Ajoute des auditeurs (avec email TM), des Owners au Work Program (avec email), des Interviewees, ou utilise « + Ajouter un contact » ci-dessous.';
+    html += '⚠ Aucun participant avec email. Ajoute des auditeurs (avec email TM), des Owners au Work Program, des Interviewees, ou utilise « + Ajouter un contact » ci-dessous.';
     html += '</div>';
   } else {
     html += '<div style="background:#fff;border:.5px solid var(--border);padding:8px 10px;border-radius:4px;font-size:11px;margin-bottom:10px">';
     html += '<strong style="font-weight:500;color:#3C3489">'+participants.to.length+' participants TO</strong>';
     if (participants.cc.length) html += ' · <strong style="font-weight:500;color:#854F0B">'+participants.cc.length+' CC</strong>';
     if (adHoc.length) html += ' <span style="color:var(--text-3);font-style:italic"> · dont '+adHoc.length+' ad hoc</span>';
+    // Liste détaillée (cliquable pour expanded ?)
+    html += '<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px">';
+    participants.to.forEach(function(p){
+      html += '<span style="font-size:10px;background:#EEEDFE;color:#3C3489;padding:2px 7px;border-radius:10px">'+(p.name||p.email).replace(/</g,'&lt;')+'</span>';
+    });
+    participants.cc.forEach(function(p){
+      html += '<span style="font-size:10px;background:#FFF4D9;color:#854F0B;padding:2px 7px;border-radius:10px">'+(p.name||p.email).replace(/</g,'&lt;')+' · CC</span>';
+    });
+    html += '</div>';
     html += '</div>';
   }
 
@@ -6727,14 +6737,12 @@ function renderKickoffBookingSection() {
   html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">';
   html += '<span style="font-size:11px;color:var(--text-2);font-weight:500">Contacts ad hoc <span style="font-weight:400;color:var(--text-3);font-style:italic">(non listés dans les owners/interviewees)</span></span>';
   html += '</div>';
-  // Formulaire d'ajout
   html += '<div style="display:flex;gap:6px;align-items:flex-end;flex-wrap:wrap">';
   html += '<div style="flex:1;min-width:140px"><label style="font-size:9px;color:var(--text-3);display:block">Email</label><input id="adhoc-email" type="email" placeholder="ex : j.dupont@axway.com" style="width:100%;font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box"/></div>';
   html += '<div style="flex:1;min-width:120px"><label style="font-size:9px;color:var(--text-3);display:block">Nom (facultatif)</label><input id="adhoc-name" placeholder="ex : J. Dupont" style="width:100%;font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box"/></div>';
   html += '<div><label style="font-size:9px;color:var(--text-3);display:block">Type</label><select id="adhoc-type" style="font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:3px"><option value="to">TO</option><option value="cc">CC</option></select></div>';
   html += '<button class="bs" style="font-size:11px;padding:5px 10px" onclick="addAdHocContact()">+ Ajouter</button>';
   html += '</div>';
-  // Liste des contacts ad hoc déjà ajoutés
   if (adHoc.length) {
     html += '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:8px;padding-top:8px;border-top:.5px solid #f0f0f0">';
     adHoc.forEach(function(c, idx){
@@ -6751,142 +6759,33 @@ function renderKickoffBookingSection() {
   }
   html += '</div>';
 
-  // Contrôles de recherche
-  html += '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;padding:8px 10px;background:#fff;border-radius:4px;border:.5px solid var(--border)">';
-  html += '<label style="font-size:11px;color:var(--text-2)">Durée <select onchange="_kickoffBooking.durationMinutes=parseInt(this.value);" style="font-size:11px;padding:3px 6px;border:.5px solid var(--border);border-radius:3px">';
-  [30,60,90,120].forEach(function(d){
-    html += '<option value="'+d+'"'+(_kickoffBooking.durationMinutes===d?' selected':'')+'>'+d+' min</option>';
-  });
-  html += '</select></label>';
-  html += '<label style="font-size:11px;color:var(--text-2)">Plage <select onchange="_kickoffBooking.daysAhead=parseInt(this.value);" style="font-size:11px;padding:3px 6px;border:.5px solid var(--border);border-radius:3px">';
-  [3,7,14,21].forEach(function(d){
-    html += '<option value="'+d+'"'+(_kickoffBooking.daysAhead===d?' selected':'')+'>'+d+' jours</option>';
-  });
-  html += '</select></label>';
-  html += '<label style="font-size:11px;color:var(--text-2)">Heures <select onchange="_kickoffBooking.workingHours=this.value;" style="font-size:11px;padding:3px 6px;border:.5px solid var(--border);border-radius:3px">';
-  [{v:'09-18',l:'09h-18h'},{v:'08-19',l:'08h-19h'},{v:'10-17',l:'10h-17h'}].forEach(function(o){
-    html += '<option value="'+o.v+'"'+(_kickoffBooking.workingHours===o.v?' selected':'')+'>'+o.l+'</option>';
-  });
-  html += '</select></label>';
-  html += '<button class="bp" style="font-size:11px;padding:5px 12px;background:#3C3489;color:#fff;font-weight:500;margin-left:auto" onclick="searchKickoffSlots()" '+(participants.to.length===0?'disabled':'')+'>🔍 Chercher des créneaux</button>';
+  // ─── Section Créneaux (saisie manuelle uniquement) ────────────
+  var manualSlots = _kickoffBooking.manualSlots || [];
+  html += '<div style="background:#fff;border:.5px solid var(--border);padding:10px 12px;border-radius:4px;margin-bottom:10px">';
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
+  html += '<span style="font-size:11px;color:var(--text-2);font-weight:500">Créneaux à créer ('+manualSlots.length+')</span>';
+  html += '<button class="bs" style="font-size:11px;padding:4px 10px;background:#3C3489;color:#fff;border-color:#3C3489" onclick="showAddManualSlotForm()">+ Ajouter un créneau</button>';
+  html += '</div>';
+  if (!manualSlots.length) {
+    html += '<div style="font-size:11px;color:var(--text-3);font-style:italic;text-align:center;padding:8px">Aucun créneau saisi. Clique sur « + Ajouter un créneau » pour commencer.</div>';
+  } else {
+    manualSlots.forEach(function(slot, idx){
+      var startD = new Date(slot.startISO);
+      var endD = new Date(slot.endISO);
+      var dayLabel = startD.toLocaleDateString('fr-FR', {weekday:'long', day:'numeric', month:'long'});
+      var timeLabel = startD.toLocaleTimeString('fr-FR', {hour:'2-digit',minute:'2-digit'}) + ' — ' + endD.toLocaleTimeString('fr-FR', {hour:'2-digit',minute:'2-digit'});
+      html += '<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border:.5px solid #CECBF6;background:#FAFAFE;border-radius:4px;margin-bottom:5px">';
+      html += '<span style="background:#EEEDFE;color:#3C3489;font-size:9px;padding:2px 7px;border-radius:3px;font-weight:500">M'+(idx+1)+'</span>';
+      html += '<span style="font-size:11px;font-weight:500;flex:1">'+dayLabel+' · '+timeLabel+'</span>';
+      html += '<button onclick="removeManualSlot(\''+_escJsArg(slot.id)+'\')" title="Retirer" style="background:#fff;border:.5px solid var(--border);color:#993C1D;border-radius:3px;padding:2px 6px;cursor:pointer;font-size:11px">×</button>';
+      html += '</div>';
+    });
+  }
   html += '</div>';
 
-  // Section créneaux disponibles
-  if (_kickoffBooking.slotsLoaded) {
-    html += '<div style="background:#fff;border:.5px solid var(--border);border-radius:4px;padding:10px 12px;margin-bottom:10px">';
-    html += '<div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;margin-bottom:8px">';
-    if (_kickoffBooking.slots.length === 0) {
-      html += '<span>Aucun créneau commun trouvé sur la plage sélectionnée. Essaie d\'élargir la plage ou utilise un créneau manuel.</span>';
-    } else {
-      html += '<span>'+_kickoffBooking.slots.length+' créneau'+(_kickoffBooking.slots.length>1?'x':'')+' disponible'+(_kickoffBooking.slots.length>1?'s':'')+' · sélectionne 1 à 5 (multi-sélection ✓)</span>';
-    }
-    html += '</div>';
-
-    _kickoffBooking.slots.forEach(function(slot, idx){
-      var isSel = !!_kickoffBooking.selected[slot.id];
-      var bgColor = isSel ? '#EEEDFE' : '#fafafa';
-      var borderColor = isSel ? '#3C3489' : 'var(--border)';
-      var startD = new Date(slot.startISO);
-      var endD = new Date(slot.endISO);
-      var dayLabel = startD.toLocaleDateString('fr-FR', {weekday:'long', day:'numeric', month:'long'});
-      var timeLabel = startD.toLocaleTimeString('fr-FR', {hour:'2-digit',minute:'2-digit'}) + ' — ' + endD.toLocaleTimeString('fr-FR', {hour:'2-digit',minute:'2-digit'});
-      var statusHtml = slot.status === 'good'
-        ? '<span style="color:#085041">✓ Tous disponibles</span>'
-        : '<span style="color:#854F0B">⚠ '+(slot.conflicts||[]).slice(0,2).join(', ')+(((slot.conflicts||[]).length>2)?' +'+((slot.conflicts||[]).length-2):'')+' occupé(s)</span>';
-      html += '<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:.5px solid '+borderColor+';border-radius:3px;margin-bottom:4px;cursor:pointer;background:'+bgColor+'" onclick="toggleSlot(\''+_escJsArg(slot.id)+'\')">';
-      html += '<div style="width:14px;height:14px;border-radius:3px;border:1.5px solid '+(isSel?'#3C3489':'var(--border-secondary)')+';display:flex;align-items:center;justify-content:center;flex-shrink:0;background:'+(isSel?'#3C3489':'#fff')+';color:#fff;font-size:9px">'+(isSel?'✓':'')+'</div>';
-      html += '<div style="font-size:11px;font-weight:500;flex:0 0 160px">'+dayLabel+'</div>';
-      html += '<div style="font-size:11px;color:var(--text-2);flex:0 0 130px">'+timeLabel+'</div>';
-      html += '<div style="font-size:10px;flex:1;text-align:right">'+statusHtml+'</div>';
-      html += '</div>';
-    });
-
-    // Créneaux manuels
-    _kickoffBooking.manualSlots.forEach(function(slot){
-      var isSel = !!_kickoffBooking.selected[slot.id];
-      var bgColor = isSel ? '#EEEDFE' : '#FFF4D9';
-      var startD = new Date(slot.startISO);
-      var endD = new Date(slot.endISO);
-      var dayLabel = startD.toLocaleDateString('fr-FR', {weekday:'long', day:'numeric', month:'long'});
-      var timeLabel = startD.toLocaleTimeString('fr-FR', {hour:'2-digit',minute:'2-digit'}) + ' — ' + endD.toLocaleTimeString('fr-FR', {hour:'2-digit',minute:'2-digit'});
-      html += '<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:.5px solid #FAC775;border-radius:3px;margin-bottom:4px;cursor:pointer;background:'+bgColor+'" onclick="toggleSlot(\''+_escJsArg(slot.id)+'\')">';
-      html += '<div style="width:14px;height:14px;border-radius:3px;border:1.5px solid '+(isSel?'#3C3489':'var(--border-secondary)')+';display:flex;align-items:center;justify-content:center;flex-shrink:0;background:'+(isSel?'#3C3489':'#fff')+';color:#fff;font-size:9px">'+(isSel?'✓':'')+'</div>';
-      html += '<div style="font-size:11px;font-weight:500;flex:0 0 160px">'+dayLabel+'</div>';
-      html += '<div style="font-size:11px;color:var(--text-2);flex:0 0 130px">'+timeLabel+'</div>';
-      html += '<div style="font-size:10px;flex:1;text-align:right;color:#854F0B">⚙ Manuel</div>';
-      html += '<button onclick="event.stopPropagation();removeManualSlot(\''+_escJsArg(slot.id)+'\')" style="background:transparent;border:none;color:#993C1D;font-size:13px;cursor:pointer;padding:0 4px">×</button>';
-      html += '</div>';
-    });
-
-    // Bouton ajouter créneau manuel
-    html += '<button class="bs" style="font-size:10px;padding:4px 8px;margin-top:6px" onclick="showAddManualSlotForm()">⚙ Ajouter un créneau manuel</button>';
-    html += '</div>';
-  }
-
-  // Section "Réunions à créer"
-  var selectedSlots = _kbGetSelectedSlots();
-  if (selectedSlots.length > 0) {
-    html += '<div style="background:#FAFAFE;border:.5px solid #CECBF6;border-radius:4px;padding:10px 12px;margin-bottom:10px">';
-    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
-    html += '<div style="font-size:10px;color:#3C3489;text-transform:uppercase;letter-spacing:.4px;font-weight:500">Réunions à créer ('+selectedSlots.length+')</div>';
-    html += '<div style="font-size:10px;color:var(--text-3);font-style:italic">Clique sur les pastilles pour assigner/désassigner</div>';
-    html += '</div>';
-
-    selectedSlots.forEach(function(slot, mIdx){
-      var assigns = _kickoffBooking.assignments[slot.id] || {to:participants.to.map(function(p){return p.email;}), cc:participants.cc.map(function(p){return p.email;})};
-      _kickoffBooking.assignments[slot.id] = assigns; // ensure
-      var startD = new Date(slot.startISO);
-      var endD = new Date(slot.endISO);
-      var dayLabel = startD.toLocaleDateString('fr-FR', {weekday:'long', day:'numeric', month:'long'});
-      var timeLabel = startD.toLocaleTimeString('fr-FR', {hour:'2-digit',minute:'2-digit'}) + ' — ' + endD.toLocaleTimeString('fr-FR', {hour:'2-digit',minute:'2-digit'});
-
-      html += '<div style="background:#fff;border:1px solid #CECBF6;border-radius:5px;padding:10px 12px;margin-bottom:8px">';
-      html += '<div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:8px;border-bottom:.5px solid var(--border);margin-bottom:8px">';
-      html += '<div style="font-size:12px;font-weight:500;color:#3C3489;display:flex;align-items:center;gap:6px">';
-      html += '<span style="background:#EEEDFE;color:#3C3489;font-size:9px;padding:2px 7px;border-radius:3px;font-weight:500">M'+(mIdx+1)+'</span>';
-      html += '<span>'+dayLabel+' · '+timeLabel+'</span>';
-      html += '</div>';
-      html += '<button onclick="toggleSlot(\''+_escJsArg(slot.id)+'\')" style="background:#fff;border:.5px solid var(--border);color:#993C1D;border-radius:3px;padding:2px 6px;cursor:pointer;font-size:11px">×</button>';
-      html += '</div>';
-
-      // Pastilles TO
-      html += '<div style="display:grid;grid-template-columns:auto 1fr;gap:8px;font-size:11px;align-items:start;padding:4px 0">';
-      html += '<div style="color:var(--text-3);font-size:10px;text-transform:uppercase;letter-spacing:.3px;padding-top:3px">TO</div>';
-      html += '<div style="display:flex;flex-wrap:wrap;gap:4px">';
-      participants.to.forEach(function(p){
-        var isAssigned = assigns.to.indexOf(p.email) >= 0;
-        var pillBg = isAssigned ? '#EEEDFE' : '#fafafa';
-        var pillColor = isAssigned ? '#3C3489' : 'var(--text-3)';
-        var pillBorder = isAssigned ? '#CECBF6' : 'var(--border)';
-        html += '<span onclick="toggleAssign(\''+_escJsArg(slot.id)+'\',\'to\',\''+_escJsArg(p.email)+'\')" style="font-size:10px;background:'+pillBg+';color:'+pillColor+';padding:3px 8px;border-radius:10px;cursor:pointer;border:.5px '+(isAssigned?'solid':'dashed')+' '+pillBorder+'">'+p.name+(isAssigned?' ✓':'')+'</span>';
-      });
-      html += '</div>';
-      html += '</div>';
-
-      // Pastilles CC
-      if (participants.cc.length) {
-        html += '<div style="display:grid;grid-template-columns:auto 1fr;gap:8px;font-size:11px;align-items:start;padding:4px 0">';
-        html += '<div style="color:var(--text-3);font-size:10px;text-transform:uppercase;letter-spacing:.3px;padding-top:3px">CC</div>';
-        html += '<div style="display:flex;flex-wrap:wrap;gap:4px">';
-        participants.cc.forEach(function(p){
-          var isAssigned = assigns.cc.indexOf(p.email) >= 0;
-          var pillBg = isAssigned ? '#FFF4D9' : '#fafafa';
-          var pillColor = isAssigned ? '#854F0B' : 'var(--text-3)';
-          var pillBorder = isAssigned ? '#FAC775' : 'var(--border)';
-          html += '<span onclick="toggleAssign(\''+_escJsArg(slot.id)+'\',\'cc\',\''+_escJsArg(p.email)+'\')" style="font-size:10px;background:'+pillBg+';color:'+pillColor+';padding:3px 8px;border-radius:10px;cursor:pointer;border:.5px '+(isAssigned?'solid':'dashed')+' '+pillBorder+'">'+p.name+(isAssigned?' ✓':'')+'</span>';
-        });
-        html += '</div>';
-        html += '</div>';
-      }
-      html += '</div>';
-    });
-
-    html += '</div>'; // fin réunions à créer
-  }
-
-  // Options
-  if (selectedSlots.length > 0) {
-    html += '<div style="display:flex;gap:14px;margin:10px 0;padding:10px 12px;background:#fff;border-radius:4px;border:.5px solid var(--border)">';
+  // ─── Options ─────────────────────────────────────────────────
+  if (manualSlots.length > 0) {
+    html += '<div style="display:flex;gap:14px;margin:10px 0;padding:10px 12px;background:#fff;border-radius:4px;border:.5px solid var(--border);flex-wrap:wrap">';
     html += '<label style="font-size:11px;display:flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox" '+(_kickoffBooking.options.includeTeams?'checked':'')+' onchange="_kickoffBooking.options.includeTeams=this.checked"/> Inclure lien Teams (1 par réunion)</label>';
     if (finalKO && finalKO.webUrl) {
       html += '<label style="font-size:11px;display:flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox" '+(_kickoffBooking.options.attachKickoff?'checked':'')+' onchange="_kickoffBooking.options.attachKickoff=this.checked"/> Joindre le PPT Kick-off (final)</label>';
@@ -6896,14 +6795,10 @@ function renderKickoffBookingSection() {
     html += '</div>';
 
     // Bouton de création
+    var totalParticipants = participants.to.length + participants.cc.length;
     html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">';
-    var totalInvits = 0;
-    selectedSlots.forEach(function(slot){
-      var a = _kickoffBooking.assignments[slot.id] || {to:[], cc:[]};
-      totalInvits += a.to.length + a.cc.length;
-    });
-    html += '<div style="font-size:11px;color:#3C3489;font-weight:500">'+selectedSlots.length+' réunion(s) · '+totalInvits+' invitation(s) à envoyer</div>';
-    html += '<button class="bp" style="font-size:12px;padding:8px 16px;background:#3C3489;color:#fff;font-weight:500" onclick="createKickoffMeetings()" '+(_kickoffBooking.busy?'disabled':'')+'>📅 '+(_kickoffBooking.busy?'Création en cours...':'Créer '+selectedSlots.length+' réunion(s) + envoyer')+'</button>';
+    html += '<div style="font-size:11px;color:#3C3489;font-weight:500">'+manualSlots.length+' réunion(s) · '+totalParticipants+' participants chacune</div>';
+    html += '<button class="bp" style="font-size:12px;padding:8px 16px;background:#3C3489;color:#fff;font-weight:500" onclick="createKickoffMeetings()" '+(_kickoffBooking.busy?'disabled':'')+'>📅 '+(_kickoffBooking.busy?'Création en cours...':'Créer '+manualSlots.length+' réunion(s) + envoyer')+'</button>';
     html += '</div>';
   }
 
@@ -6911,55 +6806,23 @@ function renderKickoffBookingSection() {
   return html;
 }
 
-function _kbGetSelectedSlots() {
-  if (!_kickoffBooking) return [];
-  var all = (_kickoffBooking.slots || []).concat(_kickoffBooking.manualSlots || []);
-  return all.filter(function(s){return _kickoffBooking.selected[s.id];});
-}
-
-function toggleSlot(slotId) {
-  if (!_kickoffBooking) return;
-  if (_kickoffBooking.selected[slotId]) {
-    delete _kickoffBooking.selected[slotId];
-    delete _kickoffBooking.assignments[slotId];
-  } else {
-    _kickoffBooking.selected[slotId] = true;
-  }
-  document.getElementById('det-content').innerHTML = renderDetContent();
-}
-
-function toggleAssign(slotId, group, email) {
-  if (!_kickoffBooking) return;
-  if (!_kickoffBooking.assignments[slotId]) {
-    var participants = _kbGetParticipants();
-    _kickoffBooking.assignments[slotId] = {to: participants.to.map(function(p){return p.email;}), cc: participants.cc.map(function(p){return p.email;})};
-  }
-  var arr = _kickoffBooking.assignments[slotId][group];
-  var idx = arr.indexOf(email);
-  if (idx >= 0) arr.splice(idx, 1);
-  else arr.push(email);
-  document.getElementById('det-content').innerHTML = renderDetContent();
-}
-
 function showAddManualSlotForm() {
-  // Modale simple : date + heure début + durée → ajoute aux manualSlots
   var defaultDate = new Date(Date.now() + 86400000); // demain
   var defaultDateStr = defaultDate.toISOString().slice(0,10);
   var body = '<div><label>Date</label><input id="ms-date" type="date" value="'+defaultDateStr+'"/></div>'
     + '<div class="g2"><div><label>Heure début</label><input id="ms-start" type="time" value="14:00"/></div>'
     + '<div><label>Heure fin</label><input id="ms-end" type="time" value="15:00"/></div></div>';
-  openModal('Ajouter un créneau manuel', body, async function(){
+  openModal('Ajouter un créneau', body, async function(){
     var date = document.getElementById('ms-date').value;
     var startT = document.getElementById('ms-start').value;
     var endT = document.getElementById('ms-end').value;
     if (!date || !startT || !endT) { toast('Remplir date + heure début + heure fin'); return; }
     var startISO = new Date(date+'T'+startT+':00').toISOString();
     var endISO = new Date(date+'T'+endT+':00').toISOString();
+    if (new Date(endISO) <= new Date(startISO)) { toast('L\'heure de fin doit être après l\'heure de début'); return; }
     var slotId = 'manual_'+Date.now();
     if (!_kickoffBooking) _kickoffBooking = _initKickoffBooking();
     _kickoffBooking.manualSlots.push({id: slotId, startISO: startISO, endISO: endISO});
-    _kickoffBooking.selected[slotId] = true;
-    if (!_kickoffBooking.slotsLoaded) _kickoffBooking.slotsLoaded = true;
     document.getElementById('det-content').innerHTML = renderDetContent();
     toast('Créneau ajouté ✓');
   });
@@ -6968,8 +6831,6 @@ function showAddManualSlotForm() {
 function removeManualSlot(slotId) {
   if (!_kickoffBooking) return;
   _kickoffBooking.manualSlots = _kickoffBooking.manualSlots.filter(function(s){return s.id!==slotId;});
-  delete _kickoffBooking.selected[slotId];
-  delete _kickoffBooking.assignments[slotId];
   document.getElementById('det-content').innerHTML = renderDetContent();
 }
 
@@ -7037,107 +6898,37 @@ function removeAdHocContact(idx) {
   document.getElementById('det-content').innerHTML = renderDetContent();
 }
 
-async function searchKickoffSlots() {
-  if (!_kickoffBooking) return;
-  var participants = _kbGetParticipants();
-  var allEmails = participants.to.concat(participants.cc).map(function(p){return p.email;});
-  if (!allEmails.length) { toast('Aucun participant avec email'); return; }
-  if (typeof findMeetingTimes !== 'function') { toast('Helper Graph indisponible'); return; }
-
-  toast('🔍 Recherche des créneaux...');
-  _kickoffBooking.busy = true;
-
-  try {
-    // Plage : daysAhead jours à partir de demain
-    var startDate = new Date();
-    startDate.setDate(startDate.getDate() + 1);
-    startDate.setHours(0,0,0,0);
-    var endDate = new Date(startDate);
-    endDate.setDate(endDate.getDate() + _kickoffBooking.daysAhead);
-
-    var hours = _kickoffBooking.workingHours.split('-');
-    var workStartH = parseInt(hours[0]);
-    var workEndH = parseInt(hours[1]);
-
-    var result = await findMeetingTimes(allEmails, _kickoffBooking.durationMinutes, {
-      startDate: startDate,
-      endDate: endDate,
-      workingHoursStart: workStartH,
-      workingHoursEnd: workEndH,
-      maxCandidates: 20,
-    });
-
-    // Normaliser les slots
-    var slots = (result && result.meetingTimeSuggestions ? result.meetingTimeSuggestions : []).map(function(s, i){
-      var attendeeAvail = s.attendeeAvailability || [];
-      var conflicts = attendeeAvail.filter(function(a){return a.availability && a.availability !== 'free';}).map(function(a){
-        var emailObj = (a.attendee && a.attendee.emailAddress) || {};
-        return emailObj.name || emailObj.address || '?';
-      });
-      return {
-        id: 'auto_'+i,
-        startISO: s.meetingTimeSlot.start.dateTime + (s.meetingTimeSlot.start.dateTime.endsWith('Z')?'':'Z'),
-        endISO: s.meetingTimeSlot.end.dateTime + (s.meetingTimeSlot.end.dateTime.endsWith('Z')?'':'Z'),
-        status: conflicts.length === 0 ? 'good' : 'partial',
-        conflicts: conflicts,
-        confidence: s.confidence || 0,
-      };
-    });
-
-    _kickoffBooking.slots = slots;
-    _kickoffBooking.slotsLoaded = true;
-    _kickoffBooking.busy = false;
-    document.getElementById('det-content').innerHTML = renderDetContent();
-    toast(slots.length + ' créneau(x) trouvé(s)');
-  } catch (e) {
-    console.error('[searchKickoffSlots] error:', e);
-    _kickoffBooking.busy = false;
-    _kickoffBooking.slotsLoaded = true; // pour permettre l'ajout manuel
-    _kickoffBooking.slots = [];
-    document.getElementById('det-content').innerHTML = renderDetContent();
-    toast('Erreur recherche : ' + (e.message||e));
-  }
-}
 
 async function createKickoffMeetings() {
   if (!_kickoffBooking) return;
-  var selectedSlots = _kbGetSelectedSlots();
-  if (!selectedSlots.length) { toast('Aucun créneau sélectionné'); return; }
+  var manualSlots = _kickoffBooking.manualSlots || [];
+  if (!manualSlots.length) { toast('Ajoute au moins un créneau'); return; }
 
   var audit = (AUDIT_PLAN || []).find(function(a) { return a.id === CA; });
   if (!audit) { toast('Audit introuvable'); return; }
   var d = getAudData(CA);
 
-  // Validation : chaque réunion doit avoir au moins 1 TO
+  // Récupérer la liste de tous les participants (TO + CC) — vont dans toutes les réunions
   var participants = _kbGetParticipants();
-  var emailToName = {};
-  participants.to.concat(participants.cc).forEach(function(p){ emailToName[p.email]=p.name; });
-
-  for (var i = 0; i < selectedSlots.length; i++) {
-    var s = selectedSlots[i];
-    var a = _kickoffBooking.assignments[s.id];
-    if (!a || !a.to.length) {
-      toast('Réunion '+(i+1)+' : aucun participant TO assigné');
-      return;
-    }
+  if (!participants.to.length && !participants.cc.length) {
+    toast('Aucun participant — ajoute au moins un contact (auto ou ad hoc)');
+    return;
   }
 
   if (typeof createOutlookEvent !== 'function') { toast('Helper Graph indisponible'); return; }
 
   _kickoffBooking.busy = true;
   document.getElementById('det-content').innerHTML = renderDetContent();
-  toast('📅 Création de '+selectedSlots.length+' réunion(s)...');
+  toast('📅 Création de '+manualSlots.length+' réunion(s)...');
 
-  // Pré-charger le PPT en référence SharePoint si demandé (une seule fois)
-  var attachments = [];
+  // Lien SharePoint du Kick-off final (mis dans le body — pas en attachment, plus fiable)
+  var kickoffLink = null;
+  var kickoffName = null;
   if (_kickoffBooking.options.attachKickoff) {
     var finalKO = d.attachments && d.attachments.kickoff && d.attachments.kickoff.final;
     if (finalKO && finalKO.webUrl) {
-      // Reference attachment SharePoint (lien cliquable, pas de bytes transférés)
-      attachments.push({
-        name: finalKO.fileName || 'KickOff_final.pptx',
-        url: finalKO.webUrl,
-      });
+      kickoffLink = finalKO.webUrl;
+      kickoffName = finalKO.fileName || 'KickOff_final.pptx';
     }
   }
 
@@ -7146,7 +6937,6 @@ async function createKickoffMeetings() {
   var organizerName = (typeof CU !== 'undefined' && CU && CU.name) ? CU.name : '';
   var organizerTitle = 'Director of Internal Audit';
   var organizerTitleFr = 'Directeur de l\'Audit Interne';
-  // Wrapper Calibri sur tout le contenu — Outlook respecte la font-family inline
   var calibriOpen = '<div style="font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#000">';
   var calibriClose = '</div>';
 
@@ -7155,41 +6945,40 @@ async function createKickoffMeetings() {
     + '<p>Hello,</p>'
     + '<p>I invite you to the kick-off meeting of the audit &ldquo;' + auditTitle + '&rdquo;.<br/>'
     + 'The purpose of this meeting is to present the scope, objectives, and timeline of the audit assignment.</p>';
-  if (attachments.length) {
-    bodyHtml += '<p>The presentation deck is attached to this invitation (SharePoint link).</p>';
+  if (kickoffLink) {
+    bodyHtml += '<p>Presentation deck (SharePoint): <a href="'+kickoffLink+'">'+kickoffName.replace(/</g,'&lt;')+'</a></p>';
   }
   bodyHtml += '<p>Kind regards,<br/>'
     + organizerName + ' &mdash; ' + organizerTitle + '</p>'
-    // ─── Séparateur ───────────────────────────────
     + '<p style="color:#888;font-size:10pt">===================================================</p>'
     // ─── FR ───────────────────────────────────────
     + '<p>Bonjour,</p>'
     + '<p>Je vous invite &agrave; la r&eacute;union de Kick-off de l\'audit &laquo;&nbsp;' + auditTitle + '&nbsp;&raquo;.<br/>'
     + 'Cette r&eacute;union vise &agrave; pr&eacute;senter le p&eacute;rim&egrave;tre, les objectifs et le planning de la mission.</p>';
-  if (attachments.length) {
-    bodyHtml += '<p>Le support de pr&eacute;sentation est joint &agrave; cette invitation (lien SharePoint).</p>';
+  if (kickoffLink) {
+    bodyHtml += '<p>Support de pr&eacute;sentation (SharePoint) : <a href="'+kickoffLink+'">'+kickoffName.replace(/</g,'&lt;')+'</a></p>';
   }
   bodyHtml += '<p>Cordialement,<br/>'
     + organizerName + '<br/>'
     + organizerTitleFr + '</p>'
     + calibriClose;
 
+  // Construire la liste des attendees (commune à toutes les réunions)
+  var attendees = [];
+  participants.to.forEach(function(p){ attendees.push({email: p.email, name: p.name || p.email, type:'required'}); });
+  participants.cc.forEach(function(p){ attendees.push({email: p.email, name: p.name || p.email, type:'optional'}); });
+
   // Crée les réunions une par une
   var createdEvents = [];
-  for (var k = 0; k < selectedSlots.length; k++) {
-    var slot = selectedSlots[k];
-    var assign = _kickoffBooking.assignments[slot.id];
-    var attendees = [];
-    assign.to.forEach(function(em){ attendees.push({email: em, name: emailToName[em]||em, type:'required'}); });
-    assign.cc.forEach(function(em){ attendees.push({email: em, name: emailToName[em]||em, type:'optional'}); });
+  for (var k = 0; k < manualSlots.length; k++) {
+    var slot = manualSlots[k];
+    var subject = 'Kick-off audit — '+(audit.titre||'')+(manualSlots.length>1?' (Session '+(k+1)+'/'+manualSlots.length+')':'');
 
-    var subject = 'Kick-off audit — '+(audit.titre||'')+(selectedSlots.length>1?' (Session '+(k+1)+'/'+selectedSlots.length+')':'');
-
-    console.log('[Kickoff Booking] Création réunion '+(k+1)+'/'+selectedSlots.length+' :', {
+    console.log('[Kickoff Booking] Création réunion '+(k+1)+'/'+manualSlots.length+' :', {
       subject: subject,
       start: slot.startISO,
       end: slot.endISO,
-      attendees: attendees,
+      attendeesCount: attendees.length,
       addTeamsLink: _kickoffBooking.options.includeTeams,
     });
 
@@ -7201,7 +6990,8 @@ async function createKickoffMeetings() {
         end: new Date(slot.endISO),
         attendees: attendees,
         addTeamsLink: _kickoffBooking.options.includeTeams,
-        attachments: attachments,
+        // Pas d'attachment Graph (referenceAttachment cause des erreurs 400 dans certains tenants)
+        // Le lien SharePoint est inclus dans le body à la place — comportement plus robuste
       });
       createdEvents.push({
         eventId: event.id,
@@ -7209,7 +6999,7 @@ async function createKickoffMeetings() {
         startISO: slot.startISO,
         endISO: slot.endISO,
         teamsUrl: event.onlineMeeting ? event.onlineMeeting.joinUrl : null,
-        attendeeEmails: attendees.map(function(a){return a.email;}), // pour info/debug
+        attendeeEmails: attendees.map(function(a){return a.email;}),
         createdAt: new Date().toISOString(),
       });
       console.log('[Kickoff Booking] ✓ Réunion créée :', event.id, '— invitations envoyées à', attendees.length, 'attendees');
