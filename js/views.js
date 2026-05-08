@@ -6902,8 +6902,8 @@ async function searchKickoffSlots() {
     var workEndH = parseInt(hours[1]);
 
     var result = await findMeetingTimes(allEmails, _kickoffBooking.durationMinutes, {
-      startDate: startDate.toISOString(),
-      endDate: endDate.toISOString(),
+      startDate: startDate,
+      endDate: endDate,
       workingHoursStart: workStartH,
       workingHoursEnd: workEndH,
       maxCandidates: 20,
