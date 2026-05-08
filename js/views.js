@@ -4472,15 +4472,18 @@ function renderAuditHeaderCompact(a, step, pct) {
   }
 
   // Construction du stepper en 3 phases colorées
-  // Pour les audits BU : on saute l'étape 4 (ITW : WCGW & Contrôles) qui n'a pas de sens
-  // pour des audits substantifs. Le numéro d'étape affiché est ajusté en conséquence.
+  // Pour les audits BU :
+  //   - On saute l'étape 4 (index 4 = ITW : WCGW & Contrôles) : pas pertinente pour les audits substantifs
+  //   - On saute l'étape 8 (index 7 = Report Restitution) : génération de rapport intégrée à l'étape 6
+  //   - L'étape 7 (index 6) est renommée "Findings & Rapport" car elle inclut maintenant la génération
+  // Le numéro d'étape affiché est ajusté en conséquence.
   var auditObj = AUDIT_PLAN.find(function(x){return x.id===CA;});
   var isBu = auditObj && auditObj.type === 'BU';
   var phases = isBu
     ? [
         {idxs: [0,1,2],   name: 'Préparation', bg: '#EEEDFE', txt: '#3C3489'},
         {idxs: [3,5],     name: 'Réalisation', bg: '#E1F5EE', txt: '#085041'},
-        {idxs: [6,7,8,9], name: 'Restitution', bg: '#FAEEDA', txt: '#854F0B'},
+        {idxs: [6,8,9],   name: 'Restitution', bg: '#FAEEDA', txt: '#854F0B'},
       ]
     : [
         {idxs: [0,1,2],   name: 'Préparation', bg: '#EEEDFE', txt: '#3C3489'},
@@ -4488,10 +4491,20 @@ function renderAuditHeaderCompact(a, step, pct) {
         {idxs: [6,7,8,9], name: 'Restitution', bg: '#FAEEDA', txt: '#854F0B'},
       ];
 
-  // Pour le numéro d'étape affiché : si BU, on numérote 1..9 en sautant l'étape 4
+  // Helper : renvoie le nom de l'étape (avec renommage spécifique BU pour l'étape 6)
+  function _stepLabel(realIdx) {
+    if (isBu && realIdx === 6) return 'Findings & Rapport';
+    return STEPS[realIdx] ? STEPS[realIdx].s : '—';
+  }
+
+  // Pour le numéro d'étape affiché :
+  //   - BU : on numérote 1..8 en sautant les étapes 4 (idx 4) et 8 (idx 7)
+  //   - Process : on numérote 1..10 directement
   function _displayedStepNum(realIdx) {
     if (!isBu) return realIdx + 1;
-    return realIdx >= 4 ? realIdx : realIdx + 1; // 0..3 → 1..4 ; 5..9 → 5..9
+    // BU : 0,1,2,3,5,6,8,9 → 1,2,3,4,5,6,7,8
+    var buMap = {0:1, 1:2, 2:3, 3:4, 5:5, 6:6, 8:7, 9:8};
+    return buMap[realIdx] !== undefined ? buMap[realIdx] : realIdx + 1;
   }
 
   var phaseHtml = phases.map(function(p){
@@ -4507,7 +4520,7 @@ function renderAuditHeaderCompact(a, step, pct) {
       var separator = idx < p.idxs.length - 1
         ? '<div style="flex:1;height:2px;background:'+(i<CS?p.txt:p.txt+'40')+';min-width:6px"></div>'
         : '';
-      return '<div onclick="goStep('+i+')" style="width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;cursor:pointer;flex-shrink:0;'+dotStyle+'" title="'+STEPS[i].s+'">'+dotContent+'</div>'+separator;
+      return '<div onclick="goStep('+i+')" style="width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;cursor:pointer;flex-shrink:0;'+dotStyle+'" title="'+_stepLabel(i)+'">'+dotContent+'</div>'+separator;
     }).join('');
     return '<div style="background:'+p.bg+';padding:7px 10px;border-radius:6px;flex:'+p.idxs.length+'">'
       + '<div style="font-size:9px;color:'+p.txt+';font-weight:500;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:5px">'+p.name+'</div>'
@@ -4531,10 +4544,10 @@ function renderAuditHeaderCompact(a, step, pct) {
   // Ligne 2 : stepper en 3 phases colorées
   html += '<div style="display:flex;align-items:stretch">'+phaseHtml+'</div>';
 
-  // Ligne 3 : nom de l'étape courante (avec numérotation adaptée au type d'audit)
+  // Ligne 3 : nom de l'étape courante (avec numérotation et renommage adaptés au type d'audit)
   html += '<div style="font-size:12px;color:var(--text-2);margin-top:8px;text-align:center">';
-  var totalSteps = isBu ? 9 : 10;
-  html += 'Étape '+_displayedStepNum(CS)+'/'+totalSteps+' — <strong>'+step.s+'</strong>';
+  var totalSteps = isBu ? 8 : 10;
+  html += 'Étape '+_displayedStepNum(CS)+'/'+totalSteps+' — <strong>'+_stepLabel(CS)+'</strong>';
   html += '</div>';
 
   html += '</div>';
@@ -4621,7 +4634,14 @@ function renderDetContent(){
   }
 
   // ── 4. DOCUMENTS ─────────────────────────────────────────
-  html += renderDocumentsSection();
+  // Pour les audits BU : on cache la zone Documents en étapes 2 (Kick Off), 6 (Findings & Rapport) et 8 (MR)
+  // Ces étapes ont leur propre gestion de fichiers via SharePoint (draft/final)
+  var auditForDocs = AUDIT_PLAN.find(function(x){return x.id===CA;});
+  var isBuForDocs = auditForDocs && auditForDocs.type === 'BU';
+  var hideDocsForBu = isBuForDocs && (CS === 2 || CS === 6 || CS === 8);
+  if (!hideDocsForBu) {
+    html += renderDocumentsSection();
+  }
 
   // ── 5. NOTES (préparer + reviewer) ───────────────────────
   html += renderNotesSection();
@@ -8833,18 +8853,26 @@ function goStep(i){
   CS=i;
   var auditObj = AUDIT_PLAN.find(function(x){return x.id===CA;});
   var isBu = auditObj && auditObj.type === 'BU';
-  // Pour les audits BU : on saute l'étape 4 (skip silencieux si on tombe dessus)
+  // Pour les audits BU : on saute les étapes 4 et 7 (skip silencieux)
   if (isBu && i === 4) {
     CS = 5;
     i = 5;
   }
-  var totalSteps = isBu ? 9 : 10;
-  var displayedNum = isBu ? (i >= 4 ? i : i + 1) : (i + 1);
+  if (isBu && i === 7) {
+    CS = 8;
+    i = 8;
+  }
+  var totalSteps = isBu ? 8 : 10;
+  // Numéro d'étape affiché : BU 0,1,2,3,5,6,8,9 → 1,2,3,4,5,6,7,8
+  var buMap = {0:1, 1:2, 2:3, 3:4, 5:5, 6:6, 8:7, 9:8};
+  var displayedNum = isBu ? (buMap[i] !== undefined ? buMap[i] : i+1) : (i + 1);
   const pct=Math.min(100, Math.round((displayedNum/totalSteps)*100));
+  // Renommer l'étape 6 en "Findings & Rapport" pour BU
+  var stepLabel = (isBu && i === 6) ? 'Findings & Rapport' : (STEPS[i] ? STEPS[i].s : '—');
   document.getElementById('audit-header-compact').innerHTML=renderStepper();
   var pf=document.getElementById('gp-fill'); if(pf)pf.style.width=pct+'%';
   var pp=document.getElementById('gp-pct'); if(pp)pp.textContent=pct+'%';
-  var pl=document.getElementById('gp-lbl'); if(pl)pl.textContent=`Étape ${displayedNum}/${totalSteps} — ${STEPS[i].s}`;
+  var pl=document.getElementById('gp-lbl'); if(pl)pl.textContent=`Étape ${displayedNum}/${totalSteps} — ${stepLabel}`;
   document.getElementById('det-content').innerHTML=renderDetContent();
 }
 function switchDetTab(tab){

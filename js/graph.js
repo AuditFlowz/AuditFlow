@@ -753,6 +753,12 @@ async function loadAuditData(auditId) {
     var items = await listItems('AF_AuditData', "fields/af_id eq '" + auditId + "'");
     if (items.length) {
       var f = items[0].fields;
+      var kickoffPrep = tryParse(f.kickoff_prep_json,{}) || {};
+      // Migration legacy : si l'ancien workaround __attachments existe encore, le récupérer
+      var legacyAttach = kickoffPrep.__attachments;
+      if (legacyAttach) {
+        delete kickoffPrep.__attachments;
+      }
       DB.auditData[auditId] = {
         tasks:tryParse(f.tasks_json,{}), controls:tryParse(f.controls_json,{}),
         findings:tryParse(f.findings_json,[]), mgtResp:tryParse(f.mgt_resp_json,[]),
@@ -763,17 +769,19 @@ async function loadAuditData(auditId) {
         prepNotes:tryParse(f.prep_notes_json,{}),
         revNotes:tryParse(f.rev_notes_json,{}),
         wcgw:tryParse(f.wcgw_json,{}),
-        kickoffPrep:tryParse(f.kickoff_prep_json,{}),
+        kickoffPrep:kickoffPrep,
         workProgramBU:tryParse(f.work_program_bu_json,{processes:[]}),
         issues:tryParse(f.issues_json,[]),
         execSummaryHeader:f.exec_summary_header||'',
+        // Priorité : nouvelle colonne attachments_json, fallback ancien workaround
+        attachments:tryParse(f.attachments_json, legacyAttach || {}),
       };
     } else {
-      DB.auditData[auditId] = {tasks:{},controls:{},findings:[],mgtResp:[],docs:[],notes:'',maturity:null,riskLinks:{},auditRisks:[],stepStates:{},prepNotes:{},revNotes:{},wcgw:{},kickoffPrep:{},workProgramBU:{processes:[]},issues:[],execSummaryHeader:''};
+      DB.auditData[auditId] = {tasks:{},controls:{},findings:[],mgtResp:[],docs:[],notes:'',maturity:null,riskLinks:{},auditRisks:[],stepStates:{},prepNotes:{},revNotes:{},wcgw:{},kickoffPrep:{},workProgramBU:{processes:[]},issues:[],execSummaryHeader:'',attachments:{}};
     }
   } catch(e) {
     console.warn('[SP] loadAuditData error:', e.message);
-    DB.auditData[auditId] = {tasks:{},controls:{},findings:[],mgtResp:[],docs:[],notes:'',maturity:null,riskLinks:{},auditRisks:[],stepStates:{},prepNotes:{},revNotes:{},wcgw:{},kickoffPrep:{},workProgramBU:{processes:[]},issues:[],execSummaryHeader:''};
+    DB.auditData[auditId] = {tasks:{},controls:{},findings:[],mgtResp:[],docs:[],notes:'',maturity:null,riskLinks:{},auditRisks:[],stepStates:{},prepNotes:{},revNotes:{},wcgw:{},kickoffPrep:{},workProgramBU:{processes:[]},issues:[],execSummaryHeader:'',attachments:{}};
   }
   AUD_DATA[auditId] = DB.auditData[auditId];
   return DB.auditData[auditId];
@@ -796,6 +804,7 @@ async function saveAuditData(auditId) {
     work_program_bu_json:JSON.stringify(d.workProgramBU||{}),
     issues_json:JSON.stringify(d.issues||[]),
     exec_summary_header:d.execSummaryHeader||'',
+    attachments_json:JSON.stringify(d.attachments||{}),
     Title:auditId,
   });
 }
