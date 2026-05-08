@@ -7094,7 +7094,7 @@ function renderTestsSection() {
   var targets = step5c.filter(function(c){return c.design==='target';});
   var html = '<div class="card" style="margin-bottom:.75rem">';
   html += '<div style="font-size:12px;font-weight:600;color:var(--text-2);margin-bottom:4px">Testings — Contrôles clefs existants</div>';
-  html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:10px;font-style:italic">Pour chaque contrôle clef existant, documentez votre procédure de test, votre échantillon et le résultat. Les contrôles Target (à mettre en place) seront pris en compte directement à l\'étape Findings sans test.</div>';
+  html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:10px;font-style:italic">Pour chaque contrôle clef existant, documente la procédure de test, la population, l\'échantillon testé et les anomalies identifiées. L\'extrapolation est calculée automatiquement (ratio simple). Les contrôles Target (à mettre en place) seront pris en compte directement à l\'étape Findings sans test.</div>';
   html += buildExecTable(keyExist);
   if (targets.length) {
     html += '<div style="margin-top:14px;padding-top:10px;border-top:1px dashed var(--border)">';
@@ -9203,12 +9203,65 @@ async function reassignTask(i,val){const d=getAudData(CA);if(d.tasks[CS]&&d.task
 function showNewTaskModal(){const a=getAudits().find(x=>x.id===CA);openModal('Nouvelle tâche',`<div><label>Description</label><input id="t-desc" placeholder="ex : Analyser les données..."/></div><div><label>Assignée à</label><select id="t-assign"><option value="none">— Non assignée</option>${buildAssigneeOpts(a.assignedTo,null)}</select></div>`,async ()=>{const desc=document.getElementById('t-desc').value.trim();if(!desc){toast('Description obligatoire');return;}const d=getAudData(CA);if(!d.tasks[CS])d.tasks[CS]=[];d.tasks[CS].push({desc,assignee:document.getElementById('t-assign').value,done:false});await saveAuditData(CA);document.getElementById('det-content').innerHTML=renderDetContent();document.getElementById('audit-header-compact').innerHTML=renderStepper();toast('Tâche créée ✓');});}
 function showAddControlModal_LEGACY_REMOVED(){/* doublon retiré */}
 async function removeControl(i){const d=getAudData(CA);d.controls[CS].splice(i,1);await saveAuditData(CA);document.getElementById('det-content').innerHTML=renderDetContent();}
-async function setTestNature(i,val){const d=getAudData(CA);const kc=(d.controls[4]||[]).filter(c=>c.clef&&c.design==='existing');if(kc[i]){kc[i].testNature=val;await saveAuditData(CA);}}
-async function setTestResult(i,val){const d=getAudData(CA);const kc=(d.controls[4]||[]).filter(c=>c.clef&&c.design==='existing');if(kc[i]){kc[i].result=val;await saveAuditData(CA);document.getElementById('det-content').innerHTML=renderDetContent();}}
-async function setFinding(i,val){const d=getAudData(CA);const kc=(d.controls[4]||[]).filter(c=>c.clef&&c.design==='existing');if(kc[i]){kc[i].finding=val;await saveAuditData(CA);}}
-async function setSampleSize(i,val){const d=getAudData(CA);const kc=(d.controls[4]||[]).filter(c=>c.clef&&c.design==='existing');if(kc[i]){kc[i].sampleSize=val?parseInt(val):null;await saveAuditData(CA);}}
-async function setSampleMethod(i,val){const d=getAudData(CA);const kc=(d.controls[4]||[]).filter(c=>c.clef&&c.design==='existing');if(kc[i]){kc[i].sampleMethod=val;await saveAuditData(CA);}}
-async function setTestComment(i,val){const d=getAudData(CA);const kc=(d.controls[4]||[]).filter(c=>c.clef&&c.design==='existing');if(kc[i]){kc[i].testComment=val;await saveAuditData(CA);}}
+
+// Setters Process — adaptés à globalIdx (index dans d.controls[4] complet)
+async function setTestNature(i,val){const d=getAudData(CA);if(d.controls[4]&&d.controls[4][i]){d.controls[4][i].testNature=val;await saveAuditData(CA);}}
+async function setSampleSize(i,val){const d=getAudData(CA);if(d.controls[4]&&d.controls[4][i]){d.controls[4][i].sampleSize=val?parseInt(val):null;await saveAuditData(CA);}}
+async function setSampleMethod(i,val){const d=getAudData(CA);if(d.controls[4]&&d.controls[4][i]){d.controls[4][i].sampleMethod=val;await saveAuditData(CA);}}
+async function setTestComment(i,val){const d=getAudData(CA);if(d.controls[4]&&d.controls[4][i]){d.controls[4][i].testComment=val;await saveAuditData(CA);}}
+async function setTestResult(i,val){const d=getAudData(CA);if(d.controls[4]&&d.controls[4][i]){d.controls[4][i].result=val;await saveAuditData(CA);document.getElementById('det-content').innerHTML=renderDetContent();}}
+async function setFinding(i,val){const d=getAudData(CA);if(d.controls[4]&&d.controls[4][i]){d.controls[4][i].finding=val;await saveAuditData(CA);}}
+
+// Nouveaux setters Process façon BU (population/sample/anomalies + extrapolation)
+async function setProcessTestField(i, field, val) {
+  var d = getAudData(CA);
+  if (d.controls[4] && d.controls[4][i]) {
+    d.controls[4][i][field] = val;
+    await saveAuditData(CA);
+    document.getElementById('det-content').innerHTML = renderDetContent();
+  }
+}
+async function setProcessTestSubField(i, group, sub, val) {
+  var d = getAudData(CA);
+  if (d.controls[4] && d.controls[4][i]) {
+    if (!d.controls[4][i][group]) d.controls[4][i][group] = {count:'', value:''};
+    d.controls[4][i][group][sub] = val;
+    await saveAuditData(CA);
+    document.getElementById('det-content').innerHTML = renderDetContent();
+  }
+}
+async function setProcessIssueDescription(i, val) {
+  var d = getAudData(CA);
+  if (!d.controls[4] || !d.controls[4][i]) return;
+  var ctrl = d.controls[4][i];
+  if (!Array.isArray(d.issues)) d.issues = [];
+  // Trouver l'issue Operating existante pour ce contrôle
+  var issueIdx = d.issues.findIndex(function(iss){
+    return iss.source === 'operating' && iss.controlId === ctrl.id;
+  });
+  var trimmed = (val || '').trim();
+  if (trimmed) {
+    // Créer ou mettre à jour
+    if (issueIdx >= 0) {
+      d.issues[issueIdx].description = val;
+    } else {
+      d.issues.push({
+        id: 'iss_'+Date.now()+'_'+Math.floor(Math.random()*100000),
+        source: 'operating',
+        controlId: ctrl.id,
+        wcgwId: ctrl.wcgwId || null,
+        title: ctrl.name || '',
+        description: val,
+        createdAt: new Date().toISOString(),
+      });
+    }
+  } else {
+    // Supprimer l'issue si description vidée
+    if (issueIdx >= 0) d.issues.splice(issueIdx, 1);
+  }
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
 function showAddFindingModal() { showFindingModal(null); }
 function showEditFindingModal(idx) {
   var d = getAudData(CA);
@@ -9466,8 +9519,36 @@ function openDocByDriveItem(driveId, itemId, name, url) {
 async function renameDoc(docIndex){var d=getAudData(CA);var doc=d.docs[docIndex];if(!doc)return;var newName=prompt('Nouveau nom :', doc.name);if(!newName||newName.trim()===''||newName===doc.name)return;try{await renameDocInDB(CA,docIndex,newName.trim());document.getElementById('det-content').innerHTML=renderDetContent();toast('Renommé ✓');}catch(e){toast('Erreur : '+e.message);}}
 async function replaceDoc(docIndex){var inp=document.createElement('input');inp.type='file';inp.accept='.pdf,.xlsx,.xls,.docx,.doc,.pptx,.ppt,.csv,.txt';inp.onchange=async function(){if(!inp.files.length)return;var file=inp.files[0];toast('Remplacement...');try{await replaceDocInDB(CA,docIndex,file,CS,CU?CU.name:'Inconnu');document.getElementById('det-content').innerHTML=renderDetContent();toast(file.name+' remplacé ✓');}catch(e){toast('Erreur : '+e.message);}};inp.click();}
 async function saveNotes(){var d=getAudData(CA);d.notes=document.querySelector('textarea')?document.querySelector('textarea').value:'';await saveAuditData(CA);toast('Notes sauvegardées ✓');}
-async function finalizeTest(i){const d=getAudData(CA);const kc=(d.controls[4]||[]).filter(x=>x.clef&&x.design==='existing');const ctrl=kc[i];if(!ctrl)return;if(!ctrl.testNature){toast('Renseignez la nature du test');return;}if(!ctrl.result){toast('Renseignez le résultat (Pass/Fail)');return;}if(ctrl.result==='fail'&&!ctrl.testComment){toast('Documentez le commentaire de test (constats)');return;}ctrl.finalized=true;addHist('edit',`Test finalisé — "${ctrl.name}" : ${ctrl.result}`);await saveAuditData(CA);document.getElementById('det-content').innerHTML=renderDetContent();toast(`Test "${ctrl.name}" finalisé ✓`);}
-async function unfinalizeTest(i){const d=getAudData(CA);const kc=(d.controls[4]||[]).filter(x=>x.clef&&x.design==='existing');const ctrl=kc[i];if(!ctrl)return;ctrl.finalized=false;addHist('edit',`Test rouvert — "${ctrl.name}"`);await saveAuditData(CA);document.getElementById('det-content').innerHTML=renderDetContent();toast(`Test "${ctrl.name}" rouvert`);}
+async function finalizeTest(i) {
+  var d = getAudData(CA);
+  if (!d.controls[4] || !d.controls[4][i]) return;
+  var ctrl = d.controls[4][i];
+  if (!ctrl.testNature) { toast('Renseignez la procédure de test'); return; }
+  if (ctrl.testStatus !== 'fait') { toast('Le statut du test doit être "fait"'); return; }
+  var hasAnomalies = ctrl.anomalies && ctrl.anomalies.count !== '' && Number(ctrl.anomalies.count) > 0;
+  if (hasAnomalies) {
+    var issue = (d.issues||[]).find(function(iss){return iss.source==='operating' && iss.controlId===ctrl.id;});
+    if (!issue || !issue.description || !issue.description.trim()) {
+      toast('Documentez l\'issue (description) puisque des anomalies ont été identifiées');
+      return;
+    }
+  }
+  ctrl.finalized = true;
+  addHist('edit', 'Test finalisé — "' + ctrl.name + '"' + (hasAnomalies?' (anomalies remontées)':''));
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+  toast('Test "' + ctrl.name + '" finalisé ✓');
+}
+async function unfinalizeTest(i) {
+  var d = getAudData(CA);
+  if (!d.controls[4] || !d.controls[4][i]) return;
+  var ctrl = d.controls[4][i];
+  ctrl.finalized = false;
+  addHist('edit', 'Test rouvert — "' + ctrl.name + '"');
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+  toast('Test "' + ctrl.name + '" rouvert');
+}
 function setMaturity(key){const d=getAudData(CA);if(!d.maturity)d.maturity={level:'',notes:'',saved:false};d.maturity.level=key;d.maturity.saved=false;document.getElementById('det-content').innerHTML=renderDetContent();}
 async function saveMaturity(){const d=getAudData(CA);if(!d.maturity?.level){toast('Veuillez sélectionner un niveau');return;}d.maturity.notes=document.getElementById('maturity-notes')?.value||'';d.maturity.saved=true;addHist('edit',`Maturité définie : ${d.maturity.level}`);await saveAuditData(CA);toast('Évaluation sauvegardée ✓');document.getElementById('det-content').innerHTML=renderDetContent();}
 
@@ -9477,10 +9558,15 @@ function buildExecTable(kc){
   if (!kc || !kc.length) return '<div style="font-size:11px;color:var(--text-3);padding:.5rem;font-style:italic">Aucun contrôle clef existant à tester.</div>';
   var d = getAudData(CA);
   var wcgwList = (d.wcgw && d.wcgw[4]) || [];
+  // Liste des contrôles globaux pour retrouver le vrai index dans d.controls[4]
+  var allCtrls = (d.controls && d.controls[4]) || [];
   var html = '';
-  kc.forEach(function(ctrl, i){
+  kc.forEach(function(ctrl, displayIdx){
+    // Index global dans d.controls[4] (pour les setters existants)
+    var globalIdx = allCtrls.indexOf(ctrl);
+
     var dis = ctrl.finalized ? 'disabled' : '';
-    var ctrlCode = ctrl.code || ('CTRL-'+(i+1));
+    var ctrlCode = ctrl.code || ('CTRL-'+(globalIdx+1));
     var wcgwLinked = wcgwList.find(function(w){return w.id === ctrl.wcgwId;});
     var wcgwBadge = wcgwLinked
       ? '<span class="badge bpl" style="font-size:9px;padding:1px 5px">'+(wcgwLinked.code||'')+' — '+wcgwLinked.title+'</span>'
@@ -9489,75 +9575,141 @@ function buildExecTable(kc){
     if (ctrl.owner) details.push('Owner : '+ctrl.owner);
     if (ctrl.freq) details.push('Fréquence : '+ctrl.freq);
     if (ctrl.nature) details.push('Nature : '+ctrl.nature);
-    var resultBadge = ctrl.result === 'pass'
-      ? '<span class="badge bdn" style="font-size:10px">✓ Pass</span>'
-      : ctrl.result === 'fail'
-      ? '<span class="badge bfl" style="font-size:10px">✗ Fail</span>'
-      : '';
 
-    html += '<div style="border:.5px solid var(--border);border-radius:6px;padding:12px;margin-bottom:10px;background:'+(ctrl.finalized?'#fafafa':'#fff')+'">';
-    // En-tête
+    // Initialiser les structures sample/population/anomalies (modèle BU)
+    if (!ctrl.population) ctrl.population = {count:'', value:''};
+    if (!ctrl.sample) ctrl.sample = {count:'', value:''};
+    if (!ctrl.anomalies) ctrl.anomalies = {count:'', value:''};
+    if (!ctrl.testStatus) ctrl.testStatus = 'à faire';
+    if (!ctrl.selectionMethod) ctrl.selectionMethod = '';
+
+    var status = ctrl.testStatus;
+    var statusColor = status==='fait' ? '#085041' : status==='en cours' ? '#0C447C' : '#854F0B';
+    var statusBg = status==='fait' ? '#E1F5EE' : status==='en cours' ? '#E6F1FB' : '#FAEEDA';
+
+    var hasAnomalies = (ctrl.anomalies.count !== '' && Number(ctrl.anomalies.count) > 0);
+    var rowBorder = hasAnomalies ? 'border:1px solid #E24B4A' : 'border:.5px solid var(--border)';
+
+    // Issue Operating inline pour ce contrôle (au plus 1 par contrôle)
+    var issue = (d.issues||[]).find(function(iss){
+      return iss.source==='operating' && iss.controlId===ctrl.id;
+    });
+    var issueDesc = issue ? (issue.description||'') : '';
+    var hasIssue = !!(issueDesc && issueDesc.trim());
+
+    var extrap = _computeExtrapolation(ctrl);
+
+    html += '<div style="'+rowBorder+';border-radius:6px;padding:12px;margin-bottom:10px;background:'+(hasAnomalies?'#FFF8F8':(ctrl.finalized?'#fafafa':'#fff'))+'">';
+
+    // En-tête : code + nom + WCGW lié + badges
     html += '<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:8px">';
     html += '<div style="flex:1">';
-    html += '<div style="font-size:12px;font-weight:600"><span style="color:var(--text-3);font-size:10px;margin-right:6px">'+ctrlCode+'</span>'+ctrl.name+'</div>';
-    if (ctrl.description) html += '<div style="font-size:10px;color:var(--text-3);margin-top:2px">'+ctrl.description+'</div>';
+    html += '<div style="display:flex;gap:6px;align-items:center;margin-bottom:4px;flex-wrap:wrap">';
+    html += '<span style="background:#EEEDFE;color:#3C3489;font-size:9px;padding:2px 7px;border-radius:3px;font-family:monospace;letter-spacing:.4px">'+ctrlCode+'</span>';
+    html += '<span style="background:'+statusBg+';color:'+statusColor+';font-size:9px;padding:2px 7px;border-radius:3px;font-weight:500">'+status+'</span>';
+    if (hasAnomalies) html += '<span style="background:#FCEBEB;color:#A32D2D;font-size:9px;padding:2px 7px;border-radius:3px;font-weight:500">⚠ ANOMALIES</span>';
+    if (hasIssue) html += '<span style="background:#EEEDFE;color:#3C3489;font-size:9px;padding:2px 7px;border-radius:3px;font-weight:500">ISSUE</span>';
+    if (ctrl.finalized) html += '<span class="badge bdn" style="font-size:9px;padding:2px 7px;border-radius:3px">Finalisé</span>';
+    html += '</div>';
+    html += '<div style="font-size:12px;font-weight:500">'+(''+(ctrl.name||'')).replace(/</g,'&lt;')+'</div>';
+    if (ctrl.description) html += '<div style="font-size:10px;color:var(--text-3);margin-top:2px;font-style:italic">'+(''+ctrl.description).replace(/</g,'&lt;')+'</div>';
     html += '<div style="font-size:10px;color:var(--text-2);margin-top:4px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">';
     html += wcgwBadge;
     if (details.length) html += '<span>·</span><span>'+details.join(' · ')+'</span>';
     html += '</div>';
     html += '</div>';
-    if (resultBadge) html += '<div style="flex-shrink:0">'+resultBadge+'</div>';
-    if (ctrl.finalized) html += '<span class="badge bdn" style="font-size:10px;flex-shrink:0">Finalisé</span>';
     html += '</div>';
 
-    // Champs de test
-    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px">';
-    // Nature de test (textarea libre)
-    html += '<div style="grid-column:span 2">';
-    html += '<label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:3px">Nature du test</label>';
-    html += '<textarea onchange="setTestNature('+i+',this.value)" '+dis+' placeholder="Décrivez la procédure de test..." style="width:100%;min-height:50px;font-size:11px;padding:6px">'+(ctrl.testNature||'')+'</textarea>';
-    html += '</div>';
-    // Sample size + méthode
+    // Statut + Méthode de sélection
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">';
     html += '<div>';
-    html += '<label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:3px">Taille du sample</label>';
-    html += '<input type="number" min="0" onchange="setSampleSize('+i+',this.value)" '+dis+' value="'+(ctrl.sampleSize||'')+'" placeholder="ex : 25" style="width:100%;font-size:11px;padding:6px"/>';
-    html += '</div>';
-    html += '<div>';
-    html += '<label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:3px">Méthode d\'échantillonnage</label>';
-    html += '<select onchange="setSampleMethod('+i+',this.value)" '+dis+' style="width:100%;font-size:11px;padding:6px">';
-    html += '<option value="">— Choisir —</option>';
-    html += '<option value="random"'+(ctrl.sampleMethod==='random'?' selected':'')+'>Aléatoire</option>';
-    html += '<option value="judgmental"'+(ctrl.sampleMethod==='judgmental'?' selected':'')+'>Judgmental</option>';
-    html += '<option value="full"'+(ctrl.sampleMethod==='full'?' selected':'')+'>Full population</option>';
+    html += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Statut du test</label>';
+    html += '<select onchange="setProcessTestField('+globalIdx+',\'testStatus\',this.value)" '+dis+' style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;background:'+statusBg+';color:'+statusColor+';font-weight:500">';
+    ['à faire','en cours','fait'].forEach(function(s){
+      html += '<option'+(ctrl.testStatus===s?' selected':'')+'>'+s+'</option>';
+    });
     html += '</select>';
     html += '</div>';
-    // Résultat
-    html += '<div style="grid-column:span 2">';
-    html += '<label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:3px">Résultat</label>';
-    html += '<div style="display:flex;gap:12px;padding:4px 0">';
-    html += '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px">';
-    html += '<input type="radio" name="result-'+i+'" value="pass" '+(ctrl.result==='pass'?'checked':'')+' '+dis+' onchange="setTestResult('+i+',this.value)"/> ✓ Pass';
-    html += '</label>';
-    html += '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px">';
-    html += '<input type="radio" name="result-'+i+'" value="fail" '+(ctrl.result==='fail'?'checked':'')+' '+dis+' onchange="setTestResult('+i+',this.value)"/> ✗ Fail';
-    html += '</label>';
+    html += '<div>';
+    html += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Méthode de sélection</label>';
+    html += '<select onchange="setProcessTestField('+globalIdx+',\'selectionMethod\',this.value)" '+dis+' style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;background:#fff">';
+    html += '<option value=""'+(!ctrl.selectionMethod?' selected':'')+'>— Choisir —</option>';
+    html += '<option'+(ctrl.selectionMethod==='Coverage'?' selected':'')+'>Coverage</option>';
+    html += '<option'+(ctrl.selectionMethod==='Aléatoire'?' selected':'')+'>Aléatoire</option>';
+    html += '<option'+(ctrl.selectionMethod==='Mix'?' selected':'')+'>Mix</option>';
+    html += '</select>';
     html += '</div>';
     html += '</div>';
-    // Commentaire de test
-    html += '<div style="grid-column:span 2">';
-    html += '<label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:3px">Commentaire de test (observations)</label>';
-    html += '<textarea onchange="setTestComment('+i+',this.value)" '+dis+' placeholder="Ce que vous avez constaté pendant le test (chiffres, exceptions, anomalies...)..." style="width:100%;min-height:50px;font-size:11px;padding:6px">'+(ctrl.testComment||'')+'</textarea>';
+
+    // Procédure de test (testNature)
+    html += '<div style="margin-bottom:8px">';
+    html += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Procédure de test</label>';
+    html += '<textarea onchange="setTestNature('+globalIdx+',this.value)" '+dis+' placeholder="Décrivez la procédure de test..." style="width:100%;min-height:50px;font-size:11px;padding:6px;border:1px solid var(--border);border-radius:3px;font-family:inherit;box-sizing:border-box">'+(ctrl.testNature||'').replace(/</g,'&lt;')+'</textarea>';
     html += '</div>';
+
+    // Tableau Population/Sample/Anomalies (Nombre + Valeur €)
+    html += '<table style="width:100%;border-collapse:collapse;margin-bottom:8px;font-size:11px">';
+    html += '<thead><tr style="background:#f5f5f0">';
+    html += '<th style="text-align:left;padding:5px 8px;font-size:9px;color:var(--text-3);font-weight:500;text-transform:uppercase;letter-spacing:.3px;border:.5px solid var(--border)"></th>';
+    html += '<th style="text-align:right;padding:5px 8px;font-size:9px;color:var(--text-3);font-weight:500;border:.5px solid var(--border)">Population</th>';
+    html += '<th style="text-align:right;padding:5px 8px;font-size:9px;color:var(--text-3);font-weight:500;border:.5px solid var(--border)">Échantillon testé</th>';
+    html += '<th style="text-align:right;padding:5px 8px;font-size:9px;color:var(--text-3);font-weight:500;border:.5px solid var(--border)">Anomalies</th>';
+    html += '</tr></thead><tbody>';
+    // Ligne Nombre
+    html += '<tr>';
+    html += '<td style="padding:5px 8px;color:var(--text-3);border:.5px solid var(--border)">Nombre</td>';
+    ['population','sample','anomalies'].forEach(function(field){
+      var val = ctrl[field].count;
+      html += '<td style="padding:3px 5px;border:.5px solid var(--border)">';
+      html += '<input type="number" min="0" '+dis+' value="'+_escAttr(val)+'" placeholder="0" onchange="setProcessTestSubField('+globalIdx+',\''+field+'\',\'count\',this.value)" style="width:100%;font-size:11px;padding:4px 6px;border:1px solid var(--border);border-radius:3px;text-align:right;box-sizing:border-box"/>';
+      html += '</td>';
+    });
+    html += '</tr>';
+    // Ligne Valeur
+    html += '<tr>';
+    html += '<td style="padding:5px 8px;color:var(--text-3);border:.5px solid var(--border)">Valeur (€)</td>';
+    ['population','sample','anomalies'].forEach(function(field){
+      var val = ctrl[field].value;
+      html += '<td style="padding:3px 5px;border:.5px solid var(--border)">';
+      html += '<input type="number" min="0" step="0.01" '+dis+' value="'+_escAttr(val)+'" placeholder="(facultatif)" onchange="setProcessTestSubField('+globalIdx+',\''+field+'\',\'value\',this.value)" style="width:100%;font-size:11px;padding:4px 6px;border:1px solid var(--border);border-radius:3px;text-align:right;box-sizing:border-box"/>';
+      html += '</td>';
+    });
+    html += '</tr>';
+    html += '</tbody></table>';
+
+    // Extrapolation auto
+    html += '<div style="background:'+(extrap.applicable?'#EEEDFE':'#F1EFE8')+';border-radius:4px;padding:8px 10px;margin-bottom:8px">';
+    html += '<div style="font-size:10px;color:'+(extrap.applicable?'#3C3489':'#5F5E5A')+';font-weight:600;margin-bottom:3px;text-transform:uppercase;letter-spacing:.3px">Extrapolation auto</div>';
+    if (!extrap.applicable) {
+      html += '<div style="font-size:11px;color:var(--text-3);font-style:italic">'+extrap.reason+'</div>';
+    } else if (extrap.reason) {
+      html += '<div style="font-size:11px;color:#3C3489">'+extrap.reason+'</div>';
+    } else {
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:11px;color:#3C3489">';
+      html += '<div><span style="font-weight:500">'+_fmtNum(extrap.countExtrapolated)+'</span> cas potentiellement impactés</div>';
+      if (extrap.valueExtrapolated !== null) {
+        html += '<div><span style="font-weight:500">'+_fmtEur(extrap.valueExtrapolated)+'</span> d\'impact estimé</div>';
+      } else {
+        html += '<div style="color:var(--text-3);font-style:italic">Saisissez les valeurs (€) pour estimer l\'impact financier</div>';
+      }
+      html += '</div>';
+    }
+    html += '</div>';
+
+    // Issue description (remplace l'ancien Pass/Fail + commentaire)
+    html += '<div style="margin-bottom:6px">';
+    html += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Issue description <span style="font-style:italic">(remontée dans le rapport — laisser vide si pas d\'anomalie)</span></label>';
+    html += '<textarea onchange="setProcessIssueDescription('+globalIdx+',this.value)" '+dis+' placeholder="Détail des anomalies trouvées, contexte, ce qui sera remonté dans le rapport..." style="width:100%;min-height:60px;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;resize:vertical;font-family:inherit;box-sizing:border-box">'+issueDesc.replace(/</g,'&lt;')+'</textarea>';
     html += '</div>';
 
     // Bouton finaliser
     if (!ctrl.finalized) {
       html += '<div style="display:flex;justify-content:flex-end;margin-top:8px">';
-      html += '<button class="bp" style="font-size:11px;padding:5px 12px" onclick="finalizeTest('+i+')">Finaliser le test</button>';
+      html += '<button class="bp" style="font-size:11px;padding:5px 12px" onclick="finalizeTest('+globalIdx+')">Finaliser le test</button>';
       html += '</div>';
     } else {
       html += '<div style="display:flex;justify-content:flex-end;margin-top:8px">';
-      html += '<button class="bs" style="font-size:11px;padding:5px 12px" onclick="unfinalizeTest('+i+')">Rouvrir</button>';
+      html += '<button class="bs" style="font-size:11px;padding:5px 12px" onclick="unfinalizeTest('+globalIdx+')">Rouvrir</button>';
       html += '</div>';
     }
     html += '</div>';
