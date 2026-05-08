@@ -5017,8 +5017,69 @@ function renderKickoffGenerateBanner() {
 
     html += '</div>';
   }
+
+  // ─── Réunions Outlook créées (persistant, visible après F5) ──────
+  var existingEvents = (d.attachments && d.attachments.kickoff && d.attachments.kickoff.outlookEvents) || [];
+  if (existingEvents.length > 0) {
+    html += '<div style="margin-top:10px;padding:8px 10px;background:#E1F5EE;border:.5px solid #A6E2CD;border-radius:4px">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">';
+    html += '<span style="font-size:11px;color:#085041;font-weight:500">📅 '+existingEvents.length+' réunion'+(existingEvents.length>1?'s':'')+' Outlook créée'+(existingEvents.length>1?'s':'')+'</span>';
+    html += '<button class="bs" style="font-size:10px;padding:2px 8px" onclick="openKickoffBookingUI()" title="Ajouter une autre réunion">+ Réunion</button>';
+    html += '</div>';
+    existingEvents.forEach(function(ev, evIdx){
+      var startD = new Date(ev.startISO);
+      var endD = new Date(ev.endISO);
+      var dayLabel = startD.toLocaleDateString('fr-FR', {weekday:'long', day:'numeric', month:'long'});
+      var timeLabel = startD.toLocaleTimeString('fr-FR', {hour:'2-digit',minute:'2-digit'}) + ' — ' + endD.toLocaleTimeString('fr-FR', {hour:'2-digit',minute:'2-digit'});
+      html += '<div style="font-size:11px;color:#085041;display:flex;align-items:center;gap:6px;padding:4px 0;flex-wrap:wrap;border-top:'+(evIdx>0?'.5px solid #A6E2CD':'none')+';margin-top:'+(evIdx>0?'4px':'0')+';padding-top:'+(evIdx>0?'6px':'4px')+'">';
+      html += '<span style="font-weight:500">'+dayLabel+' · '+timeLabel+'</span>';
+      if (ev.webLink) html += '<a href="'+ev.webLink+'" target="_blank" rel="noopener" style="color:#085041;text-decoration:underline;font-size:10px">📅 Outlook ↗</a>';
+      if (ev.teamsUrl) html += '<a href="'+ev.teamsUrl+'" target="_blank" rel="noopener" style="color:#0C447C;text-decoration:underline;font-size:10px">💻 Teams ↗</a>';
+      html += '<button class="bd" style="font-size:9px;padding:1px 6px;margin-left:auto" onclick="deleteKickoffMeeting('+evIdx+')" title="Annuler/supprimer cette réunion">× Supprimer</button>';
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+
   html += '</div>';
   return html;
+}
+
+/**
+ * Supprime une réunion Outlook (annulation côté Graph + retrait de la liste)
+ */
+async function deleteKickoffMeeting(idx) {
+  var d = getAudData(CA);
+  var events = (d.attachments && d.attachments.kickoff && d.attachments.kickoff.outlookEvents) || [];
+  var ev = events[idx];
+  if (!ev) return;
+  var startD = new Date(ev.startISO);
+  var label = startD.toLocaleDateString('fr-FR', {weekday:'short', day:'numeric', month:'short'}) + ' ' + startD.toLocaleTimeString('fr-FR', {hour:'2-digit',minute:'2-digit'});
+  if (!confirm('Annuler la réunion du '+label+' ? Les invités recevront une notification d\'annulation.')) return;
+
+  // Best effort : supprimer côté Graph
+  try {
+    var token = await getGraphToken();
+    if (token && ev.eventId) {
+      var resp = await fetch('https://graph.microsoft.com/v1.0/me/events/' + encodeURIComponent(ev.eventId), {
+        method: 'DELETE',
+        headers: {'Authorization': 'Bearer ' + token},
+      });
+      if (!resp.ok && resp.status !== 404) {
+        console.warn('[Kickoff] Suppression Graph échouée :', resp.status);
+      }
+    }
+  } catch (e) {
+    console.warn('[Kickoff] Suppression Graph error :', e);
+  }
+
+  // Retirer de la liste locale
+  events.splice(idx, 1);
+  d.attachments.kickoff.outlookEvents = events;
+  await saveAuditData(CA);
+  if (typeof addHist === 'function') addHist(CA, 'Réunion Outlook annulée — ' + label);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+  toast('✓ Réunion annulée');
 }
 
 /**
@@ -6846,23 +6907,6 @@ function renderKickoffBookingSection() {
     html += '</div>';
   }
 
-  // Liste des réunions déjà créées (si historique)
-  var d2 = getAudData(CA);
-  var existingEvents = (d2.attachments && d2.attachments.kickoff && d2.attachments.kickoff.outlookEvents) || [];
-  if (existingEvents.length > 0) {
-    html += '<div style="margin-top:14px;padding:8px 10px;background:#E1F5EE;border:.5px solid #A6E2CD;border-radius:4px">';
-    html += '<div style="font-size:10px;color:#085041;font-weight:500;text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">✓ Réunions déjà créées</div>';
-    existingEvents.forEach(function(ev){
-      var startD = new Date(ev.startISO);
-      var dayLabel = startD.toLocaleDateString('fr-FR', {weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'});
-      html += '<div style="font-size:11px;color:#085041;display:flex;align-items:center;gap:8px;padding:3px 0">';
-      html += '<span>📅 '+dayLabel+'</span>';
-      if (ev.webLink) html += '<a href="'+ev.webLink+'" target="_blank" style="color:#085041;text-decoration:underline">Ouvrir dans Outlook →</a>';
-      html += '</div>';
-    });
-    html += '</div>';
-  }
-
   html += '</div>';
   return html;
 }
@@ -7116,6 +7160,14 @@ async function createKickoffMeetings() {
 
     var subject = 'Kick-off audit — '+(audit.titre||'')+(selectedSlots.length>1?' (Session '+(k+1)+'/'+selectedSlots.length+')':'');
 
+    console.log('[Kickoff Booking] Création réunion '+(k+1)+'/'+selectedSlots.length+' :', {
+      subject: subject,
+      start: slot.startISO,
+      end: slot.endISO,
+      attendees: attendees,
+      addTeamsLink: _kickoffBooking.options.includeTeams,
+    });
+
     try {
       var event = await createOutlookEvent({
         subject: subject,
@@ -7131,9 +7183,10 @@ async function createKickoffMeetings() {
         startISO: slot.startISO,
         endISO: slot.endISO,
         teamsUrl: event.onlineMeeting ? event.onlineMeeting.joinUrl : null,
+        attendeeEmails: attendees.map(function(a){return a.email;}), // pour info/debug
         createdAt: new Date().toISOString(),
       });
-      console.log('[Kickoff Booking] Réunion créée :', event.id);
+      console.log('[Kickoff Booking] ✓ Réunion créée :', event.id, '— invitations envoyées à', attendees.length, 'attendees');
     } catch (e) {
       console.error('[Kickoff Booking] Erreur création réunion '+(k+1), e);
       toast('Erreur réunion '+(k+1)+' : ' + (e.message||e));
