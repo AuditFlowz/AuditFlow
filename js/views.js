@@ -5096,8 +5096,10 @@ function renderKickoffPrepSection() {
   if (!p.subProcesses.length) {
     html += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:.5rem;text-align:center;border:1px dashed var(--border);border-radius:4px">Aucun sous-processus défini. Cliquez sur « + Ajouter un sous-processus ».</div>';
   } else {
+    // Grille 2 colonnes responsive : 2 colonnes sur grand écran, 1 colonne en mobile (<700px)
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:10px">';
     p.subProcesses.forEach(function(sp, idx){
-      html += '<div style="border:.5px solid var(--border);border-radius:6px;padding:12px 14px;margin-bottom:10px;background:#fafafa;position:relative">';
+      html += '<div style="border:.5px solid var(--border);border-radius:6px;padding:12px 14px;background:#fafafa;position:relative">';
       // Bouton supprimer discret en haut à droite
       html += '<button onclick="removeSubProcess('+idx+')" title="Supprimer" style="position:absolute;top:8px;right:8px;background:#fff;border:.5px solid var(--border);color:var(--text-3);border-radius:4px;width:22px;height:22px;cursor:pointer;font-size:13px;padding:0;line-height:1">×</button>';
       // Label commun
@@ -5113,6 +5115,7 @@ function renderKickoffPrepSection() {
       html += '</div>';
       html += '</div>';
     });
+    html += '</div>'; // fin grid
   }
 
   // ── Sous-section : Risques de l'audit (URD + ad hoc) ──────
