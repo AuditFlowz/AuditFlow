@@ -824,55 +824,45 @@ async function generateAuditReportPptx(auditId, options) {
   });
   ar_addFooter(pres, sA2);
 
-  // ─── Téléchargement local + Upload SharePoint ──────────────────────
+  // ─── Upload SharePoint UNIQUEMENT (plus de téléchargement local) ────
   const cleanTitle = (ap.titre || 'audit').replace(/[^a-zA-Z0-9_-]/g, '_');
   const todayStr = new Date().toISOString().slice(0, 10);
-  const localFileName = `AuditReport_${cleanTitle}_${todayStr}.pptx`;
   // Approche A : 2 fichiers séparés. Toute génération écrit dans le DRAFT.
   // Le FINAL est créé par "📌 Marquer comme version finale" (UI dédiée).
   const spDraftName = `AuditReport_draft.pptx`;
 
   try {
-    // 1) Téléchargement local — sauf si uploadOnly explicite
-    if (!uploadOnly) {
-      await pres.writeFile({fileName: localFileName});
-      if (typeof toast === 'function') toast(`Audit Report généré ✓`);
-      if (typeof addHist === 'function') addHist(auditId, `Audit Report généré (${localFileName})`);
+    if (typeof getOrCreateAuditFolder !== 'function' || typeof uploadFileToSharePoint !== 'function') {
+      if (typeof toast === 'function') toast('⚠ Helpers SharePoint indisponibles');
+      return;
     }
-
-    // 2) Upload SharePoint — uniquement si demandé (uploadOnly = bouton "Publier" en étape 8)
-    if (uploadOnly) {
-      if (typeof getOrCreateAuditFolder !== 'function' || typeof uploadFileToSharePoint !== 'function') {
-        if (typeof toast === 'function') toast('⚠ Helpers SharePoint indisponibles');
-        return;
-      }
-      try {
-        const blob = await pres.write({outputType: 'blob'});
-        const folderInfo = await getOrCreateAuditFolder(ap);
-        const driveItem = await uploadFileToSharePoint(folderInfo.path, spDraftName, blob);
-        if (typeof getAudData === 'function' && typeof saveAuditData === 'function') {
-          const d = getAudData(auditId);
-          if (!d.attachments) d.attachments = {};
-          if (!d.attachments.report) d.attachments.report = {};
-          // Migration backward-compat : vieux format plat → on bascule en draft
-          if (d.attachments.report.webUrl && !d.attachments.report.draft && !d.attachments.report.final) {
-            d.attachments.report = { draft: d.attachments.report };
-          }
-          d.attachments.report.draft = {
-            webUrl: driveItem.webUrl,
-            fileName: driveItem.name,
-            uploadedAt: new Date().toISOString(),
-            uploadedBy: (typeof CU !== 'undefined' && CU && CU.name) ? CU.name : '',
-            source: 'regenerated',
-          };
-          await saveAuditData(auditId);
+    try {
+      if (typeof toast === 'function') toast('📤 Génération + sauvegarde SharePoint...');
+      const blob = await pres.write({outputType: 'blob'});
+      const folderInfo = await getOrCreateAuditFolder(ap);
+      const driveItem = await uploadFileToSharePoint(folderInfo.path, spDraftName, blob);
+      if (typeof getAudData === 'function' && typeof saveAuditData === 'function') {
+        const d = getAudData(auditId);
+        if (!d.attachments) d.attachments = {};
+        if (!d.attachments.report) d.attachments.report = {};
+        // Migration backward-compat : vieux format plat → on bascule en draft
+        if (d.attachments.report.webUrl && !d.attachments.report.draft && !d.attachments.report.final) {
+          d.attachments.report = { draft: d.attachments.report };
         }
-        if (typeof toast === 'function') toast('✓ Draft Rapport publié sur SharePoint');
-        if (typeof addHist === 'function') addHist(auditId, `Audit Report (draft) publié sur SharePoint (${folderInfo.path})`);
-      } catch (uploadErr) {
-        console.error('[AUDIT_REPORT] Upload SharePoint échoué :', uploadErr);
-        if (typeof toast === 'function') toast('⚠ Publication SharePoint échouée (voir console)');
+        d.attachments.report.draft = {
+          webUrl: driveItem.webUrl,
+          fileName: driveItem.name,
+          uploadedAt: new Date().toISOString(),
+          uploadedBy: (typeof CU !== 'undefined' && CU && CU.name) ? CU.name : '',
+          source: 'regenerated',
+        };
+        await saveAuditData(auditId);
       }
+      if (typeof toast === 'function') toast('✓ Draft Rapport publié sur SharePoint');
+      if (typeof addHist === 'function') addHist(auditId, `Audit Report (draft) publié sur SharePoint (${folderInfo.path})`);
+    } catch (uploadErr) {
+      console.error('[AUDIT_REPORT] Upload SharePoint échoué :', uploadErr);
+      if (typeof toast === 'function') toast('⚠ Publication SharePoint échouée (voir console)');
     }
   } catch (err) {
     console.error('[AUDIT_REPORT] Erreur génération :', err);

@@ -4476,9 +4476,13 @@ function renderAuditHeaderCompact(a, step, pct) {
   //   - On saute l'étape 4 (index 4 = ITW : WCGW & Contrôles) : pas pertinente pour les audits substantifs
   //   - On saute l'étape 8 (index 7 = Report Restitution) : génération de rapport intégrée à l'étape 6
   //   - L'étape 7 (index 6) est renommée "Findings & Rapport" car elle inclut maintenant la génération
+  // Pour les audits Process :
+  //   - On saute l'étape 4 (index 3 = Interview / Flowcharts) : pas pertinente avec la nouvelle struct WCGW par sous-processus
+  //   - On saute l'étape 8 (index 7 = Report Restitution) : MR seule suffit
   // Le numéro d'étape affiché est ajusté en conséquence.
   var auditObj = AUDIT_PLAN.find(function(x){return x.id===CA;});
   var isBu = auditObj && auditObj.type === 'BU';
+  var isProcess = auditObj && auditObj.type !== 'BU';
   var phases = isBu
     ? [
         {idxs: [0,1,2],   name: 'Préparation', bg: '#EEEDFE', txt: '#3C3489'},
@@ -4486,25 +4490,31 @@ function renderAuditHeaderCompact(a, step, pct) {
         {idxs: [6,8,9],   name: 'Restitution', bg: '#FAEEDA', txt: '#854F0B'},
       ]
     : [
+        // Process : sauter index 3 (Interview) et 7 (Report Restitution)
         {idxs: [0,1,2],   name: 'Préparation', bg: '#EEEDFE', txt: '#3C3489'},
-        {idxs: [3,4,5],   name: 'Réalisation', bg: '#E1F5EE', txt: '#085041'},
-        {idxs: [6,7,8,9], name: 'Restitution', bg: '#FAEEDA', txt: '#854F0B'},
+        {idxs: [4,5],     name: 'Réalisation', bg: '#E1F5EE', txt: '#085041'},
+        {idxs: [6,8,9],   name: 'Restitution', bg: '#FAEEDA', txt: '#854F0B'},
       ];
 
   // Helper : renvoie le nom de l'étape (avec renommage spécifique BU pour l'étape 6)
   function _stepLabel(realIdx) {
     if (isBu && realIdx === 6) return 'Findings & Rapport';
+    // Process : renommer index 4 "ITW : WCGW & Contrôles" en "WCGW & Contrôles"
+    if (isProcess && realIdx === 4) return 'WCGW & Contrôles';
     return STEPS[realIdx] ? STEPS[realIdx].s : '—';
   }
 
   // Pour le numéro d'étape affiché :
-  //   - BU : on numérote 1..8 en sautant les étapes 4 (idx 4) et 8 (idx 7)
-  //   - Process : on numérote 1..10 directement
+  //   - BU : 0,1,2,3,5,6,8,9 → 1..8 (sauter idx 4 et 7)
+  //   - Process : 0,1,2,4,5,6,8,9 → 1..8 (sauter idx 3 et 7)
   function _displayedStepNum(realIdx) {
-    if (!isBu) return realIdx + 1;
-    // BU : 0,1,2,3,5,6,8,9 → 1,2,3,4,5,6,7,8
-    var buMap = {0:1, 1:2, 2:3, 3:4, 5:5, 6:6, 8:7, 9:8};
-    return buMap[realIdx] !== undefined ? buMap[realIdx] : realIdx + 1;
+    if (isBu) {
+      var buMap = {0:1, 1:2, 2:3, 3:4, 5:5, 6:6, 8:7, 9:8};
+      return buMap[realIdx] !== undefined ? buMap[realIdx] : realIdx + 1;
+    }
+    // Process
+    var procMap = {0:1, 1:2, 2:3, 4:4, 5:5, 6:6, 8:7, 9:8};
+    return procMap[realIdx] !== undefined ? procMap[realIdx] : realIdx + 1;
   }
 
   var phaseHtml = phases.map(function(p){
@@ -4546,7 +4556,7 @@ function renderAuditHeaderCompact(a, step, pct) {
 
   // Ligne 3 : nom de l'étape courante (avec numérotation et renommage adaptés au type d'audit)
   html += '<div style="font-size:12px;color:var(--text-2);margin-top:8px;text-align:center">';
-  var totalSteps = isBu ? 8 : 10;
+  var totalSteps = 8; // BU et Process ont tous les deux 8 étapes maintenant
   html += 'Étape '+_displayedStepNum(CS)+'/'+totalSteps+' — <strong>'+_stepLabel(CS)+'</strong>';
   html += '</div>';
 
@@ -5275,9 +5285,25 @@ async function addSubProcess() {
   var d = getAudData(CA);
   if (!d.kickoffPrep) d.kickoffPrep = {};
   if (!Array.isArray(d.kickoffPrep.subProcesses)) d.kickoffPrep.subProcesses = [];
-  d.kickoffPrep.subProcesses.push({name:'', description:'', owners:'', email:''});
+  d.kickoffPrep.subProcesses.push({
+    id: 'sp_'+Date.now()+'_'+Math.floor(Math.random()*100000),
+    name:'', description:'', owners:'', email:''
+  });
   await saveAuditData(CA);
   document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+// Helper : assure que tous les sous-processus existants ont un id (migration auto)
+function _ensureSubProcessIds(d) {
+  if (!d.kickoffPrep || !Array.isArray(d.kickoffPrep.subProcesses)) return false;
+  var changed = false;
+  d.kickoffPrep.subProcesses.forEach(function(sp){
+    if (!sp.id) {
+      sp.id = 'sp_'+Date.now()+'_'+Math.floor(Math.random()*100000);
+      changed = true;
+    }
+  });
+  return changed;
 }
 async function setSubProcess(idx, field, val) {
   var d = getAudData(CA);
@@ -6569,133 +6595,232 @@ function renderRiskSection() {
 }
 
 // ─── ÉTAPE 5 : WCGW (What Could Go Wrong) avec contrôles groupés ─────
+// ─── État UI pour les cartes pliables par sous-processus ─────────
+// Persiste pendant la session (reset au reload de l'app)
+var _wcgwExpandedSPs = {};
+
+function toggleWCGWSubProcess(spId) {
+  _wcgwExpandedSPs[spId] = !_wcgwExpandedSPs[spId];
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
 function renderWCGWSection() {
   var d = getAudData(CA);
   if (!d.wcgw) d.wcgw = {};
   var wcgwList = d.wcgw[CS] || [];
   var ctrls = (d.controls && d.controls[CS]) || [];
 
+  // Migration auto : s'assurer que les sous-processus ont tous un id stable
+  if (typeof _ensureSubProcessIds === 'function' && _ensureSubProcessIds(d)) {
+    saveAuditData(CA); // best-effort, async
+  }
+  var subProcs = (d.kickoffPrep && Array.isArray(d.kickoffPrep.subProcesses))
+    ? d.kickoffPrep.subProcesses : [];
+
+  // Header global
   var html = '<div class="card" style="margin-bottom:.75rem">';
   html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">';
-  html += '<div style="font-size:12px;font-weight:600;color:var(--text-2)">WCGW & Contrôles <span style="font-size:10px;font-weight:400;color:var(--text-3)">('+wcgwList.length+' WCGW · '+ctrls.length+' contrôles)</span></div>';
+  html += '<div style="font-size:12px;font-weight:600;color:var(--text-2)">WCGW & Contrôles <span style="font-size:10px;font-weight:400;color:var(--text-3)">('+subProcs.length+' sous-processus · '+wcgwList.length+' WCGW · '+ctrls.length+' contrôles)</span></div>';
   html += '<div style="display:flex;gap:6px">';
   html += '<button class="bs" style="font-size:11px;padding:3px 9px;background:#E1F5EE;color:#085041;border-color:#5DCAA5" onclick="openControlLibraryPicker(CA)">📚 Importer depuis la bibliothèque</button>';
-  html += '<button class="bs" style="font-size:11px;padding:3px 9px" onclick="showAddWCGWModal()">+ Ajouter un WCGW</button>';
   html += '</div>';
   html += '</div>';
-  html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:8px;font-style:italic">Pour chaque scénario à risque (WCGW), définissez les contrôles existants ou cibles qui le bloquent.</div>';
+  html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:12px;font-style:italic">Pour chaque sous-processus défini en étape Work Program, identifie les WCGW (scénarios à risque). Pour chaque WCGW, lui rattache des contrôles Target (à mettre en place — Design Issues) et/ou des contrôles Existants (à tester en étape Testings).</div>';
 
-  if (!wcgwList.length) {
-    html += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:.5rem;text-align:center;border:1px dashed var(--border);border-radius:4px">Aucun WCGW défini. Commencez par cliquer sur « + Ajouter un WCGW » pour identifier un scénario à risque.</div>';
-  } else {
-    wcgwList.forEach(function(w, idx){
-      // Résoudre les noms des risques liés : d'abord chercher dans RISK_UNIVERSE (URD),
-      // puis dans d.auditRisks (ad hoc)
-      var linkedRisks = (w.riskIds||[]).map(function(rid){
-        var r = (RISK_UNIVERSE||[]).find(function(x){return x.id===rid;});
-        if (r) return {title: r.title, source: 'urd'};
-        var ar = (d.auditRisks||[]).find(function(x){return x.id===rid;});
-        if (ar) return {title: ar.label || ar.title || '—', source: 'adhoc'};
-        return null;
-      }).filter(Boolean);
-      var wcgwCtrls = ctrls.filter(function(c){return c.wcgwId === w.id;});
+  if (!subProcs.length) {
+    html += '<div style="font-size:11px;color:#854F0B;font-style:italic;padding:10px;text-align:center;background:#FAEEDA;border:.5px solid #FAC775;border-radius:4px">';
+    html += 'Aucun sous-processus défini. Retourne à l\'étape Work Program pour en ajouter avant de définir les WCGW.';
+    html += '</div>';
+    html += '</div>';
+    return html;
+  }
 
-      html += '<div style="border:.5px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px;background:#fafafa">';
-      // En-tête WCGW
-      html += '<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px">';
-      html += '<span class="badge bpl" style="font-size:9px;padding:2px 6px;flex-shrink:0">'+(w.code||('WCGW-'+(idx+1)))+'</span>';
-      html += '<div style="flex:1">';
-      html += '<div style="font-size:12px;font-weight:600">'+w.title+'</div>';
-      if (w.description) html += '<div style="font-size:10px;color:var(--text-3);margin-top:2px">'+w.description+'</div>';
-      html += '</div>';
-      html += '<button class="bs" style="font-size:10px;padding:1px 6px" onclick="showEditWCGWModal('+idx+')">Éditer</button>';
-      html += '<button class="bd" style="font-size:10px;padding:1px 5px" onclick="removeWCGW('+idx+')">×</button>';
-      html += '</div>';
+  // Une carte pliable par sous-processus
+  subProcs.forEach(function(sp, spIdx) {
+    var spName = sp.name || '(sous-processus sans nom)';
+    var spDesc = sp.description || '';
+    var wcgwsForSP = wcgwList.filter(function(w){return w.subProcessId === sp.id;});
+    var ctrlsForSP = wcgwsForSP.reduce(function(acc, w) {
+      return acc + ctrls.filter(function(c){return c.wcgwId === w.id;}).length;
+    }, 0);
+    var expanded = _wcgwExpandedSPs[sp.id] !== false; // déplié par défaut
 
-      // Risques liés
-      if (linkedRisks.length) {
-        html += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:10px;padding:4px 0 6px;margin-left:38px">';
-        html += '<span style="color:var(--text-3)"><strong>Risques liés :</strong></span>';
-        linkedRisks.forEach(function(lr){
-          var badgeClass = lr.source === 'adhoc' ? 'bpc' : 'bpl';
-          var sourcePrefix = lr.source === 'adhoc' ? '<span style="opacity:.7;margin-right:3px">[Ad hoc]</span>' : '';
-          html += '<span class="badge '+badgeClass+'" style="font-size:9px;padding:1px 5px">'+sourcePrefix+lr.title+'</span>';
+    html += '<div style="border:.5px solid var(--border);border-radius:6px;margin-bottom:10px;background:#fff;overflow:hidden">';
+
+    // En-tête cliquable de la carte sous-processus
+    html += '<div style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:#fafafa;border-bottom:'+(expanded?'.5px solid var(--border)':'none')+';cursor:pointer" onclick="toggleWCGWSubProcess(\''+_escJsArg(sp.id)+'\')">';
+    html += '<span style="font-size:11px;color:var(--text-3);width:14px;text-align:center">'+(expanded?'▼':'▶')+'</span>';
+    html += '<div style="flex:1;min-width:0">';
+    html += '<div style="font-size:13px;font-weight:500;color:var(--text-1)">'+(''+spName).replace(/</g,'&lt;')+'</div>';
+    if (spDesc) html += '<div style="font-size:10px;color:var(--text-3);margin-top:1px">'+(''+spDesc).replace(/</g,'&lt;')+'</div>';
+    html += '</div>';
+    html += '<span style="font-size:10px;color:var(--text-3);background:#fff;border:.5px solid var(--border);border-radius:3px;padding:2px 6px">'+wcgwsForSP.length+' WCGW · '+ctrlsForSP+' contrôles</span>';
+    html += '<button class="bs" style="font-size:10px;padding:3px 8px" onclick="event.stopPropagation();showAddWCGWModalForSP(\''+_escJsArg(sp.id)+'\')">+ WCGW</button>';
+    html += '</div>';
+
+    // Contenu de la carte (WCGW)
+    if (expanded) {
+      if (!wcgwsForSP.length) {
+        html += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:14px;text-align:center">Aucun WCGW pour ce sous-processus. Cliquez sur « + WCGW » dans l\'en-tête pour en ajouter un.</div>';
+      } else {
+        html += '<div style="padding:10px 12px">';
+        wcgwsForSP.forEach(function(w) {
+          // Index global du WCGW dans wcgwList (pour les actions edit/remove existantes)
+          var globalIdx = wcgwList.indexOf(w);
+          html += renderWCGWCardForSP(w, globalIdx, ctrls, d);
         });
         html += '</div>';
       }
+    }
 
-      // Bloc Contrôles
-      html += '<div style="margin-left:38px;margin-top:6px;padding-top:6px;border-top:.5px dashed var(--border)">';
-      html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">';
-      html += '<span style="font-size:10px;font-weight:600;color:var(--text-2)">Contrôles bloquants ('+wcgwCtrls.length+')</span>';
-      html += '<button class="bs" style="font-size:10px;padding:1px 6px" onclick="showAddControlModalForWCGW(\''+w.id+'\')">+ Ajouter contrôle</button>';
+    html += '</div>'; // fin carte sous-processus
+  });
+
+  // Section "WCGW non rattachés" (legacy : audits anciens créés avant la nouvelle structure)
+  var orphanWcgws = wcgwList.filter(function(w){return !w.subProcessId;});
+  if (orphanWcgws.length) {
+    html += '<div style="margin-top:14px;padding:10px 12px;background:#FFF7ED;border:.5px solid #FED7AA;border-radius:4px">';
+    html += '<div style="font-size:11px;font-weight:500;color:#854F0B;margin-bottom:5px">⚠ '+orphanWcgws.length+' WCGW non rattaché'+(orphanWcgws.length>1?'s':'')+' à un sous-processus</div>';
+    html += '<div style="font-size:10px;color:#854F0B;margin-bottom:8px;font-style:italic">Ces WCGW ont été créés avant la refonte. Édite-les pour les rattacher à un sous-processus.</div>';
+    orphanWcgws.forEach(function(w) {
+      var globalIdx = wcgwList.indexOf(w);
+      html += '<div style="background:#fff;border:.5px solid #FED7AA;border-radius:4px;padding:6px 8px;margin-bottom:4px;display:flex;align-items:center;gap:6px">';
+      html += '<span class="badge bpl" style="font-size:9px;padding:2px 6px;flex-shrink:0">'+(w.code||('WCGW-'+(globalIdx+1)))+'</span>';
+      html += '<span style="flex:1;font-size:11px">'+(w.title||'(sans titre)').replace(/</g,'&lt;')+'</span>';
+      html += '<button class="bs" style="font-size:10px;padding:1px 6px" onclick="showEditWCGWModal('+globalIdx+')">Rattacher</button>';
+      html += '<button class="bd" style="font-size:10px;padding:1px 5px" onclick="removeWCGW('+globalIdx+')">×</button>';
       html += '</div>';
-
-      if (!wcgwCtrls.length) {
-        html += '<div style="font-size:10px;color:var(--text-3);font-style:italic;padding:4px">Aucun contrôle. Cliquez sur « + Ajouter contrôle » ou utilisez la bibliothèque.</div>';
-      } else {
-        wcgwCtrls.forEach(function(c){
-          var origIdx = ctrls.indexOf(c);
-          var ctrlCode = c.code || ('CTRL-'+(origIdx+1));
-          var typeBadge = c.clef
-            ? '<span class="badge" style="background:#E0E7FF;color:#3730A3;font-size:9px">Key</span>'
-            : '<span class="badge bpl" style="font-size:9px">Non Key</span>';
-          var designBadge = c.design === 'existing'
-            ? '<span class="badge bdn" style="font-size:9px">Existing</span>'
-            : '<span class="badge" style="background:#FAEEDA;color:#854F0B;font-size:9px">Target</span>';
-          var sourceBadge = c.addedFromLib
-            ? '<span class="badge" style="background:#E1F5EE;color:#085041;font-size:9px">Biblio</span>'
-            : '';
-
-          html += '<div style="background:#fff;border:.5px solid var(--border);border-radius:4px;padding:6px 8px;margin-bottom:4px">';
-          html += '<div style="display:flex;align-items:flex-start;gap:6px">';
-          html += '<div style="flex:1;min-width:0">';
-          html += '<div style="font-size:11px;font-weight:500"><span style="color:var(--text-3);font-size:10px;margin-right:5px">'+ctrlCode+'</span>'+(c.name||c.label||'(sans nom)')+'</div>';
-          if (c.description) html += '<div style="font-size:10px;color:var(--text-3);margin-top:1px">'+c.description+'</div>';
-          // Détails compact
-          var details = [];
-          if (c.nature) details.push(c.nature);
-          if (c.freq) details.push(c.freq);
-          if (c.owner) details.push('Owner: '+c.owner);
-          if (details.length) html += '<div style="font-size:10px;color:var(--text-2);margin-top:2px">'+details.join(' · ')+'</div>';
-          html += '</div>';
-          html += '<div style="display:flex;gap:3px;align-items:center;flex-shrink:0">';
-          html += sourceBadge + typeBadge + designBadge;
-          html += '<button class="bs" style="font-size:9px;padding:1px 5px;margin-left:3px" onclick="showEditControlModal('+origIdx+')">Éditer</button>';
-          html += '<button class="bd" style="font-size:9px;padding:1px 4px" onclick="removeControlAt('+origIdx+')">×</button>';
-          html += '</div>';
-          html += '</div>';
-          html += '</div>';
-        });
-      }
-      html += '</div>';  // fin bloc Contrôles
-      html += '</div>';  // fin bloc WCGW
     });
+    html += '</div>';
   }
 
   // Section "Contrôles non rattachés" pour les anciens audits
-  var orphans = ctrls.filter(function(c){return !c.wcgwId;});
-  if (orphans.length) {
-    html += '<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">';
-    html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">';
-    html += '<span style="font-size:11px;font-weight:600;color:#854F0B">⚠ Contrôles non rattachés à un WCGW ('+orphans.length+')</span>';
-    html += '</div>';
-    html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:6px;font-style:italic">Ces contrôles ne sont liés à aucun WCGW. Éditez-les pour les rattacher.</div>';
-    orphans.forEach(function(c){
+  var orphanCtrls = ctrls.filter(function(c){return !c.wcgwId;});
+  if (orphanCtrls.length) {
+    html += '<div style="margin-top:14px;padding:10px 12px;background:#FFF7ED;border:.5px solid #FED7AA;border-radius:4px">';
+    html += '<div style="font-size:11px;font-weight:500;color:#854F0B;margin-bottom:5px">⚠ '+orphanCtrls.length+' contrôle'+(orphanCtrls.length>1?'s':'')+' non rattaché'+(orphanCtrls.length>1?'s':'')+' à un WCGW</div>';
+    orphanCtrls.forEach(function(c){
       var origIdx = ctrls.indexOf(c);
       var ctrlCode = c.code || ('CTRL-'+(origIdx+1));
-      html += '<div style="background:#FFF7ED;border:.5px solid #FED7AA;border-radius:4px;padding:6px 8px;margin-bottom:4px;display:flex;align-items:center;gap:6px">';
-      html += '<div style="flex:1"><span style="color:var(--text-3);font-size:10px;margin-right:5px">'+ctrlCode+'</span><span style="font-size:11px">'+(c.name||c.label||'(sans nom)')+'</span></div>';
-      html += '<button class="bs" style="font-size:9px;padding:1px 5px" onclick="showEditControlModal('+origIdx+')">Rattacher</button>';
-      html += '<button class="bd" style="font-size:9px;padding:1px 4px" onclick="removeControlAt('+origIdx+')">×</button>';
+      html += '<div style="background:#fff;border:.5px solid #FED7AA;border-radius:4px;padding:6px 8px;margin-bottom:4px;display:flex;align-items:center;gap:6px">';
+      html += '<span style="color:var(--text-3);font-size:10px;flex-shrink:0">'+ctrlCode+'</span>';
+      html += '<span style="flex:1;font-size:11px">'+(c.name||c.label||'(sans nom)').replace(/</g,'&lt;')+'</span>';
+      html += '<button class="bs" style="font-size:10px;padding:1px 6px" onclick="showEditControlModal('+origIdx+')">Rattacher</button>';
+      html += '<button class="bd" style="font-size:10px;padding:1px 4px" onclick="removeControlAt('+origIdx+')">×</button>';
       html += '</div>';
     });
     html += '</div>';
   }
 
-  html += '</div>';
+  html += '</div>'; // fin card globale
   return html;
 }
+
+// ─── Carte d'un WCGW dans une cellule sous-processus ─────────────
+function renderWCGWCardForSP(w, globalIdx, ctrls, d) {
+  // Risques liés
+  var linkedRisks = (w.riskIds||[]).map(function(rid){
+    var r = (RISK_UNIVERSE||[]).find(function(x){return x.id===rid;});
+    if (r) return {title: r.title, source: 'urd'};
+    var ar = (d.auditRisks||[]).find(function(x){return x.id===rid;});
+    if (ar) return {title: ar.label || ar.title || '—', source: 'adhoc'};
+    return null;
+  }).filter(Boolean);
+
+  // Contrôles rattachés à ce WCGW, séparés par design
+  var wcgwCtrls = ctrls.filter(function(c){return c.wcgwId === w.id;});
+  var targets = wcgwCtrls.filter(function(c){return c.design === 'target';});
+  var existings = wcgwCtrls.filter(function(c){return c.design === 'existing';});
+
+  var h = '<div style="border:.5px solid var(--border);border-radius:5px;padding:10px;margin-bottom:8px;background:#fff">';
+
+  // En-tête WCGW
+  h += '<div style="display:flex;align-items:flex-start;gap:8px;padding-bottom:8px;border-bottom:.5px solid #f0f0f0;margin-bottom:8px">';
+  h += '<span class="badge bpl" style="font-size:9px;padding:2px 6px;flex-shrink:0">'+(w.code||('WCGW-'+(globalIdx+1)))+'</span>';
+  h += '<div style="flex:1;min-width:0">';
+  h += '<div style="font-size:12px;font-weight:500">'+(''+(w.title||'(sans titre)')).replace(/</g,'&lt;')+'</div>';
+  if (w.description) h += '<div style="font-size:10px;color:var(--text-3);margin-top:2px">'+(''+w.description).replace(/</g,'&lt;')+'</div>';
+  h += '</div>';
+  h += '<button class="bs" style="font-size:9px;padding:2px 6px" onclick="showEditWCGWModal('+globalIdx+')">Éditer</button>';
+  h += '<button class="bd" style="font-size:9px;padding:2px 6px" onclick="removeWCGW('+globalIdx+')" title="Supprimer">×</button>';
+  h += '</div>';
+
+  // Risques liés
+  if (linkedRisks.length) {
+    h += '<div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;font-size:10px;padding:0 0 8px">';
+    h += '<span style="color:var(--text-3)"><strong style="font-weight:500">Risques liés :</strong></span>';
+    linkedRisks.forEach(function(lr){
+      h += '<span class="badge '+(lr.source==='adhoc'?'bpc':'bpl')+'" style="font-size:9px;padding:1px 6px">'+(''+lr.title).replace(/</g,'&lt;')+'</span>';
+    });
+    h += '</div>';
+  }
+
+  // 2 colonnes Target / Existants
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">';
+
+  // Colonne Target
+  h += '<div style="background:#FFFAF0;border:.5px solid #FAC775;border-radius:4px;padding:6px 8px">';
+  h += '<div style="font-size:9px;font-weight:500;color:#854F0B;text-transform:uppercase;letter-spacing:.4px;padding-bottom:4px;display:flex;align-items:center;gap:5px">';
+  h += '<span style="width:7px;height:7px;border-radius:50%;background:#FAC775;display:inline-block"></span>';
+  h += 'Target <span style="color:var(--text-3);font-weight:400;text-transform:none;letter-spacing:0">(à mettre en place)</span>';
+  h += '</div>';
+  if (!targets.length) {
+    h += '<div style="font-size:10px;color:var(--text-3);font-style:italic;text-align:center;padding:5px 0">Aucun contrôle Target</div>';
+  } else {
+    targets.forEach(function(c) {
+      var origIdx = ctrls.indexOf(c);
+      h += renderWCGWControlRow(c, origIdx);
+    });
+  }
+  h += '<button class="bs" style="font-size:10px;padding:2px 7px;background:transparent;border:.5px dashed var(--border);color:var(--text-2);width:100%;margin-top:4px" onclick="showAddControlForWCGW(\''+_escJsArg(w.id)+'\',\'target\')">+ Contrôle Target</button>';
+  h += '</div>';
+
+  // Colonne Existants
+  h += '<div style="background:#F5FBF8;border:.5px solid #A6E2CD;border-radius:4px;padding:6px 8px">';
+  h += '<div style="font-size:9px;font-weight:500;color:#085041;text-transform:uppercase;letter-spacing:.4px;padding-bottom:4px;display:flex;align-items:center;gap:5px">';
+  h += '<span style="width:7px;height:7px;border-radius:50%;background:#5DCAA5;display:inline-block"></span>';
+  h += 'Existants <span style="color:var(--text-3);font-weight:400;text-transform:none;letter-spacing:0">(à tester en Testings)</span>';
+  h += '</div>';
+  if (!existings.length) {
+    h += '<div style="font-size:10px;color:var(--text-3);font-style:italic;text-align:center;padding:5px 0">Aucun contrôle Existant</div>';
+  } else {
+    existings.forEach(function(c) {
+      var origIdx = ctrls.indexOf(c);
+      h += renderWCGWControlRow(c, origIdx);
+    });
+  }
+  h += '<button class="bs" style="font-size:10px;padding:2px 7px;background:transparent;border:.5px dashed var(--border);color:var(--text-2);width:100%;margin-top:4px" onclick="showAddControlForWCGW(\''+_escJsArg(w.id)+'\',\'existing\')">+ Contrôle Existant</button>';
+  h += '</div>';
+
+  h += '</div>'; // fin grid 2 colonnes
+
+  h += '</div>'; // fin carte WCGW
+  return h;
+}
+
+// ─── Ligne d'un contrôle dans une colonne Target ou Existants ───
+function renderWCGWControlRow(c, origIdx) {
+  var ctrlCode = c.code || ('CTRL-'+(origIdx+1));
+  var name = c.name || c.label || '(sans nom)';
+  var clefBadge = c.clef ? '<span style="display:inline-block;background:#EEEDFE;color:#3C3489;font-size:9px;padding:1px 4px;border-radius:2px;margin-left:4px">Clef</span>' : '';
+  var h = '<div style="display:flex;align-items:flex-start;gap:5px;padding:4px 0;border-bottom:.5px solid rgba(0,0,0,.06);font-size:11px;cursor:pointer" onclick="showEditControlModal('+origIdx+')">';
+  h += '<span style="font-family:monospace;font-size:9px;background:#fff;color:var(--text-3);padding:1px 5px;border-radius:2px;flex-shrink:0;border:.5px solid var(--border);margin-top:1px">'+ctrlCode+'</span>';
+  h += '<div style="flex:1;color:var(--text-1)">'+(''+name).replace(/</g,'&lt;')+clefBadge+'</div>';
+  h += '<button onclick="event.stopPropagation();removeControlAt('+origIdx+')" title="Supprimer" style="background:transparent;border:none;color:var(--text-3);font-size:11px;padding:0 2px;cursor:pointer">×</button>';
+  h += '</div>';
+  return h;
+}
+
+// ─── Ouverture modale "+ WCGW" pré-remplie avec sous-processus ───
+function showAddWCGWModalForSP(spId) {
+  showWCGWModal({preselectSpId: spId});
+}
+
+// ─── Ouverture modale "+ Contrôle" pré-remplie avec WCGW + design ─
+function showAddControlForWCGW(wcgwId, designMode) {
+  showAddControlModal({preselectWcgwId: wcgwId, preselectDesign: designMode});
+}
+
 
 function showAddWCGWModal() { showWCGWModal(null); }
 function showEditWCGWModal(idx) {
@@ -6710,7 +6835,26 @@ function showWCGWModal(existing) {
   // via le helper getAuditRisks() qui consolide les deux sources.
   var risks = (typeof getAuditRisks === 'function') ? getAuditRisks(CA) : [];
 
-  var currentRiskIds = (existing && existing.wcgw.riskIds) || [];
+  // Récupérer la liste des sous-processus (pour le sélecteur de rattachement)
+  var d_modal = getAudData(CA);
+  var subProcs = (d_modal.kickoffPrep && Array.isArray(d_modal.kickoffPrep.subProcesses))
+    ? d_modal.kickoffPrep.subProcesses : [];
+
+  // Pré-sélection : soit depuis existing (édition), soit depuis preselectSpId (création depuis carte)
+  var currentSpId = (existing && existing.wcgw && existing.wcgw.subProcessId)
+    || (existing && existing.preselectSpId)
+    || '';
+
+  var spOptions = subProcs.map(function(sp){
+    var selected = sp.id === currentSpId ? ' selected' : '';
+    var label = sp.name || '(sans nom)';
+    return '<option value="'+sp.id+'"'+selected+'>'+label.replace(/"/g,'&quot;')+'</option>';
+  }).join('');
+  var spHtml = subProcs.length
+    ? '<div><label>Sous-processus <span style="color:var(--red)">*</span></label><select id="wcgw-sp"><option value="">— Sélectionner —</option>'+spOptions+'</select></div>'
+    : '<div style="font-size:11px;color:#854F0B;padding:8px;background:#FAEEDA;border:.5px solid #FAC775;border-radius:4px;margin-bottom:8px">⚠ Aucun sous-processus défini pour cet audit. Retourne à l\'étape Work Program pour en ajouter.</div>';
+
+  var currentRiskIds = (existing && existing.wcgw && existing.wcgw.riskIds) || [];
   var risksHtml = '';
   if (risks.length) {
     risksHtml = '<div><label>Risques liés (cochez ceux que ce WCGW concerne)</label>'
@@ -6721,8 +6865,6 @@ function showWCGWModal(existing) {
           var sourceBadge = isAdhoc
             ? '<span class="badge bpc" style="font-size:9px;margin-right:5px">Ad hoc</span>'
             : '<span class="badge bpl" style="font-size:9px;margin-right:5px">URD</span>';
-          // Pour les risques URD on utilise impactRaw (Minor/Limited/Major/Severe)
-          // Pour les risques ad hoc on utilise impact numérique
           var impactDisp = isAdhoc ? ('I'+r.impact) : (r.impactRaw||'—');
           var impactColors = (!isAdhoc && typeof RISK_IMPACT_COLORS!=='undefined' && RISK_IMPACT_COLORS[r.impactRaw])
             ? RISK_IMPACT_COLORS[r.impactRaw]
@@ -6738,12 +6880,16 @@ function showWCGWModal(existing) {
     risksHtml = '<div style="font-size:11px;color:var(--text-3);padding:8px;background:var(--bg);border-radius:6px">ℹ️ Aucun risque pour cet audit. Associez des risques URD aux processus dans Audit Universe, ou ajoutez des risques ad hoc dans l\'étape Work Program.</div>';
   }
 
-  var body = '<div><label>Code <span style="color:var(--red)">*</span></label><input id="wcgw-code" value="'+((existing&&existing.wcgw.code)||'')+'" placeholder="ex : WCGW-1"/></div>'
-    + '<div><label>Titre <span style="color:var(--red)">*</span></label><input id="wcgw-title" value="'+((existing&&existing.wcgw.title)||'')+'" placeholder="ex : Accès non autorisé aux données client"/></div>'
-    + '<div><label>Description</label><textarea id="wcgw-desc" style="width:100%;min-height:60px" placeholder="Décrivez le scénario de risque...">'+((existing&&existing.wcgw.description)||'')+'</textarea></div>'
+  var body = spHtml
+    + '<div><label>Code <span style="color:var(--red)">*</span></label><input id="wcgw-code" value="'+((existing&&existing.wcgw&&existing.wcgw.code)||'')+'" placeholder="ex : WCGW-1"/></div>'
+    + '<div><label>Titre <span style="color:var(--red)">*</span></label><input id="wcgw-title" value="'+((existing&&existing.wcgw&&existing.wcgw.title)||'')+'" placeholder="ex : Accès non autorisé aux données client"/></div>'
+    + '<div><label>Description</label><textarea id="wcgw-desc" style="width:100%;min-height:60px" placeholder="Décrivez le scénario de risque...">'+((existing&&existing.wcgw&&existing.wcgw.description)||'')+'</textarea></div>'
     + risksHtml;
 
-  openModal(existing ? 'Éditer WCGW' : 'Nouveau WCGW', body, async function(){
+  var isEdit = !!(existing && existing.wcgw);
+  openModal(isEdit ? 'Éditer WCGW' : 'Nouveau WCGW', body, async function(){
+    var subProcessId = (document.getElementById('wcgw-sp') ? document.getElementById('wcgw-sp').value.trim() : '');
+    if (subProcs.length && !subProcessId) { toast('Sous-processus obligatoire'); return; }
     var code = document.getElementById('wcgw-code').value.trim();
     var title = document.getElementById('wcgw-title').value.trim();
     if (!code) { toast('Code obligatoire'); return; }
@@ -6756,13 +6902,13 @@ function showWCGWModal(existing) {
     if (!d.wcgw) d.wcgw = {};
     if (!d.wcgw[CS]) d.wcgw[CS] = [];
 
-    if (existing) {
-      d.wcgw[CS][existing.idx] = Object.assign({}, existing.wcgw, {code, title, description, riskIds});
+    if (isEdit) {
+      d.wcgw[CS][existing.idx] = Object.assign({}, existing.wcgw, {code, title, description, riskIds, subProcessId});
       addHist('edit', 'WCGW "'+title+'" modifié');
     } else {
       d.wcgw[CS].push({
         id: 'wcgw_'+Date.now(),
-        code, title, description, riskIds,
+        code, title, description, riskIds, subProcessId,
       });
       addHist('add', 'WCGW "'+title+'" créé');
     }
@@ -8853,22 +8999,27 @@ function goStep(i){
   CS=i;
   var auditObj = AUDIT_PLAN.find(function(x){return x.id===CA;});
   var isBu = auditObj && auditObj.type === 'BU';
-  // Pour les audits BU : on saute les étapes 4 et 7 (skip silencieux)
-  if (isBu && i === 4) {
-    CS = 5;
-    i = 5;
-  }
-  if (isBu && i === 7) {
-    CS = 8;
-    i = 8;
-  }
-  var totalSteps = isBu ? 8 : 10;
-  // Numéro d'étape affiché : BU 0,1,2,3,5,6,8,9 → 1,2,3,4,5,6,7,8
+  // BU : sauter étapes 4 (idx 4) et 8 (idx 7)
+  if (isBu && i === 4) { CS = 5; i = 5; }
+  if (isBu && i === 7) { CS = 8; i = 8; }
+  // Process : sauter étapes 4 (idx 3) et 8 (idx 7)
+  if (!isBu && i === 3) { CS = 4; i = 4; }
+  if (!isBu && i === 7) { CS = 8; i = 8; }
+  var totalSteps = 8;
   var buMap = {0:1, 1:2, 2:3, 3:4, 5:5, 6:6, 8:7, 9:8};
-  var displayedNum = isBu ? (buMap[i] !== undefined ? buMap[i] : i+1) : (i + 1);
+  var procMap = {0:1, 1:2, 2:3, 4:4, 5:5, 6:6, 8:7, 9:8};
+  var displayedNum;
+  if (isBu) {
+    displayedNum = buMap[i] !== undefined ? buMap[i] : i+1;
+  } else {
+    displayedNum = procMap[i] !== undefined ? procMap[i] : i+1;
+  }
   const pct=Math.min(100, Math.round((displayedNum/totalSteps)*100));
-  // Renommer l'étape 6 en "Findings & Rapport" pour BU
-  var stepLabel = (isBu && i === 6) ? 'Findings & Rapport' : (STEPS[i] ? STEPS[i].s : '—');
+  // Renommer libellés selon type d'audit
+  var stepLabel;
+  if (isBu && i === 6) stepLabel = 'Findings & Rapport';
+  else if (!isBu && i === 4) stepLabel = 'WCGW & Contrôles';
+  else stepLabel = (STEPS[i] ? STEPS[i].s : '—');
   document.getElementById('audit-header-compact').innerHTML=renderStepper();
   var pf=document.getElementById('gp-fill'); if(pf)pf.style.width=pct+'%';
   var pp=document.getElementById('gp-pct'); if(pp)pp.textContent=pct+'%';

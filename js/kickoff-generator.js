@@ -703,22 +703,15 @@ async function generateKickoffPptx(auditId) {
   // ─── Téléchargement local + Upload SharePoint ───────────────────────
   const cleanTitle = (ap.titre || 'audit').replace(/[^a-zA-Z0-9_-]/g, '_');
   const today = new Date().toISOString().slice(0, 10);
-  const localFileName = `KickOff_${cleanTitle}_${today}.pptx`;
   // Approche A : 2 fichiers séparés. La génération écrit toujours dans le DRAFT.
   // Le FINAL est créé par "📌 Marquer comme version finale" (UI dédiée).
   const spDraftName = `KickOff_draft.pptx`;
 
   try {
-    // 1) Téléchargement local (comme avant)
-    await pres.writeFile({fileName: localFileName});
-    if (typeof toast === 'function') toast(`Kick Off généré ✓`);
-    if (typeof addHist === 'function') addHist(auditId, `Kick Off Presentation généré (${localFileName})`);
-
-    // 2) Upload sur SharePoint (en arrière-plan, ne bloque pas l'UX)
-    //    On écrit dans le DRAFT — le final reste intact si déjà existant.
+    // Génération + Upload SharePoint UNIQUEMENT (plus de téléchargement local)
     if (typeof getOrCreateAuditFolder === 'function' && typeof uploadFileToSharePoint === 'function') {
       try {
-        if (typeof toast === 'function') toast('📤 Sauvegarde sur SharePoint (draft)...');
+        if (typeof toast === 'function') toast('📤 Génération + sauvegarde SharePoint...');
         const blob = await pres.write({outputType: 'blob'});
         const folderInfo = await getOrCreateAuditFolder(ap);
         const driveItem = await uploadFileToSharePoint(folderInfo.path, spDraftName, blob);
