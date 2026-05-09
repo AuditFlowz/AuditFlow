@@ -7403,6 +7403,7 @@ function _fcEnsureState() {
       dragging: null,
       edgeMode: false,
       edgeFromId: null,
+      edgeStyle: 'orthogonal', // style par défaut des nouveaux connecteurs
       sidePanelTab: 'narrative',
       zoom: 1.0,
     };
@@ -7616,6 +7617,13 @@ function renderFlowchartEditor() {
   var edgeBtnColor = edgeMode ? '#fff' : 'var(--text-2)';
   html += '<button onclick="toggleEdgeMode()" style="font-size:10px;padding:4px 10px;background:'+edgeBtnBg+';color:'+edgeBtnColor+';border:.5px solid '+(edgeMode?'#3C3489':'var(--border)')+';border-radius:3px;cursor:pointer;font-weight:500" title="Cliquer 2 nœuds pour les relier">';
   html += edgeMode ? '✓ Mode lien actif (cliquer 2 nœuds)' : '🔗 Créer un lien';
+  html += '</button>';
+  // Style des connecteurs (toggle straight ↔ orthogonal)
+  var edgeStyle = _flowchartEditor.edgeStyle || 'orthogonal';
+  var nextStyle = edgeStyle === 'orthogonal' ? 'straight' : 'orthogonal';
+  var styleIcon = edgeStyle === 'orthogonal' ? '┐ Coudes' : '╱ Droit';
+  html += '<button onclick="toggleEdgeStyle()" title="Style des nouveaux connecteurs : '+(edgeStyle==='orthogonal'?'angles droits (escalier)':'ligne droite')+' — clic pour basculer" style="font-size:10px;padding:4px 10px;background:#fff;color:var(--text-2);border:.5px solid var(--border);border-radius:3px;cursor:pointer">';
+  html += styleIcon;
   html += '</button>';
   if (_flowchartEditor.selectedNodeId) {
     html += '<button class="bd" style="font-size:10px;padding:4px 10px" onclick="deleteSelectedNode()">🗑 Supprimer la forme</button>';
@@ -7855,6 +7863,22 @@ function toggleEdgeMode() {
   document.getElementById('det-content').innerHTML = renderDetContent();
 }
 
+// Toggle global du style des nouveaux connecteurs (et reapply à TOUS les existants pour cohérence visuelle)
+async function toggleEdgeStyle() {
+  if (!_flowchartEditor) return;
+  var current = _flowchartEditor.edgeStyle || 'orthogonal';
+  var next = current === 'orthogonal' ? 'straight' : 'orthogonal';
+  _flowchartEditor.edgeStyle = next;
+  // Appliquer aussi à tous les edges du flowchart courant (cohérence visuelle attendue par l'utilisateur)
+  var fc = _fcGetCurrent();
+  if (fc && Array.isArray(fc.edges)) {
+    fc.edges.forEach(function(e){ e.style = next; });
+    await saveAuditData(CA);
+  }
+  document.getElementById('det-content').innerHTML = renderDetContent();
+  toast('Style : ' + (next === 'orthogonal' ? 'angles droits' : 'ligne droite'));
+}
+
 // Géométrie d'un nœud → renvoie {cx, cy, ...} pour le rendu de bords
 function _fcNodeBox(node) {
   return {
@@ -7900,22 +7924,76 @@ function _fcRenderEdge(edge, nodes) {
   if (!nodeFrom || !nodeTo) return '';
   var bFrom = _fcNodeBox(nodeFrom);
   var bTo = _fcNodeBox(nodeTo);
-  var pFrom = _fcEdgePoint(nodeFrom, bTo.cx, bTo.cy);
-  var pTo = _fcEdgePoint(nodeTo, bFrom.cx, bFrom.cy);
-  var midX = (pFrom.x + pTo.x) / 2;
-  var midY = (pFrom.y + pTo.y) / 2;
+
   var label = (edge.label || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  var style = edge.style || 'straight';
   var s = '<g data-edge-id="'+edge.id+'" onclick="event.stopPropagation();selectEdge(\''+edge.id+'\')" style="cursor:pointer">';
-  // Hitbox invisible plus large pour faciliter le clic
-  s += '<line x1="'+pFrom.x+'" y1="'+pFrom.y+'" x2="'+pTo.x+'" y2="'+pTo.y+'" stroke="transparent" stroke-width="10"/>';
-  s += '<line x1="'+pFrom.x+'" y1="'+pFrom.y+'" x2="'+pTo.x+'" y2="'+pTo.y+'" stroke="#374151" stroke-width="1.5" marker-end="url(#fc-arrow)"/>';
-  if (label) {
-    var labelW = Math.max(label.length * 5.5, 18);
-    s += '<rect x="'+(midX - labelW/2 - 3)+'" y="'+(midY - 8)+'" width="'+(labelW + 6)+'" height="14" fill="#fff" stroke="#e5e5e5" stroke-width=".5" rx="2"/>';
-    s += '<text x="'+midX+'" y="'+(midY + 3)+'" text-anchor="middle" font-size="9" fill="#374151" font-family="sans-serif">'+label+'</text>';
+
+  if (style === 'orthogonal') {
+    // ─── Calcul du chemin orthogonal ───
+    // Stratégie : sortir du nœud source par le côté le plus proche du nœud cible (haut/bas/gauche/droite),
+    // faire un coude, entrer dans le nœud cible par le côté approprié.
+    var path = _fcOrthogonalPath(bFrom, bTo);
+    // Hitbox invisible pour le clic
+    s += '<path d="'+path.d+'" stroke="transparent" stroke-width="10" fill="none"/>';
+    // Tracé visible
+    s += '<path d="'+path.d+'" stroke="#374151" stroke-width="1.5" fill="none" marker-end="url(#fc-arrow)"/>';
+    if (label) {
+      var midX = path.midX, midY = path.midY;
+      var labelW = Math.max(label.length * 5.5, 18);
+      s += '<rect x="'+(midX - labelW/2 - 3)+'" y="'+(midY - 8)+'" width="'+(labelW + 6)+'" height="14" fill="#fff" stroke="#e5e5e5" stroke-width=".5" rx="2"/>';
+      s += '<text x="'+midX+'" y="'+(midY + 3)+'" text-anchor="middle" font-size="9" fill="#374151" font-family="sans-serif">'+label+'</text>';
+    }
+  } else {
+    // ─── Ligne droite (style original) ───
+    var pFrom = _fcEdgePoint(nodeFrom, bTo.cx, bTo.cy);
+    var pTo = _fcEdgePoint(nodeTo, bFrom.cx, bFrom.cy);
+    var midX2 = (pFrom.x + pTo.x) / 2;
+    var midY2 = (pFrom.y + pTo.y) / 2;
+    s += '<line x1="'+pFrom.x+'" y1="'+pFrom.y+'" x2="'+pTo.x+'" y2="'+pTo.y+'" stroke="transparent" stroke-width="10"/>';
+    s += '<line x1="'+pFrom.x+'" y1="'+pFrom.y+'" x2="'+pTo.x+'" y2="'+pTo.y+'" stroke="#374151" stroke-width="1.5" marker-end="url(#fc-arrow)"/>';
+    if (label) {
+      var labelW2 = Math.max(label.length * 5.5, 18);
+      s += '<rect x="'+(midX2 - labelW2/2 - 3)+'" y="'+(midY2 - 8)+'" width="'+(labelW2 + 6)+'" height="14" fill="#fff" stroke="#e5e5e5" stroke-width=".5" rx="2"/>';
+      s += '<text x="'+midX2+'" y="'+(midY2 + 3)+'" text-anchor="middle" font-size="9" fill="#374151" font-family="sans-serif">'+label+'</text>';
+    }
   }
   s += '</g>';
   return s;
+}
+
+// ─── Calcul du chemin orthogonal entre 2 nœuds ──────────────────
+// Algorithme : choisit le meilleur point de sortie/entrée selon position relative,
+// puis trace 3 segments avec 2 coudes (forme L ou Z selon le cas).
+function _fcOrthogonalPath(bFrom, bTo) {
+  var dx = bTo.cx - bFrom.cx;
+  var dy = bTo.cy - bFrom.cy;
+  var absDx = Math.abs(dx), absDy = Math.abs(dy);
+
+  var fromX, fromY, toX, toY;
+  var horizontalDominant = absDx >= absDy;
+
+  if (horizontalDominant) {
+    // Sortie horizontale du nœud source, entrée horizontale dans le nœud cible
+    fromX = dx >= 0 ? bFrom.right : bFrom.left;
+    fromY = bFrom.cy;
+    toX = dx >= 0 ? bTo.left : bTo.right;
+    toY = bTo.cy;
+    // Coude au milieu en X
+    var midX = (fromX + toX) / 2;
+    var d = 'M '+fromX+' '+fromY+' L '+midX+' '+fromY+' L '+midX+' '+toY+' L '+toX+' '+toY;
+    return {d: d, midX: midX, midY: (fromY + toY) / 2};
+  } else {
+    // Sortie verticale du nœud source, entrée verticale dans le nœud cible
+    fromX = bFrom.cx;
+    fromY = dy >= 0 ? bFrom.bottom : bFrom.top;
+    toX = bTo.cx;
+    toY = dy >= 0 ? bTo.top : bTo.bottom;
+    // Coude au milieu en Y
+    var midY = (fromY + toY) / 2;
+    var d2 = 'M '+fromX+' '+fromY+' L '+fromX+' '+midY+' L '+toX+' '+midY+' L '+toX+' '+toY;
+    return {d: d2, midX: (fromX + toX) / 2, midY: midY};
+  }
 }
 
 // Sélection d'un edge (pour le supprimer ou éditer son label)
@@ -8052,9 +8130,29 @@ function _fcRenderNode(node, allCtrls) {
       s += '<text x="'+(x+w/2)+'" y="'+(y+h/2+4)+'" text-anchor="middle" font-size="11" fill="#374151" font-family="sans-serif">'+label+'</text>';
   }
 
-  // Surbrillance si sélectionné
+  // Surbrillance si sélectionné + 8 poignées de redimensionnement
   if (sel) {
     s += '<rect x="'+(x-4)+'" y="'+(y-4)+'" width="'+(w+8)+'" height="'+(h+8)+'" rx="3" ry="3" fill="none" stroke="#3C3489" stroke-width="2" stroke-dasharray="4,2" pointer-events="none"/>';
+
+    // 8 poignées : 4 coins + 4 milieux. Chacune avec son curseur et son anchor.
+    // anchor = quel coin/côté du nœud reste fixe pendant le resize. Ex : NW veut dire qu'on tire le coin NW
+    // (haut-gauche) ; le SE (bas-droite) reste fixe.
+    var handles = [
+      {anchor:'nw', x:x-4,       y:y-4,       cursor:'nwse-resize'},
+      {anchor:'n',  x:x+w/2-4,   y:y-4,       cursor:'ns-resize'},
+      {anchor:'ne', x:x+w-4,     y:y-4,       cursor:'nesw-resize'},
+      {anchor:'e',  x:x+w-4,     y:y+h/2-4,   cursor:'ew-resize'},
+      {anchor:'se', x:x+w-4,     y:y+h-4,     cursor:'nwse-resize'},
+      {anchor:'s',  x:x+w/2-4,   y:y+h-4,     cursor:'ns-resize'},
+      {anchor:'sw', x:x-4,       y:y+h-4,     cursor:'nesw-resize'},
+      {anchor:'w',  x:x-4,       y:y+h/2-4,   cursor:'ew-resize'},
+    ];
+    handles.forEach(function(hd){
+      s += '<rect x="'+hd.x+'" y="'+hd.y+'" width="8" height="8" fill="#fff" stroke="#3C3489" stroke-width="1.5" '
+        + 'data-resize-anchor="'+hd.anchor+'" '
+        + 'onmousedown="startResizeNode(event,\''+node.id+'\',\''+hd.anchor+'\')" '
+        + 'style="cursor:'+hd.cursor+'"/>';
+    });
   }
 
   // Affichage de l'acteur (qui exécute) sous la forme — pour tous types sauf start/end
@@ -8228,6 +8326,7 @@ function selectNode(nodeId) {
         from: fromId,
         to: nodeId,
         label: '',
+        style: _flowchartEditor.edgeStyle || 'orthogonal',
       });
       _flowchartEditor.edgeMode = false;
       _flowchartEditor.edgeFromId = null;
@@ -8367,6 +8466,120 @@ function _fcRefreshSvg() {
   (fc.edges||[]).forEach(function(e){ inner += _fcRenderEdge(e, fc.nodes); });
   fc.nodes.forEach(function(n){ inner += _fcRenderNode(n, allCtrls); });
   svg.innerHTML = inner;
+}
+
+// ─── Resize via les 8 poignées ─────────────────────────────────────
+function startResizeNode(event, nodeId, anchor) {
+  if (!_flowchartEditor) return;
+  event.preventDefault();
+  event.stopPropagation(); // important : empêche déclenchement de startDragNode
+  var fc = _fcGetCurrent();
+  if (!fc) return;
+  var node = fc.nodes.find(function(x){return x.id===nodeId;});
+  if (!node) return;
+
+  var svg = document.getElementById('fc-canvas');
+  if (!svg) return;
+  var pt = svg.createSVGPoint();
+  pt.x = event.clientX; pt.y = event.clientY;
+  var startSvgPt = pt.matrixTransform(svg.getScreenCTM().inverse());
+
+  _flowchartEditor.resizing = {
+    nodeId: nodeId,
+    anchor: anchor,
+    startMouseX: startSvgPt.x,
+    startMouseY: startSvgPt.y,
+    startX: node.x, startY: node.y,
+    startW: node.w, startH: node.h,
+    initialRatio: node.w / node.h, // pour Shift
+    moved: false,
+  };
+
+  document.addEventListener('mousemove', _fcOnResize);
+  document.addEventListener('mouseup', _fcOnResizeEnd);
+}
+
+function _fcOnResize(event) {
+  if (!_flowchartEditor || !_flowchartEditor.resizing) return;
+  var svg = document.getElementById('fc-canvas');
+  if (!svg) return;
+  var pt = svg.createSVGPoint();
+  pt.x = event.clientX; pt.y = event.clientY;
+  var svgPt = pt.matrixTransform(svg.getScreenCTM().inverse());
+  var fc = _fcGetCurrent();
+  if (!fc) return;
+  var node = fc.nodes.find(function(x){return x.id===_flowchartEditor.resizing.nodeId;});
+  if (!node) return;
+
+  var r = _flowchartEditor.resizing;
+  var dx = svgPt.x - r.startMouseX;
+  var dy = svgPt.y - r.startMouseY;
+  var minSize = 30;
+
+  // Calcul du nouveau rect selon l'anchor
+  var newX = r.startX, newY = r.startY, newW = r.startW, newH = r.startH;
+
+  // Composante horizontale
+  if (r.anchor === 'e' || r.anchor === 'ne' || r.anchor === 'se') {
+    newW = Math.max(minSize, r.startW + dx);
+  } else if (r.anchor === 'w' || r.anchor === 'nw' || r.anchor === 'sw') {
+    newW = Math.max(minSize, r.startW - dx);
+    newX = r.startX + (r.startW - newW);
+  }
+  // Composante verticale
+  if (r.anchor === 's' || r.anchor === 'se' || r.anchor === 'sw') {
+    newH = Math.max(minSize, r.startH + dy);
+  } else if (r.anchor === 'n' || r.anchor === 'ne' || r.anchor === 'nw') {
+    newH = Math.max(minSize, r.startH - dy);
+    newY = r.startY + (r.startH - newH);
+  }
+
+  // Ratio bloqué si Shift (utile pour cercles)
+  if (event.shiftKey) {
+    var ratio = r.initialRatio || 1;
+    // On force la nouvelle hauteur en fonction de la nouvelle largeur (priorité à la dimension la plus modifiée)
+    var ratioW = newW / r.startW;
+    var ratioH = newH / r.startH;
+    if (Math.abs(1 - ratioW) > Math.abs(1 - ratioH)) {
+      // largeur dominante : on ajuste la hauteur
+      var oldH = newH;
+      newH = newW / ratio;
+      // Réajuster Y si on tirait depuis le haut
+      if (r.anchor === 'n' || r.anchor === 'ne' || r.anchor === 'nw') {
+        newY = newY + (oldH - newH);
+      }
+    } else {
+      // hauteur dominante : on ajuste la largeur
+      var oldW = newW;
+      newW = newH * ratio;
+      // Réajuster X si on tirait depuis la gauche
+      if (r.anchor === 'w' || r.anchor === 'nw' || r.anchor === 'sw') {
+        newX = newX + (oldW - newW);
+      }
+    }
+  }
+
+  // Application
+  node.x = Math.round(newX);
+  node.y = Math.round(newY);
+  node.w = Math.round(newW);
+  node.h = Math.round(newH);
+  r.moved = true;
+
+  _fcRefreshSvg();
+}
+
+async function _fcOnResizeEnd(event) {
+  if (!_flowchartEditor || !_flowchartEditor.resizing) return;
+  document.removeEventListener('mousemove', _fcOnResize);
+  document.removeEventListener('mouseup', _fcOnResizeEnd);
+  var moved = _flowchartEditor.resizing.moved;
+  _flowchartEditor.resizing = null;
+  if (moved) {
+    await saveAuditData(CA);
+    // Rerender complet pour rafraîchir le panneau de propriétés (w,h mis à jour)
+    document.getElementById('det-content').innerHTML = renderDetContent();
+  }
 }
 
 // ─── Narrative : indicateur "dirty" + save ───────────────────────
