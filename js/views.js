@@ -7337,7 +7337,8 @@ var _FC_DEFAULTS = {
   end:      {w: 110, h: 36, label: 'Fin'},
   step:     {w: 130, h: 40, label: 'Nouvelle étape'},
   decision: {w: 100, h: 70, label: 'Condition ?'},
-  document: {w: 130, h: 50, label: 'Document'},
+  meeting:  {w: 80, h: 80, label: 'Meeting'},
+  document: {w: 130, h: 56, label: 'Document'},
   database: {w: 110, h: 50, label: 'Système'},
   ctrl_existing: {w: 60, h: 60, label: 'CTRL'},
   ctrl_target:   {w: 60, h: 60, label: 'CTRL-T'},
@@ -7632,9 +7633,10 @@ function renderFlowchartEditor() {
     {type:'end',      icon:'<span style="display:inline-block;width:18px;height:11px;background:#EEEDFE;border:1.5px solid #3C3489;border-radius:50px"></span>', label:'Fin'},
     {type:'step',     icon:'<span style="display:inline-block;width:20px;height:13px;background:#fff;border:1.5px solid #3C3489;border-radius:2px"></span>', label:'Étape'},
     {type:'decision', icon:'<span style="display:inline-block;width:14px;height:14px;background:#FFFAF0;border:1.5px solid #FAC775;transform:rotate(45deg);margin:1px 4px"></span>', label:'Décision'},
+    {type:'meeting',  icon:'<span style="display:inline-block;width:14px;height:14px;background:#FCE7F3;border:1.5px solid #BE185D;border-radius:50%;text-align:center;line-height:11px;font-size:8px">👥</span>', label:'Réunion'},
   ]);
   html += _fcRenderPaletteSection('Données', [
-    {type:'document', icon:'<span style="display:inline-block;width:18px;height:14px;background:#fff;border:1.5px solid #534AB7;border-radius:2px"></span>', label:'Document'},
+    {type:'document', icon:'<span style="display:inline-block;width:18px;height:15px;background:#ECFEFF;border:1.5px solid #0E7490;text-align:center;line-height:13px;font-size:9px">📄</span>', label:'Document'},
     {type:'database', icon:'<span style="display:inline-block;width:18px;height:14px;background:#F5FBF8;border:1.5px solid #5DCAA5;border-radius:50%/30%"></span>', label:'Système'},
   ]);
   html += _fcRenderPaletteSection('Contrôles', [
@@ -7977,7 +7979,7 @@ function _fcRenderNode(node, allCtrls) {
     if (c) label = (c.code || c.name || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
 
-  var dataAttrs = 'data-node-id="'+node.id+'" onmousedown="startDragNode(event,\''+node.id+'\')" onclick="event.stopPropagation();selectNode(\''+node.id+'\')" style="cursor:move"';
+  var dataAttrs = 'data-node-id="'+node.id+'" onmousedown="startDragNode(event,\''+node.id+'\')" style="cursor:move"';
   var s = '<g '+dataAttrs+'>';
 
   switch (node.type) {
@@ -7997,19 +7999,32 @@ function _fcRenderNode(node, allCtrls) {
       s += '<text x="'+cx+'" y="'+(cy+3)+'" text-anchor="middle" font-size="10" fill="#854F0B" font-weight="500" font-family="sans-serif">'+label+'</text>';
       break;
     case 'document':
-      // Rectangle avec base ondulée
-      var ry2 = y + h - 8;
-      var path = 'M '+x+' '+y+' L '+(x+w)+' '+y+' L '+(x+w)+' '+ry2;
-      // Vague en bas
-      var step = w / 4;
-      for (var i=0; i<4; i++) {
-        var midX = x + step*i + step/2;
-        var endX = x + step*(i+1);
-        path += ' Q '+midX+' '+(ry2+10)+' '+endX+' '+ry2;
+      // Document : icône 📄 + titre, vague prononcée en bas
+      // Bordure plus marquée (cyan foncé) et fond cyan clair pour bien différencier de l'étape
+      var docTopH = h - 14; // hauteur sans la vague
+      var docPath = 'M '+x+' '+y+' L '+(x+w)+' '+y+' L '+(x+w)+' '+(y+docTopH);
+      // Vague prononcée (3 ondulations)
+      var dStep = w / 3;
+      for (var i=0; i<3; i++) {
+        var dMidX = x + dStep*i + dStep/2;
+        var dEndX = x + dStep*(i+1);
+        docPath += ' Q '+dMidX+' '+(y+docTopH+18)+' '+dEndX+' '+(y+docTopH);
       }
-      path += ' L '+x+' '+ry2+' Z';
-      s += '<path d="'+path+'" fill="#fff" stroke="#534AB7" stroke-width="1.5"/>';
-      s += '<text x="'+(x+w/2)+'" y="'+(y+h/2)+'" text-anchor="middle" font-size="10" fill="#534AB7" font-weight="500" font-family="sans-serif">'+label+'</text>';
+      docPath += ' L '+x+' '+(y+docTopH)+' Z';
+      s += '<path d="'+docPath+'" fill="#ECFEFF" stroke="#0E7490" stroke-width="2"/>';
+      // Icône 📄
+      s += '<text x="'+(x+14)+'" y="'+(y+18)+'" font-size="14" font-family="sans-serif">📄</text>';
+      // Label texte (à droite de l'icône)
+      s += '<text x="'+(x+w/2+8)+'" y="'+(y+docTopH/2+4)+'" text-anchor="middle" font-size="10" fill="#0E7490" font-weight="500" font-family="sans-serif">'+label+'</text>';
+      break;
+    case 'meeting':
+      // Cercle avec icône 👥
+      var cxM = x + w/2, cyM = y + h/2, rM = Math.min(w, h) / 2;
+      s += '<circle cx="'+cxM+'" cy="'+cyM+'" r="'+rM+'" fill="#FCE7F3" stroke="#BE185D" stroke-width="1.5"/>';
+      // Icône 👥 en haut
+      s += '<text x="'+cxM+'" y="'+(cyM-5)+'" text-anchor="middle" font-size="20" font-family="sans-serif">👥</text>';
+      // Label en bas
+      s += '<text x="'+cxM+'" y="'+(cyM+18)+'" text-anchor="middle" font-size="9" fill="#BE185D" font-weight="500" font-family="sans-serif">'+label+'</text>';
       break;
     case 'database':
       // Cylindre : ellipse top + côtés + ellipse bottom
@@ -8042,6 +8057,17 @@ function _fcRenderNode(node, allCtrls) {
     s += '<rect x="'+(x-4)+'" y="'+(y-4)+'" width="'+(w+8)+'" height="'+(h+8)+'" rx="3" ry="3" fill="none" stroke="#3C3489" stroke-width="2" stroke-dasharray="4,2" pointer-events="none"/>';
   }
 
+  // Affichage de l'acteur (qui exécute) sous la forme — pour tous types sauf start/end
+  if (node.actor && node.type !== 'start' && node.type !== 'end') {
+    var actorTxt = (''+node.actor).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    if (actorTxt.length > 28) actorTxt = actorTxt.substring(0, 26) + '…';
+    var actorY = y + h + 14; // 14px sous le bas de la forme
+    // Petit fond pour la lisibilité (pas de border, juste fond clair)
+    var actorW = Math.max(actorTxt.length * 5.5 + 12, 30);
+    s += '<rect x="'+(x + w/2 - actorW/2)+'" y="'+(actorY - 9)+'" width="'+actorW+'" height="13" fill="#fafafa" stroke="#e5e5e5" stroke-width=".5" rx="2" pointer-events="none"/>';
+    s += '<text x="'+(x + w/2)+'" y="'+(actorY + 1)+'" text-anchor="middle" font-size="9" fill="#6B7280" font-style="italic" font-family="sans-serif" pointer-events="none">👤 '+actorTxt+'</text>';
+  }
+
   s += '</g>';
   return s;
 }
@@ -8049,7 +8075,7 @@ function _fcRenderNode(node, allCtrls) {
 // Panneau de propriétés du nœud sélectionné
 function _fcRenderProperties(node, allCtrls) {
   var h = '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;margin-bottom:6px">Propriétés</div>';
-  var typeLabels = {start:'Début', end:'Fin', step:'Étape', decision:'Décision', document:'Document', database:'Système / BDD', ctrl_existing:'Contrôle Existant', ctrl_target:'Contrôle Target'};
+  var typeLabels = {start:'Début', end:'Fin', step:'Étape', decision:'Décision', meeting:'Réunion', document:'Document', database:'Système / BDD', ctrl_existing:'Contrôle Existant', ctrl_target:'Contrôle Target'};
   h += '<div style="font-size:11px;color:#3C3489;font-weight:500;margin-bottom:10px">'+(typeLabels[node.type]||node.type)+'</div>';
 
   // Texte (sauf si lié à un contrôle)
@@ -8063,6 +8089,14 @@ function _fcRenderProperties(node, allCtrls) {
     h += '<input type="text" value="'+(''+(node.text||'')).replace(/"/g,'&quot;')+'" onchange="setFlowchartNodeText(\''+node.id+'\',this.value)" style="width:100%;font-size:11px;padding:4px 7px;border:.5px solid var(--border);border-radius:3px;box-sizing:border-box"/>';
   }
   h += '</div>';
+
+  // Acteur — qui exécute (sauf pour Début/Fin)
+  if (node.type !== 'start' && node.type !== 'end') {
+    h += '<div style="margin-bottom:10px">';
+    h += '<label style="font-size:10px;color:var(--text-2);display:block;margin-bottom:3px">👤 Acteur (qui exécute)</label>';
+    h += '<input type="text" value="'+(''+(node.actor||'')).replace(/"/g,'&quot;')+'" placeholder="ex : Trésorerie, Manager, ERP…" onchange="setFlowchartNodeProp(\''+node.id+'\',\'actor\',this.value)" style="width:100%;font-size:11px;padding:4px 7px;border:.5px solid var(--border);border-radius:3px;box-sizing:border-box"/>';
+    h += '</div>';
+  }
 
   // Position
   h += '<div style="margin-bottom:10px">';
@@ -8241,6 +8275,13 @@ function startDragNode(event, nodeId) {
   var node = fc.nodes.find(function(x){return x.id===nodeId;});
   if (!node) return;
 
+  // ─── Mode edge : on traite tout de suite comme création de lien ─
+  // (pas de drag possible en mode edge)
+  if (_flowchartEditor.edgeMode) {
+    selectNode(nodeId);
+    return;
+  }
+
   // Calcul des coordonnées en repère SVG
   var svg = document.getElementById('fc-canvas');
   if (!svg) return;
@@ -8253,8 +8294,9 @@ function startDragNode(event, nodeId) {
     offsetX: startSvgPt.x - node.x,
     offsetY: startSvgPt.y - node.y,
     moved: false,
+    startClientX: event.clientX,
+    startClientY: event.clientY,
   };
-  _flowchartEditor.selectedNodeId = nodeId;
 
   // Bind global handlers
   document.addEventListener('mousemove', _fcOnDrag);
@@ -8263,6 +8305,12 @@ function startDragNode(event, nodeId) {
 
 function _fcOnDrag(event) {
   if (!_flowchartEditor || !_flowchartEditor.dragging) return;
+  // Détection de drag réel : seuil de 3px (sinon on considère que c'est un clic)
+  var dx = Math.abs(event.clientX - _flowchartEditor.dragging.startClientX);
+  var dy = Math.abs(event.clientY - _flowchartEditor.dragging.startClientY);
+  if (!_flowchartEditor.dragging.moved && (dx + dy) < 3) {
+    return; // pas encore considéré comme drag
+  }
   var svg = document.getElementById('fc-canvas');
   if (!svg) return;
   var pt = svg.createSVGPoint();
@@ -8294,12 +8342,16 @@ async function _fcOnDragEnd(event) {
   document.removeEventListener('mousemove', _fcOnDrag);
   document.removeEventListener('mouseup', _fcOnDragEnd);
   var moved = _flowchartEditor.dragging.moved;
+  var nodeId = _flowchartEditor.dragging.nodeId;
   _flowchartEditor.dragging = null;
   if (moved) {
     await saveAuditData(CA);
+    // Rerender complet pour rafraîchir le panneau de propriétés (x,y mis à jour)
+    document.getElementById('det-content').innerHTML = renderDetContent();
+  } else {
+    // Pas de drag réel = clic simple → traiter comme sélection (gère aussi le mode edge)
+    selectNode(nodeId);
   }
-  // Rerender complet pour rafraîchir le panneau de propriétés (x,y mis à jour)
-  document.getElementById('det-content').innerHTML = renderDetContent();
 }
 
 // Refresh SVG inline pendant le drag (sans détruire les listeners)
