@@ -764,6 +764,9 @@ async function loadAuditData(auditId) {
       if (legacyAttach) {
         delete kickoffPrep.__attachments;
       }
+      var attachments = tryParse(f.attachments_json, legacyAttach || {});
+      // Extraire les flowcharts depuis attachments (où ils sont stockés)
+      var flowcharts = Array.isArray(attachments.flowcharts) ? attachments.flowcharts : [];
       DB.auditData[auditId] = {
         tasks:tryParse(f.tasks_json,{}), controls:tryParse(f.controls_json,{}),
         findings:tryParse(f.findings_json,[]), mgtResp:tryParse(f.mgt_resp_json,[]),
@@ -779,14 +782,16 @@ async function loadAuditData(auditId) {
         issues:tryParse(f.issues_json,[]),
         execSummaryHeader:f.exec_summary_header||'',
         // Priorité : nouvelle colonne attachments_json, fallback ancien workaround
-        attachments:tryParse(f.attachments_json, legacyAttach || {}),
+        attachments:attachments,
+        // flowcharts : exposé directement à la racine pour les vues, mais persisté via attachments
+        flowcharts:flowcharts,
       };
     } else {
-      DB.auditData[auditId] = {tasks:{},controls:{},findings:[],mgtResp:[],docs:[],notes:'',maturity:null,riskLinks:{},auditRisks:[],stepStates:{},prepNotes:{},revNotes:{},wcgw:{},kickoffPrep:{},workProgramBU:{processes:[]},issues:[],execSummaryHeader:'',attachments:{}};
+      DB.auditData[auditId] = {tasks:{},controls:{},findings:[],mgtResp:[],docs:[],notes:'',maturity:null,riskLinks:{},auditRisks:[],stepStates:{},prepNotes:{},revNotes:{},wcgw:{},kickoffPrep:{},workProgramBU:{processes:[]},issues:[],execSummaryHeader:'',attachments:{},flowcharts:[]};
     }
   } catch(e) {
     console.warn('[SP] loadAuditData error:', e.message);
-    DB.auditData[auditId] = {tasks:{},controls:{},findings:[],mgtResp:[],docs:[],notes:'',maturity:null,riskLinks:{},auditRisks:[],stepStates:{},prepNotes:{},revNotes:{},wcgw:{},kickoffPrep:{},workProgramBU:{processes:[]},issues:[],execSummaryHeader:'',attachments:{}};
+    DB.auditData[auditId] = {tasks:{},controls:{},findings:[],mgtResp:[],docs:[],notes:'',maturity:null,riskLinks:{},auditRisks:[],stepStates:{},prepNotes:{},revNotes:{},wcgw:{},kickoffPrep:{},workProgramBU:{processes:[]},issues:[],execSummaryHeader:'',attachments:{},flowcharts:[]};
   }
   AUD_DATA[auditId] = DB.auditData[auditId];
   return DB.auditData[auditId];
@@ -795,6 +800,13 @@ async function loadAuditData(auditId) {
 async function saveAuditData(auditId) {
   var d = AUD_DATA[auditId];
   if (!d) return;
+  // Injecter d.flowcharts dans d.attachments.flowcharts avant la sérialisation
+  // Les flowcharts sont exposés à la racine de l'objet (pour les vues), mais
+  // persistés dans la colonne attachments_json (pour éviter de créer une nouvelle colonne SP).
+  if (Array.isArray(d.flowcharts)) {
+    if (!d.attachments) d.attachments = {};
+    d.attachments.flowcharts = d.flowcharts;
+  }
   await spUpsert('AF_AuditData', auditId, {
     tasks_json:JSON.stringify(d.tasks), controls_json:JSON.stringify(d.controls),
     findings_json:JSON.stringify(d.findings), mgt_resp_json:JSON.stringify(d.mgtResp),
@@ -1436,12 +1448,12 @@ async function createOutlookEvent(payload) {
   for (var i = 0; i < (payload.attachments||[]).length; i++) {
     var att = payload.attachments[i];
     if (att.url) {
+      // Format minimal recommandé pour referenceAttachment sur events
+      // Voir https://learn.microsoft.com/en-us/graph/api/resources/referenceattachment
       graphAttachments.push({
         '@odata.type': '#microsoft.graph.referenceAttachment',
         name: att.name,
         sourceUrl: att.url,
-        providerType: 'oneDriveBusiness',
-        permission: 'view',
         isFolder: false,
       });
     } else if (att.blobOrBase64) {

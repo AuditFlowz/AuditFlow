@@ -7384,6 +7384,11 @@ function renderFlowchartSplash() {
 // ─── Init / sélection automatique d'un flowchart ─────────────────
 function _fcEnsureState() {
   var d = getAudData(CA);
+  // Migration de sécurité : si flowcharts est dans d.attachments.flowcharts mais pas à la racine,
+  // on les remonte. (Au cas où getAudData retourne un objet qui n'a pas été passé par loadAuditData.)
+  if (!Array.isArray(d.flowcharts) && d.attachments && Array.isArray(d.attachments.flowcharts)) {
+    d.flowcharts = d.attachments.flowcharts;
+  }
   if (!Array.isArray(d.flowcharts)) d.flowcharts = [];
   if (d.flowcharts.length === 0) {
     // Pas de flowchart : on n'initialise pas l'éditeur (la vue affiche le splash)
