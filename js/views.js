@@ -4614,13 +4614,22 @@ function renderDetContent(){
     }
     // Pour les audits Process : aucune section spécifique (juste les docs + notes en bas)
   } else if (CS === 4) {
-    // Étape 5 (index 4) : ITW : WCGW & Contrôles (groupés)
-    // Si l'éditeur Flowchart est ouvert, on l'affiche en plein → masque le reste
-    if (typeof _flowchartEditor !== 'undefined' && _flowchartEditor) {
-      html += renderFlowchartEditor();
-    } else {
-      html += renderRiskSection();
+    // Étape 4 (index 4) : Vue plein écran Flowcharts (Process uniquement)
+    // - Si pas de flowchart : splash avec bouton "Créer le 1er flowchart" + accès aux WCGW
+    // - Sinon : éditeur flowchart en grand, avec WCGW dans panneau latéral
+    html += renderRiskSection();
+    if (a.type === 'BU') {
+      // BU : pas de flowchart, on garde la vue WCGW classique
       html += renderWCGWSection();
+    } else {
+      // Process : vue flowchart prioritaire
+      _fcEnsureState();
+      if (_flowchartEditor) {
+        html += renderFlowchartEditor();
+      } else {
+        // Splash : pas encore de flowchart pour cet audit
+        html += renderFlowchartSplash();
+      }
     }
     // renderControlsSection désactivée - tout est dans renderWCGWSection
   } else if (CS === 5) {
@@ -7127,37 +7136,18 @@ function renderWCGWSection() {
     html += '<div style="border:.5px solid var(--border);border-radius:6px;margin-bottom:10px;background:#fff;overflow:hidden">';
 
     // En-tête cliquable de la carte sous-processus
-    var flowchartsForSP = (Array.isArray(d.flowcharts) ? d.flowcharts : []).filter(function(fc){return fc.subProcessId === sp.id;});
     html += '<div style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:#fafafa;border-bottom:'+(expanded?'.5px solid var(--border)':'none')+';cursor:pointer" onclick="toggleWCGWSubProcess(\''+_escJsArg(sp.id)+'\')">';
     html += '<span style="font-size:11px;color:var(--text-3);width:14px;text-align:center">'+(expanded?'▼':'▶')+'</span>';
     html += '<div style="flex:1;min-width:0">';
     html += '<div style="font-size:13px;font-weight:500;color:var(--text-1)">'+(''+spName).replace(/</g,'&lt;')+'</div>';
     if (spDesc) html += '<div style="font-size:10px;color:var(--text-3);margin-top:1px">'+(''+spDesc).replace(/</g,'&lt;')+'</div>';
     html += '</div>';
-    html += '<span style="font-size:10px;color:var(--text-3);background:#fff;border:.5px solid var(--border);border-radius:3px;padding:2px 6px">'+wcgwsForSP.length+' WCGW · '+ctrlsForSP+' contrôles · '+flowchartsForSP.length+' flowchart'+(flowchartsForSP.length>1?'s':'')+'</span>';
-    html += '<button class="bs" style="font-size:10px;padding:3px 8px" onclick="event.stopPropagation();createFlowchartForSP(\''+_escJsArg(sp.id)+'\')" title="Créer un flowchart pour ce sous-processus">📊 + Flowchart</button>';
+    html += '<span style="font-size:10px;color:var(--text-3);background:#fff;border:.5px solid var(--border);border-radius:3px;padding:2px 6px">'+wcgwsForSP.length+' WCGW · '+ctrlsForSP+' contrôles</span>';
     html += '<button class="bs" style="font-size:10px;padding:3px 8px" onclick="event.stopPropagation();showAddWCGWModalForSP(\''+_escJsArg(sp.id)+'\')">+ WCGW</button>';
     html += '</div>';
 
     // Contenu de la carte (WCGW)
     if (expanded) {
-      // Liste des flowcharts existants (cliquables pour ouvrir l'éditeur)
-      if (flowchartsForSP.length > 0) {
-        html += '<div style="padding:10px 12px;border-bottom:.5px solid #f0f0f0;background:#FAFAFE">';
-        html += '<div style="font-size:9px;color:#3C3489;text-transform:uppercase;letter-spacing:.4px;font-weight:500;margin-bottom:6px">📊 Flowcharts</div>';
-        flowchartsForSP.forEach(function(fc){
-          var nodeCount = (fc.nodes||[]).length;
-          var edgeCount = (fc.edges||[]).length;
-          html += '<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:#fff;border:.5px solid #CECBF6;border-radius:3px;margin-bottom:4px">';
-          html += '<span style="flex:1;font-size:11px;cursor:pointer;color:#3C3489;font-weight:500" onclick="openFlowchartEditor(\''+_escJsArg(fc.id)+'\')">'+(''+(fc.label||'(sans titre)')).replace(/</g,'&lt;')+'</span>';
-          html += '<span style="font-size:10px;color:var(--text-3)">'+nodeCount+' nœuds · '+edgeCount+' liens</span>';
-          html += '<button class="bs" style="font-size:10px;padding:2px 6px" onclick="openFlowchartEditor(\''+_escJsArg(fc.id)+'\')">Éditer</button>';
-          html += '<button class="bd" style="font-size:10px;padding:2px 5px" onclick="deleteFlowchart(\''+_escJsArg(fc.id)+'\')" title="Supprimer">×</button>';
-          html += '</div>';
-        });
-        html += '</div>';
-      }
-
       if (!wcgwsForSP.length) {
         html += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:14px;text-align:center">Aucun WCGW pour ce sous-processus. Cliquez sur « + WCGW » dans l\'en-tête pour en ajouter un.</div>';
       } else {
@@ -7328,7 +7318,17 @@ function showAddControlForWCGW(wcgwId, designMode) {
 //  ÉDITEUR FLOWCHART (v59 — MVP : palette, drag, propriétés, save)
 // ════════════════════════════════════════════════════════════════════
 
-// État éphémère de l'éditeur (null quand fermé)
+// État éphémère de l'éditeur. Structure :
+//   {
+//     fcId: 'fc_xxx',                  // flowchart actuellement affiché
+//     selectedNodeId: 'n_xxx' | null,
+//     dragging: {nodeId, offsetX, offsetY, moved} | null,
+//     edgeMode: false,                 // mode "création de lien" actif
+//     edgeFromId: 'n_xxx' | null,      // 1er nœud cliqué pendant edgeMode
+//     sidePanelTab: 'narrative' | 'wcgw',
+//     zoom: 1.0,
+//   }
+// Initialisé automatiquement par _fcEnsureState() à l'ouverture de l'étape 4.
 var _flowchartEditor = null;
 
 // Largeurs/tailles par défaut des formes
@@ -7343,43 +7343,168 @@ var _FC_DEFAULTS = {
   ctrl_target:   {w: 60, h: 60, label: 'CTRL-T'},
 };
 
-// ─── Création + ouverture éditeur ───────────────────────────────
+// ─── Splash (vue quand 0 flowchart pour cet audit) ──────────────
+function renderFlowchartSplash() {
+  var d = getAudData(CA);
+  var sps = (d.kickoffPrep && Array.isArray(d.kickoffPrep.subProcesses)) ? d.kickoffPrep.subProcesses : [];
+  var wcgwList = (d.wcgw && d.wcgw[4]) || [];
+  var ctrls = (d.controls && d.controls[4]) || [];
+
+  var html = '<div class="card" style="margin-bottom:.75rem;background:linear-gradient(135deg,#EEEDFE 0%,#F5F4FE 100%);border:.5px solid #CECBF6">';
+  html += '<div style="text-align:center;padding:24px 16px">';
+  html += '<div style="font-size:42px">📊</div>';
+  html += '<div style="font-size:16px;font-weight:600;color:#3C3489;margin-top:8px">Flowcharts</div>';
+  html += '<div style="font-size:12px;color:#534AB7;margin-top:6px;max-width:540px;margin-left:auto;margin-right:auto;line-height:1.5">';
+  html += 'Documentez les processus audités via des flowcharts visuels. Liez les WCGW et les contrôles existants/target aux étapes du processus, attachez le narratif descriptif (texte ou fichier).';
+  html += '</div>';
+  html += '<div style="margin-top:18px">';
+  if (!sps.length) {
+    html += '<div style="font-size:11px;color:#854F0B;background:#FAEEDA;border:.5px solid #FAC775;border-radius:4px;padding:8px 12px;display:inline-block">⚠ Définis d\'abord les sous-processus en étape 2 (Work Program)</div>';
+  } else {
+    html += '<button class="bp" style="font-size:13px;padding:9px 22px;background:#3C3489;color:#fff;font-weight:500" onclick="showCreateFlowchartModal()">📊 Créer le 1er flowchart</button>';
+  }
+  html += '</div>';
+  html += '</div>';
+  html += '</div>';
+
+  // Section WCGW classique en complément (l'utilisateur peut quand même y accéder)
+  html += '<div style="margin-top:14px">';
+  html += '<details style="background:#fff;border:.5px solid var(--border);border-radius:6px">';
+  html += '<summary style="padding:10px 14px;cursor:pointer;font-size:12px;font-weight:500;color:var(--text-2)">📋 Définir les WCGW & Contrôles directement (vue classique) <span style="font-size:10px;font-weight:400;color:var(--text-3)">— '+wcgwList.length+' WCGW · '+ctrls.length+' contrôles</span></summary>';
+  html += '<div style="padding:10px;border-top:.5px solid var(--border)">';
+  html += renderWCGWSection();
+  html += '</div>';
+  html += '</details>';
+  html += '</div>';
+
+  return html;
+}
+
+
+// ─── Init / sélection automatique d'un flowchart ─────────────────
+function _fcEnsureState() {
+  var d = getAudData(CA);
+  if (!Array.isArray(d.flowcharts)) d.flowcharts = [];
+  if (d.flowcharts.length === 0) {
+    // Pas de flowchart : on n'initialise pas l'éditeur (la vue affiche le splash)
+    _flowchartEditor = null;
+    return null;
+  }
+  if (!_flowchartEditor) {
+    _flowchartEditor = {
+      fcId: d.flowcharts[0].id,
+      selectedNodeId: null,
+      dragging: null,
+      edgeMode: false,
+      edgeFromId: null,
+      sidePanelTab: 'narrative',
+      zoom: 1.0,
+    };
+  } else {
+    // Vérifier que le flowchart existe toujours
+    var stillExists = d.flowcharts.some(function(fc){return fc.id === _flowchartEditor.fcId;});
+    if (!stillExists) {
+      _flowchartEditor.fcId = d.flowcharts[0].id;
+      _flowchartEditor.selectedNodeId = null;
+    }
+  }
+  return _flowchartEditor;
+}
+
+function switchFlowchart(fcId) {
+  if (!_flowchartEditor) _fcEnsureState();
+  _flowchartEditor.fcId = fcId;
+  _flowchartEditor.selectedNodeId = null;
+  _flowchartEditor.edgeMode = false;
+  _flowchartEditor.edgeFromId = null;
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+// Naviguer ← / → entre flowcharts
+function navigateFlowchart(direction) {
+  var d = getAudData(CA);
+  if (!Array.isArray(d.flowcharts) || d.flowcharts.length === 0) return;
+  if (!_flowchartEditor) return;
+  var idx = d.flowcharts.findIndex(function(fc){return fc.id === _flowchartEditor.fcId;});
+  if (idx < 0) idx = 0;
+  var newIdx = idx + (direction === 'next' ? 1 : -1);
+  if (newIdx < 0) newIdx = d.flowcharts.length - 1;
+  if (newIdx >= d.flowcharts.length) newIdx = 0;
+  switchFlowchart(d.flowcharts[newIdx].id);
+}
+
+// ─── Création de flowchart ──────────────────────────────────────
 async function createFlowchartForSP(spId) {
   var d = getAudData(CA);
   if (!Array.isArray(d.flowcharts)) d.flowcharts = [];
   var sp = (d.kickoffPrep && Array.isArray(d.kickoffPrep.subProcesses))
     ? d.kickoffPrep.subProcesses.find(function(x){return x.id===spId;}) : null;
   var defaultLabel = sp ? (sp.name || 'Flowchart') : 'Flowchart';
+  // Si on a déjà un flowchart pour ce SP, suffixer pour distinguer
+  var existingForSP = d.flowcharts.filter(function(fc){return fc.subProcessId === spId;});
+  if (existingForSP.length > 0) {
+    defaultLabel += ' #' + (existingForSP.length + 1);
+  }
   var fc = {
     id: 'fc_' + Date.now() + '_' + Math.floor(Math.random()*100000),
     label: defaultLabel,
     subProcessId: spId,
     nodes: [],
     edges: [],
+    narrative: '',
+    narrativeFile: null, // {webUrl, fileName, uploadedAt}
     createdAt: new Date().toISOString(),
   };
   d.flowcharts.push(fc);
   await saveAuditData(CA);
   if (typeof addHist === 'function') addHist(CA, 'Flowchart créé : ' + defaultLabel);
-  openFlowchartEditor(fc.id);
+  switchFlowchart(fc.id);
 }
 
-function openFlowchartEditor(fcId) {
+// Ouvrir une modale de choix de SP pour créer un flowchart libre
+function showCreateFlowchartModal() {
   var d = getAudData(CA);
-  var fc = (d.flowcharts || []).find(function(x){return x.id===fcId;});
-  if (!fc) { toast('Flowchart introuvable'); return; }
-  _flowchartEditor = {
-    fcId: fcId,
-    selectedNodeId: null,
-    dragging: null, // {nodeId, offsetX, offsetY}
-    zoom: 1.0,
-  };
-  document.getElementById('det-content').innerHTML = renderDetContent();
-}
-
-function closeFlowchartEditor() {
-  _flowchartEditor = null;
-  document.getElementById('det-content').innerHTML = renderDetContent();
+  var sps = (d.kickoffPrep && Array.isArray(d.kickoffPrep.subProcesses))
+    ? d.kickoffPrep.subProcesses : [];
+  if (!sps.length) {
+    toast('Aucun sous-processus défini. Crée d\'abord les sous-processus en étape 2 (Work Program).');
+    return;
+  }
+  var spOptions = sps.map(function(sp){
+    return '<option value="'+sp.id+'">'+(''+(sp.name||'(sans nom)')).replace(/"/g,'&quot;')+'</option>';
+  }).join('');
+  var body = '<div><label>Sous-processus <span style="color:var(--red)">*</span></label>';
+  body += '<select id="newfc-sp">'+spOptions+'</select></div>';
+  body += '<div><label>Titre du flowchart (facultatif)</label>';
+  body += '<input id="newfc-label" placeholder="ex : Workflow d\'octroi"/></div>';
+  openModal('Nouveau flowchart', body, async function(){
+    var spId = document.getElementById('newfc-sp').value;
+    var customLabel = document.getElementById('newfc-label').value.trim();
+    if (!spId) { toast('Sous-processus obligatoire'); return; }
+    var d2 = getAudData(CA);
+    if (!Array.isArray(d2.flowcharts)) d2.flowcharts = [];
+    var sp = sps.find(function(x){return x.id===spId;});
+    var spName = sp ? (sp.name || 'Flowchart') : 'Flowchart';
+    var label = customLabel || spName;
+    var existingForSP = d2.flowcharts.filter(function(fc){return fc.subProcessId === spId;});
+    if (!customLabel && existingForSP.length > 0) {
+      label += ' #' + (existingForSP.length + 1);
+    }
+    var fc = {
+      id: 'fc_' + Date.now() + '_' + Math.floor(Math.random()*100000),
+      label: label,
+      subProcessId: spId,
+      nodes: [],
+      edges: [],
+      narrative: '',
+      narrativeFile: null,
+      createdAt: new Date().toISOString(),
+    };
+    d2.flowcharts.push(fc);
+    await saveAuditData(CA);
+    if (typeof addHist === 'function') addHist(CA, 'Flowchart créé : ' + label);
+    switchFlowchart(fc.id);
+  });
 }
 
 async function deleteFlowchart(fcId) {
@@ -7390,6 +7515,15 @@ async function deleteFlowchart(fcId) {
   if (idx < 0) return;
   var label = d.flowcharts[idx].label;
   d.flowcharts.splice(idx, 1);
+  // Si on supprime le flowchart actuellement affiché, basculer
+  if (_flowchartEditor && _flowchartEditor.fcId === fcId) {
+    if (d.flowcharts.length > 0) {
+      _flowchartEditor.fcId = d.flowcharts[0].id;
+      _flowchartEditor.selectedNodeId = null;
+    } else {
+      _flowchartEditor = null;
+    }
+  }
   await saveAuditData(CA);
   if (typeof addHist === 'function') addHist(CA, 'Flowchart supprimé : ' + label);
   document.getElementById('det-content').innerHTML = renderDetContent();
@@ -7416,37 +7550,79 @@ function renderFlowchartEditor() {
   if (!fc) return '';
   var d = getAudData(CA);
   var allCtrls = (d.controls && d.controls[4]) || [];
+  var allFcs = Array.isArray(d.flowcharts) ? d.flowcharts : [];
+  var sps = (d.kickoffPrep && Array.isArray(d.kickoffPrep.subProcesses)) ? d.kickoffPrep.subProcesses : [];
+  var currentSp = sps.find(function(sp){return sp.id === fc.subProcessId;});
 
   var html = '<div style="background:#fff;border:.5px solid var(--border);border-radius:6px;overflow:hidden;margin-bottom:10px">';
 
-  // ─── Title bar ───
-  html += '<div style="background:#3C3489;color:#fff;padding:8px 14px;display:flex;justify-content:space-between;align-items:center">';
-  html += '<div style="display:flex;align-items:center;gap:10px;flex:1">';
-  html += '<span style="font-size:16px">📊</span>';
-  html += '<input id="fc-label" value="'+(''+(fc.label||'')).replace(/"/g,'&quot;')+'" placeholder="Titre du flowchart..." onchange="setFlowchartLabel(this.value)" style="font-size:13px;padding:3px 8px;border:.5px solid rgba(255,255,255,.3);background:rgba(255,255,255,.1);color:#fff;border-radius:3px;width:300px;box-sizing:border-box"/>';
-  html += '</div>';
-  html += '<div style="display:flex;gap:6px">';
-  html += '<button onclick="closeFlowchartEditor()" style="font-size:11px;padding:5px 12px;background:transparent;color:#fff;border:.5px solid rgba(255,255,255,.4);border-radius:3px;cursor:pointer">× Fermer</button>';
-  html += '</div>';
+  // ─── TOP BAR : navigation + actions ────────────────────────────
+  html += '<div style="background:#3C3489;color:#fff;padding:8px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">';
+  html += '<div style="display:flex;align-items:center;gap:8px;flex:0 0 auto">';
+  html += '<span style="font-size:14px">📊</span>';
+  html += '<span style="font-size:12px;font-weight:500">Flowcharts</span>';
   html += '</div>';
 
-  // ─── Toolbar ───
-  html += '<div style="display:flex;gap:6px;padding:8px 12px;background:#fafafa;border-bottom:.5px solid var(--border);align-items:center;flex-wrap:wrap">';
-  html += '<span style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;margin-right:4px">Édition</span>';
-  if (_flowchartEditor.selectedNodeId) {
-    html += '<button class="bd" style="font-size:10px;padding:4px 8px" onclick="deleteSelectedNode()">🗑 Supprimer la forme</button>';
-  } else {
-    html += '<span style="font-size:10px;color:var(--text-3);font-style:italic">Sélectionne une forme pour la modifier</span>';
+  // Onglets de flowcharts (navigation)
+  html += '<div style="flex:1;display:flex;gap:2px;align-items:center;overflow-x:auto;padding:0 8px;min-width:0">';
+  if (allFcs.length > 1) {
+    html += '<button onclick="navigateFlowchart(\'prev\')" title="Flowchart précédent" style="background:rgba(255,255,255,.1);border:.5px solid rgba(255,255,255,.3);color:#fff;width:22px;height:22px;border-radius:3px;cursor:pointer;font-size:12px;flex-shrink:0;padding:0">‹</button>';
   }
-  html += '<span style="margin-left:auto;font-size:10px;color:var(--text-3);font-style:italic">'+fc.nodes.length+' nœud(s) · '+fc.edges.length+' lien(s)</span>';
+  allFcs.forEach(function(f){
+    var isActive = f.id === _flowchartEditor.fcId;
+    var sp = sps.find(function(s){return s.id === f.subProcessId;});
+    var spName = sp ? (sp.name || '') : '';
+    var label = f.label || '(sans titre)';
+    // Format compact : si label fait ref au SP, on n'affiche que label, sinon "label (SP)"
+    var displayLabel = label;
+    if (spName && label.toLowerCase().indexOf(spName.toLowerCase()) < 0) {
+      displayLabel = label + ' · ' + spName;
+    }
+    var bg = isActive ? '#fff' : 'rgba(255,255,255,.1)';
+    var color = isActive ? '#3C3489' : 'rgba(255,255,255,.85)';
+    var weight = isActive ? '500' : '400';
+    html += '<span onclick="switchFlowchart(\''+_escJsArg(f.id)+'\')" style="font-size:11px;padding:5px 11px;background:'+bg+';color:'+color+';border-radius:3px;cursor:pointer;flex-shrink:0;font-weight:'+weight+'">';
+    html += (''+displayLabel).replace(/</g,'&lt;')
+      + ' <span style="font-size:9px;opacity:.7">('+(f.nodes||[]).length+')</span>';
+    html += '</span>';
+  });
+  if (allFcs.length > 1) {
+    html += '<button onclick="navigateFlowchart(\'next\')" title="Flowchart suivant" style="background:rgba(255,255,255,.1);border:.5px solid rgba(255,255,255,.3);color:#fff;width:22px;height:22px;border-radius:3px;cursor:pointer;font-size:12px;flex-shrink:0;padding:0">›</button>';
+  }
+  html += '<button onclick="showCreateFlowchartModal()" title="Nouveau flowchart" style="font-size:11px;padding:5px 9px;background:transparent;color:rgba(255,255,255,.85);border:.5px dashed rgba(255,255,255,.4);border-radius:3px;cursor:pointer;flex-shrink:0">+ Flowchart</button>';
   html += '</div>';
 
-  // ─── 3 colonnes : palette / canvas / propriétés ───
-  html += '<div style="display:flex;height:520px">';
+  html += '<div style="display:flex;gap:6px;flex-shrink:0">';
+  html += '<button onclick="deleteFlowchart(\''+_escJsArg(fc.id)+'\')" title="Supprimer ce flowchart" style="font-size:11px;padding:5px 10px;background:transparent;color:rgba(255,255,255,.85);border:.5px solid rgba(255,255,255,.4);border-radius:3px;cursor:pointer">🗑 Supprimer</button>';
+  html += '</div>';
+  html += '</div>';
+
+  // ─── TOOLBAR : titre éditable + actions ─────────────────────────
+  html += '<div style="display:flex;gap:8px;padding:8px 14px;background:#fafafa;border-bottom:.5px solid var(--border);align-items:center;flex-wrap:wrap">';
+  html += '<input id="fc-label" value="'+(''+(fc.label||'')).replace(/"/g,'&quot;')+'" placeholder="Titre du flowchart..." onchange="setFlowchartLabel(this.value)" style="font-size:12px;padding:4px 9px;border:.5px solid var(--border);border-radius:3px;width:280px;font-weight:500;box-sizing:border-box"/>';
+  if (currentSp) {
+    html += '<span style="font-size:10px;color:var(--text-3)">Sous-processus : <strong style="font-weight:500;color:var(--text-2)">'+(''+currentSp.name).replace(/</g,'&lt;')+'</strong></span>';
+  }
+  html += '<div style="width:1px;height:18px;background:var(--border);margin:0 4px"></div>';
+  // Edge mode toggle
+  var edgeMode = !!_flowchartEditor.edgeMode;
+  var edgeBtnBg = edgeMode ? '#3C3489' : '#fff';
+  var edgeBtnColor = edgeMode ? '#fff' : 'var(--text-2)';
+  html += '<button onclick="toggleEdgeMode()" style="font-size:10px;padding:4px 10px;background:'+edgeBtnBg+';color:'+edgeBtnColor+';border:.5px solid '+(edgeMode?'#3C3489':'var(--border)')+';border-radius:3px;cursor:pointer;font-weight:500" title="Cliquer 2 nœuds pour les relier">';
+  html += edgeMode ? '✓ Mode lien actif (cliquer 2 nœuds)' : '🔗 Créer un lien';
+  html += '</button>';
+  if (_flowchartEditor.selectedNodeId) {
+    html += '<button class="bd" style="font-size:10px;padding:4px 10px" onclick="deleteSelectedNode()">🗑 Supprimer la forme</button>';
+  }
+  html += '<span style="margin-left:auto;font-size:10px;color:var(--text-3);font-style:italic">'+(fc.nodes||[]).length+' nœud(s) · '+(fc.edges||[]).length+' lien(s)</span>';
+  html += '</div>';
+
+  // ─── 3 COLONNES : palette / canvas / side panel ────────────────
+  html += '<div style="display:flex;height:560px">';
 
   // PALETTE GAUCHE
-  html += '<div style="width:170px;background:#fafafa;border-right:.5px solid var(--border);padding:10px;overflow-y:auto;box-sizing:border-box">';
-  html += _fcRenderPaletteSection('Flux du processus', [
+  html += '<div style="width:150px;background:#fafafa;border-right:.5px solid var(--border);padding:10px;overflow-y:auto;box-sizing:border-box;flex-shrink:0">';
+  html += _fcRenderPaletteSection('Flux', [
     {type:'start',    icon:'<span style="display:inline-block;width:18px;height:11px;background:#EEEDFE;border:1.5px solid #3C3489;border-radius:50px"></span>', label:'Début'},
     {type:'end',      icon:'<span style="display:inline-block;width:18px;height:11px;background:#EEEDFE;border:1.5px solid #3C3489;border-radius:50px"></span>', label:'Fin'},
     {type:'step',     icon:'<span style="display:inline-block;width:20px;height:13px;background:#fff;border:1.5px solid #3C3489;border-radius:2px"></span>', label:'Étape'},
@@ -7454,7 +7630,7 @@ function renderFlowchartEditor() {
   ]);
   html += _fcRenderPaletteSection('Données', [
     {type:'document', icon:'<span style="display:inline-block;width:18px;height:14px;background:#fff;border:1.5px solid #534AB7;border-radius:2px"></span>', label:'Document'},
-    {type:'database', icon:'<span style="display:inline-block;width:18px;height:14px;background:#F5FBF8;border:1.5px solid #5DCAA5;border-radius:50%/30%"></span>', label:'Système / BDD'},
+    {type:'database', icon:'<span style="display:inline-block;width:18px;height:14px;background:#F5FBF8;border:1.5px solid #5DCAA5;border-radius:50%/30%"></span>', label:'Système'},
   ]);
   html += _fcRenderPaletteSection('Contrôles', [
     {type:'ctrl_existing', icon:'<span style="display:inline-block;width:13px;height:13px;background:#E1F5EE;border:2px solid #5DCAA5;border-radius:50%"></span>', label:'Existant'},
@@ -7462,40 +7638,313 @@ function renderFlowchartEditor() {
   ]);
   html += '</div>';
 
-  // CANVAS CENTRAL — rendu SVG
-  html += '<div id="fc-canvas-wrap" style="flex:1;position:relative;background:#fff;background-image:radial-gradient(circle,#e5e5e5 1px,transparent 1px);background-size:20px 20px;overflow:auto">';
-  html += '<svg id="fc-canvas" width="100%" height="100%" style="min-width:1000px;min-height:500px;display:block" onclick="if(event.target===this){deselectNode();}">';
+  // CANVAS CENTRAL — rendu SVG (avec edges)
+  html += '<div id="fc-canvas-wrap" style="flex:1;position:relative;background:#fff;background-image:radial-gradient(circle,#e5e5e5 1px,transparent 1px);background-size:20px 20px;overflow:auto;min-width:0">';
+  if (edgeMode) {
+    html += '<div style="position:absolute;top:8px;left:8px;background:#3C3489;color:#fff;font-size:10px;padding:4px 9px;border-radius:3px;z-index:10;pointer-events:none">';
+    if (_flowchartEditor.edgeFromId) {
+      html += '🔗 Cliquer le 2e nœud (destination) — ESC pour annuler';
+    } else {
+      html += '🔗 Cliquer le 1er nœud (source)';
+    }
+    html += '</div>';
+  }
+  html += '<svg id="fc-canvas" width="100%" height="100%" style="min-width:1200px;min-height:540px;display:block" onclick="if(event.target===this){_fcOnCanvasClick();}">';
+  // defs pour la flèche réutilisable
+  html += '<defs><marker id="fc-arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#374151"/></marker></defs>';
+
+  // Render edges en premier (pour qu'elles soient sous les nœuds)
+  (fc.edges||[]).forEach(function(edge){
+    html += _fcRenderEdge(edge, fc.nodes);
+  });
 
   // Render nodes
-  fc.nodes.forEach(function(node){
+  (fc.nodes||[]).forEach(function(node){
     html += _fcRenderNode(node, allCtrls);
   });
 
   html += '</svg>';
 
   // Indication si vide
-  if (fc.nodes.length === 0) {
+  if ((fc.nodes||[]).length === 0) {
     html += '<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:12px;color:var(--text-3);font-style:italic;pointer-events:none;text-align:center;line-height:1.6">';
     html += '📊<br/>Cliquez une forme dans la palette de gauche<br/>pour l\'ajouter au flowchart.';
     html += '</div>';
   }
   html += '</div>';
 
-  // PROPRIÉTÉS DROITE
-  html += '<div style="width:220px;background:#fafafa;border-left:.5px solid var(--border);padding:10px;overflow-y:auto;box-sizing:border-box">';
-  var sel = _fcGetSelectedNode();
-  if (sel) {
-    html += _fcRenderProperties(sel, allCtrls);
-  } else {
-    html += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;margin-bottom:6px">Propriétés</div>';
-    html += '<div style="font-size:11px;color:var(--text-3);font-style:italic">Sélectionne un nœud pour voir et modifier ses propriétés.</div>';
+  // SIDE PANEL DROITE — onglets Narratif / WCGW & Contrôles
+  html += '<div style="width:300px;background:#fafafa;border-left:.5px solid var(--border);display:flex;flex-direction:column;flex-shrink:0">';
+  // Onglets
+  var tab = _flowchartEditor.sidePanelTab || 'narrative';
+  var nbWcgwForSP = 0, nbCtrlsForSP = 0;
+  if (fc.subProcessId) {
+    var wcgwList = (d.wcgw && d.wcgw[4]) || [];
+    var wcgwsForSP = wcgwList.filter(function(w){return w.subProcessId === fc.subProcessId;});
+    nbWcgwForSP = wcgwsForSP.length;
+    wcgwsForSP.forEach(function(w){
+      nbCtrlsForSP += allCtrls.filter(function(c){return c.wcgwId === w.id;}).length;
+    });
   }
+  html += '<div style="display:flex;gap:0;background:#fff;border-bottom:.5px solid var(--border)">';
+  html += '<div onclick="setFcSidePanelTab(\'narrative\')" style="flex:1;padding:9px 10px;font-size:11px;text-align:center;cursor:pointer;color:'+(tab==='narrative'?'#3C3489':'var(--text-2)')+';border-bottom:2px solid '+(tab==='narrative'?'#3C3489':'transparent')+';background:'+(tab==='narrative'?'#fafafa':'#fff')+';font-weight:'+(tab==='narrative'?'500':'400')+'">Narratif</div>';
+  html += '<div onclick="setFcSidePanelTab(\'wcgw\')" style="flex:1;padding:9px 10px;font-size:11px;text-align:center;cursor:pointer;color:'+(tab==='wcgw'?'#3C3489':'var(--text-2)')+';border-bottom:2px solid '+(tab==='wcgw'?'#3C3489':'transparent')+';background:'+(tab==='wcgw'?'#fafafa':'#fff')+';font-weight:'+(tab==='wcgw'?'500':'400')+'">WCGW & Contrôles';
+  if (nbWcgwForSP > 0) html += ' <span style="display:inline-block;background:#EEEDFE;color:#3C3489;font-size:9px;padding:1px 6px;border-radius:8px;margin-left:3px">'+nbWcgwForSP+'</span>';
+  html += '</div>';
+  // 3e onglet : propriétés du nœud sélectionné
+  if (_flowchartEditor.selectedNodeId) {
+    html += '<div onclick="setFcSidePanelTab(\'props\')" style="flex:1;padding:9px 10px;font-size:11px;text-align:center;cursor:pointer;color:'+(tab==='props'?'#3C3489':'var(--text-2)')+';border-bottom:2px solid '+(tab==='props'?'#3C3489':'transparent')+';background:'+(tab==='props'?'#fafafa':'#fff')+';font-weight:'+(tab==='props'?'500':'400')+'">Propriétés</div>';
+  }
+  html += '</div>';
+  // Contenu
+  html += '<div style="flex:1;overflow-y:auto;padding:10px">';
+  // Auto-bascule sur l'onglet props si sélection (UX)
+  if (_flowchartEditor.selectedNodeId && tab !== 'props' && tab !== 'wcgw' && tab !== 'narrative') {
+    tab = 'props';
+  }
+  if (tab === 'props') {
+    var sel = _fcGetSelectedNode();
+    if (sel) html += _fcRenderProperties(sel, allCtrls);
+    else html += '<div style="font-size:11px;color:var(--text-3);font-style:italic">Aucun nœud sélectionné. Clique un nœud sur le canvas.</div>';
+  } else if (tab === 'wcgw') {
+    html += _fcRenderWcgwSidePanel(fc, d, allCtrls);
+  } else {
+    html += _fcRenderNarrativeSidePanel(fc);
+  }
+  html += '</div>';
   html += '</div>';
 
   html += '</div>'; // end 3 columns
   html += '</div>'; // end editor
 
   return html;
+}
+
+// ─── Side panel : Narratif ──────────────────────────────────────
+function _fcRenderNarrativeSidePanel(fc) {
+  var h = '';
+  h += '<div style="margin-bottom:14px">';
+  h += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;margin-bottom:5px">Description du processus</div>';
+  h += '<textarea id="fc-narrative" oninput="_fcMarkNarrativeDirty()" onblur="saveFlowchartNarrative(this.value)" placeholder="Décris le flux : qui fait quoi, quand, sur quel système, avec quelles validations…" style="width:100%;min-height:160px;font-size:11px;padding:7px 9px;border:.5px solid var(--border);border-radius:3px;background:#fff;box-sizing:border-box;resize:vertical;font-family:inherit;line-height:1.5">'+(''+(fc.narrative||'')).replace(/</g,'&lt;')+'</textarea>';
+  h += '<div id="fc-narrative-status" style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:4px">'+(fc.narrative ? (''+fc.narrative.length+' caractères · sauvegardé') : 'Vide')+'</div>';
+  h += '</div>';
+
+  h += '<div style="margin-bottom:14px">';
+  h += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;margin-bottom:5px">Document narratif (optionnel)</div>';
+  if (fc.narrativeFile && fc.narrativeFile.webUrl) {
+    var nf = fc.narrativeFile;
+    var uploadedLabel = '';
+    if (nf.uploadedAt) {
+      var ageMs = Date.now() - new Date(nf.uploadedAt).getTime();
+      var days = Math.floor(ageMs / 86400000);
+      uploadedLabel = days < 1 ? 'aujourd\'hui' : (days === 1 ? 'hier' : 'il y a ' + days + ' jours');
+    }
+    h += '<div style="display:flex;align-items:center;gap:6px;padding:6px 8px;background:#fff;border:.5px solid var(--border);border-radius:3px">';
+    h += '<span style="font-size:18px;color:#3C3489;flex-shrink:0">📄</span>';
+    h += '<div style="flex:1;min-width:0">';
+    h += '<div style="font-weight:500;color:#3C3489;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11px">'+(''+nf.fileName).replace(/</g,'&lt;')+'</div>';
+    if (uploadedLabel) h += '<div style="font-size:9px;color:var(--text-3)">'+uploadedLabel+'</div>';
+    h += '</div>';
+    h += '<a href="'+nf.webUrl+'" target="_blank" rel="noopener" title="Ouvrir" style="text-decoration:none;font-size:11px;padding:3px 6px;border:.5px solid var(--border);border-radius:3px;color:var(--text-2);background:#fff">↗</a>';
+    h += '<button onclick="detachFlowchartFile()" title="Détacher" style="font-size:11px;padding:1px 5px;background:transparent;border:.5px solid var(--border);color:#993C1D;border-radius:3px;cursor:pointer">×</button>';
+    h += '</div>';
+    h += '<button onclick="document.getElementById(\'fc-narrative-file\').click()" style="font-size:10px;padding:5px 10px;background:#fff;border:.5px solid var(--border);border-radius:3px;cursor:pointer;width:100%;margin-top:6px">📎 Remplacer le fichier</button>';
+  } else {
+    h += '<div style="border:.5px dashed var(--border-secondary);border-radius:4px;padding:12px;text-align:center;background:#fff;cursor:pointer" onclick="document.getElementById(\'fc-narrative-file\').click()">';
+    h += '<div style="font-size:18px;color:var(--text-3)">📎</div>';
+    h += '<div style="font-size:11px;color:var(--text-2);margin-top:5px">Cliquer pour attacher un fichier</div>';
+    h += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:2px">Word, PDF, Excel… stocké sur SharePoint</div>';
+    h += '</div>';
+  }
+  h += '<input type="file" id="fc-narrative-file" accept=".docx,.doc,.pdf,.xlsx,.xls,.txt" onchange="uploadFlowchartFile(event)" style="display:none"/>';
+  h += '</div>';
+
+  return h;
+}
+
+// Side panel : WCGW & Contrôles (vue compacte)
+function _fcRenderWcgwSidePanel(fc, d, allCtrls) {
+  if (!fc.subProcessId) {
+    return '<div style="font-size:11px;color:var(--text-3);font-style:italic">Ce flowchart n\'est pas rattaché à un sous-processus.</div>';
+  }
+  var wcgwList = (d.wcgw && d.wcgw[4]) || [];
+  var wcgwsForSP = wcgwList.filter(function(w){return w.subProcessId === fc.subProcessId;});
+  if (!wcgwsForSP.length) {
+    var h = '<div style="font-size:11px;color:var(--text-3);font-style:italic;margin-bottom:8px">Aucun WCGW pour ce sous-processus.</div>';
+    h += '<button onclick="showAddWCGWModalForSP(\''+_escJsArg(fc.subProcessId)+'\')" class="bs" style="font-size:11px;padding:5px 10px;width:100%">+ Ajouter un WCGW</button>';
+    return h;
+  }
+  var h = '';
+  h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
+  h += '<span style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500">'+wcgwsForSP.length+' WCGW</span>';
+  h += '<button onclick="showAddWCGWModalForSP(\''+_escJsArg(fc.subProcessId)+'\')" class="bs" style="font-size:10px;padding:2px 7px">+ WCGW</button>';
+  h += '</div>';
+  wcgwsForSP.forEach(function(w){
+    var globalIdx = wcgwList.indexOf(w);
+    var ctrlsForW = allCtrls.filter(function(c){return c.wcgwId === w.id;});
+    var targets = ctrlsForW.filter(function(c){return c.design === 'target';});
+    var existings = ctrlsForW.filter(function(c){return c.design === 'existing';});
+
+    h += '<div style="background:#fff;border:.5px solid var(--border);border-radius:4px;padding:8px;margin-bottom:6px">';
+    h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">';
+    h += '<div style="display:flex;align-items:center;gap:5px;flex:1;min-width:0">';
+    h += '<span style="background:#EEEDFE;color:#3C3489;font-size:9px;padding:1px 5px;border-radius:2px;flex-shrink:0;font-weight:500">'+(w.code||('WCGW-'+(globalIdx+1)))+'</span>';
+    h += '<span style="font-size:11px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+(''+(w.title||'(sans titre)')).replace(/</g,'&lt;')+'</span>';
+    h += '</div>';
+    h += '<button onclick="showEditWCGWModal('+globalIdx+')" class="bs" style="font-size:9px;padding:1px 5px;flex-shrink:0">Éditer</button>';
+    h += '</div>';
+    if (w.description) {
+      h += '<div style="font-size:10px;color:var(--text-3);margin-bottom:6px;line-height:1.3">'+(''+w.description).replace(/</g,'&lt;')+'</div>';
+    }
+    h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;font-size:10px">';
+    // Target
+    h += '<div style="background:#FFFAF0;padding:5px;border-radius:3px">';
+    h += '<div style="font-size:8px;color:#854F0B;font-weight:500;text-transform:uppercase;letter-spacing:.3px;margin-bottom:2px">Target ('+targets.length+')</div>';
+    if (targets.length === 0) {
+      h += '<div style="font-style:italic;color:var(--text-3);font-size:9px">—</div>';
+    } else {
+      targets.forEach(function(c){
+        var ci = allCtrls.indexOf(c);
+        h += '<div style="font-size:10px;padding:1px 0;color:#854F0B" onclick="showEditControlModal('+ci+')" style="cursor:pointer">';
+        h += '<span style="font-family:monospace;font-size:8px;background:#fff;padding:1px 3px;border-radius:2px;margin-right:3px">'+(c.code||'C-'+(ci+1))+'</span>';
+        h += (''+(c.name||'(sans nom)').substring(0,30)).replace(/</g,'&lt;');
+        h += '</div>';
+      });
+    }
+    h += '</div>';
+    // Existing
+    h += '<div style="background:#F5FBF8;padding:5px;border-radius:3px">';
+    h += '<div style="font-size:8px;color:#085041;font-weight:500;text-transform:uppercase;letter-spacing:.3px;margin-bottom:2px">Existants ('+existings.length+')</div>';
+    if (existings.length === 0) {
+      h += '<div style="font-style:italic;color:var(--text-3);font-size:9px">—</div>';
+    } else {
+      existings.forEach(function(c){
+        var ci = allCtrls.indexOf(c);
+        h += '<div style="font-size:10px;padding:1px 0;color:#085041" onclick="showEditControlModal('+ci+')" style="cursor:pointer">';
+        h += '<span style="font-family:monospace;font-size:8px;background:#fff;padding:1px 3px;border-radius:2px;margin-right:3px">'+(c.code||'C-'+(ci+1))+'</span>';
+        h += (''+(c.name||'(sans nom)').substring(0,30)).replace(/</g,'&lt;');
+        h += '</div>';
+      });
+    }
+    h += '</div>';
+    h += '</div>';
+    h += '</div>';
+  });
+  return h;
+}
+
+function setFcSidePanelTab(tab) {
+  if (!_flowchartEditor) return;
+  _flowchartEditor.sidePanelTab = tab;
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+// ─── Edge mode (création de liens) ───────────────────────────────
+function toggleEdgeMode() {
+  if (!_flowchartEditor) return;
+  _flowchartEditor.edgeMode = !_flowchartEditor.edgeMode;
+  _flowchartEditor.edgeFromId = null;
+  _flowchartEditor.selectedNodeId = null;
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+// Géométrie d'un nœud → renvoie {cx, cy, ...} pour le rendu de bords
+function _fcNodeBox(node) {
+  return {
+    cx: node.x + node.w/2,
+    cy: node.y + node.h/2,
+    left: node.x,
+    right: node.x + node.w,
+    top: node.y,
+    bottom: node.y + node.h,
+    w: node.w,
+    h: node.h,
+  };
+}
+
+// Calcul du point d'intersection entre la frontière du nœud et la ligne vers (tx, ty)
+function _fcEdgePoint(node, tx, ty) {
+  var b = _fcNodeBox(node);
+  var dx = tx - b.cx;
+  var dy = ty - b.cy;
+  if (dx === 0 && dy === 0) return {x: b.cx, y: b.cy};
+  // Pour les cercles (contrôles)
+  if (node.type === 'ctrl_existing' || node.type === 'ctrl_target') {
+    var r = Math.min(b.w, b.h) / 2;
+    var len = Math.sqrt(dx*dx + dy*dy);
+    return {x: b.cx + (dx/len)*r, y: b.cy + (dy/len)*r};
+  }
+  // Pour les autres : intersection avec rectangle bounding (approximation simple, fonctionne pour rect/oval/diamond/doc/db)
+  var hw = b.w/2, hh = b.h/2;
+  var absDx = Math.abs(dx), absDy = Math.abs(dy);
+  var t;
+  if (absDx/hw > absDy/hh) {
+    t = hw / absDx;
+  } else {
+    t = hh / absDy;
+  }
+  return {x: b.cx + dx*t, y: b.cy + dy*t};
+}
+
+// Rendu SVG d'un edge
+function _fcRenderEdge(edge, nodes) {
+  var nodeFrom = nodes.find(function(n){return n.id===edge.from;});
+  var nodeTo = nodes.find(function(n){return n.id===edge.to;});
+  if (!nodeFrom || !nodeTo) return '';
+  var bFrom = _fcNodeBox(nodeFrom);
+  var bTo = _fcNodeBox(nodeTo);
+  var pFrom = _fcEdgePoint(nodeFrom, bTo.cx, bTo.cy);
+  var pTo = _fcEdgePoint(nodeTo, bFrom.cx, bFrom.cy);
+  var midX = (pFrom.x + pTo.x) / 2;
+  var midY = (pFrom.y + pTo.y) / 2;
+  var label = (edge.label || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  var s = '<g data-edge-id="'+edge.id+'" onclick="event.stopPropagation();selectEdge(\''+edge.id+'\')" style="cursor:pointer">';
+  // Hitbox invisible plus large pour faciliter le clic
+  s += '<line x1="'+pFrom.x+'" y1="'+pFrom.y+'" x2="'+pTo.x+'" y2="'+pTo.y+'" stroke="transparent" stroke-width="10"/>';
+  s += '<line x1="'+pFrom.x+'" y1="'+pFrom.y+'" x2="'+pTo.x+'" y2="'+pTo.y+'" stroke="#374151" stroke-width="1.5" marker-end="url(#fc-arrow)"/>';
+  if (label) {
+    var labelW = Math.max(label.length * 5.5, 18);
+    s += '<rect x="'+(midX - labelW/2 - 3)+'" y="'+(midY - 8)+'" width="'+(labelW + 6)+'" height="14" fill="#fff" stroke="#e5e5e5" stroke-width=".5" rx="2"/>';
+    s += '<text x="'+midX+'" y="'+(midY + 3)+'" text-anchor="middle" font-size="9" fill="#374151" font-family="sans-serif">'+label+'</text>';
+  }
+  s += '</g>';
+  return s;
+}
+
+// Sélection d'un edge (pour le supprimer ou éditer son label)
+function selectEdge(edgeId) {
+  if (!_flowchartEditor) return;
+  // Pour l'instant : prompt pour le label, ou ESC pour supprimer
+  var fc = _fcGetCurrent();
+  if (!fc) return;
+  var edge = (fc.edges||[]).find(function(e){return e.id===edgeId;});
+  if (!edge) return;
+  var newLabel = prompt('Label du lien (laisser vide pour effacer le label, taper "DELETE" pour supprimer le lien) :', edge.label || '');
+  if (newLabel === null) return; // annulé
+  if (newLabel === 'DELETE') {
+    fc.edges = fc.edges.filter(function(e){return e.id !== edgeId;});
+    saveAuditData(CA);
+    document.getElementById('det-content').innerHTML = renderDetContent();
+    toast('Lien supprimé');
+    return;
+  }
+  edge.label = newLabel.trim();
+  saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+// Click sur le canvas vide
+function _fcOnCanvasClick() {
+  if (!_flowchartEditor) return;
+  if (_flowchartEditor.edgeMode) {
+    // Annule le mode edge si on clique dans le vide
+    _flowchartEditor.edgeMode = false;
+    _flowchartEditor.edgeFromId = null;
+  } else {
+    _flowchartEditor.selectedNodeId = null;
+    if (_flowchartEditor.sidePanelTab === 'props') _flowchartEditor.sidePanelTab = 'narrative';
+  }
+  document.getElementById('det-content').innerHTML = renderDetContent();
 }
 
 function _fcRenderPaletteSection(title, items) {
@@ -7707,13 +8156,59 @@ async function setFlowchartNodeProp(nodeId, prop, val) {
 
 function selectNode(nodeId) {
   if (!_flowchartEditor) return;
+  // Mode edge : si actif, traiter comme création de lien
+  if (_flowchartEditor.edgeMode) {
+    if (!_flowchartEditor.edgeFromId) {
+      // 1er clic = source
+      _flowchartEditor.edgeFromId = nodeId;
+      document.getElementById('det-content').innerHTML = renderDetContent();
+      return;
+    } else {
+      // 2e clic = destination
+      var fromId = _flowchartEditor.edgeFromId;
+      if (fromId === nodeId) {
+        toast('Source et destination doivent être différentes');
+        _flowchartEditor.edgeFromId = null;
+        document.getElementById('det-content').innerHTML = renderDetContent();
+        return;
+      }
+      var fc = _fcGetCurrent();
+      if (!fc) return;
+      if (!Array.isArray(fc.edges)) fc.edges = [];
+      // Empêcher les doublons (même source-dest)
+      var existing = fc.edges.find(function(e){return e.from===fromId && e.to===nodeId;});
+      if (existing) {
+        toast('Un lien existe déjà entre ces deux nœuds');
+        _flowchartEditor.edgeMode = false;
+        _flowchartEditor.edgeFromId = null;
+        document.getElementById('det-content').innerHTML = renderDetContent();
+        return;
+      }
+      fc.edges.push({
+        id: 'e_' + Date.now() + '_' + Math.floor(Math.random()*100000),
+        from: fromId,
+        to: nodeId,
+        label: '',
+      });
+      _flowchartEditor.edgeMode = false;
+      _flowchartEditor.edgeFromId = null;
+      saveAuditData(CA);
+      document.getElementById('det-content').innerHTML = renderDetContent();
+      toast('Lien créé ✓');
+      return;
+    }
+  }
+  // Mode normal : sélection
   _flowchartEditor.selectedNodeId = nodeId;
+  // Auto-bascule sur l'onglet propriétés
+  _flowchartEditor.sidePanelTab = 'props';
   document.getElementById('det-content').innerHTML = renderDetContent();
 }
 
 function deselectNode() {
   if (!_flowchartEditor) return;
   _flowchartEditor.selectedNodeId = null;
+  if (_flowchartEditor.sidePanelTab === 'props') _flowchartEditor.sidePanelTab = 'narrative';
   document.getElementById('det-content').innerHTML = renderDetContent();
 }
 
@@ -7810,9 +8305,79 @@ function _fcRefreshSvg() {
   if (!fc) return;
   var d = getAudData(CA);
   var allCtrls = (d.controls && d.controls[4]) || [];
-  var inner = '';
+  var inner = '<defs><marker id="fc-arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#374151"/></marker></defs>';
+  // Edges en premier (sous les nœuds)
+  (fc.edges||[]).forEach(function(e){ inner += _fcRenderEdge(e, fc.nodes); });
   fc.nodes.forEach(function(n){ inner += _fcRenderNode(n, allCtrls); });
   svg.innerHTML = inner;
+}
+
+// ─── Narrative : indicateur "dirty" + save ───────────────────────
+function _fcMarkNarrativeDirty() {
+  var st = document.getElementById('fc-narrative-status');
+  if (st) {
+    var ta = document.getElementById('fc-narrative');
+    var len = ta ? ta.value.length : 0;
+    st.textContent = len + ' caractères · modification non sauvegardée';
+    st.style.color = '#854F0B';
+  }
+}
+
+async function saveFlowchartNarrative(val) {
+  var fc = _fcGetCurrent();
+  if (!fc) return;
+  if (fc.narrative === val) return; // pas de changement
+  fc.narrative = val;
+  await saveAuditData(CA);
+  var st = document.getElementById('fc-narrative-status');
+  if (st) {
+    st.textContent = (val ? (val.length + ' caractères · sauvegardé') : 'Vide');
+    st.style.color = '';
+  }
+}
+
+// ─── Upload du fichier narratif ─────────────────────────────────
+async function uploadFlowchartFile(event) {
+  var file = event && event.target && event.target.files && event.target.files[0];
+  if (!file) return;
+  var fc = _fcGetCurrent();
+  if (!fc) return;
+  if (typeof getOrCreateAuditFolder !== 'function' || typeof uploadFileToSharePoint !== 'function') {
+    toast('Helpers SharePoint indisponibles');
+    return;
+  }
+  var ap = (AUDIT_PLAN || []).find(function(a){return a.id===CA;});
+  if (!ap) { toast('Audit introuvable'); return; }
+
+  toast('📤 Upload SharePoint...');
+  try {
+    var folderInfo = await getOrCreateAuditFolder(ap);
+    // Subdossier "flowcharts/" sous l'audit
+    var spFileName = 'flowchart_' + (fc.label || fc.id).replace(/[^a-zA-Z0-9_-]/g, '_').substring(0,50) + '_' + file.name;
+    var driveItem = await uploadFileToSharePoint(folderInfo.path, spFileName, file);
+    fc.narrativeFile = {
+      webUrl: driveItem.webUrl,
+      fileName: file.name,
+      uploadedAt: new Date().toISOString(),
+    };
+    await saveAuditData(CA);
+    if (typeof addHist === 'function') addHist(CA, 'Document narratif attaché au flowchart : ' + (fc.label||'') + ' — ' + file.name);
+    document.getElementById('det-content').innerHTML = renderDetContent();
+    toast('✓ Fichier attaché');
+  } catch (e) {
+    console.error('[uploadFlowchartFile] error:', e);
+    toast('Erreur upload : ' + (e.message||e));
+  }
+}
+
+async function detachFlowchartFile() {
+  if (!confirm('Détacher ce fichier ? Le fichier reste sur SharePoint, seul le lien est retiré du flowchart.')) return;
+  var fc = _fcGetCurrent();
+  if (!fc) return;
+  fc.narrativeFile = null;
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+  toast('Fichier détaché');
 }
 
 
