@@ -824,6 +824,73 @@ async function generateAuditReportPptx(auditId, options) {
   });
   ar_addFooter(pres, sA2);
 
+  // ─── APPENDIX — FLOWCHARTS (Process uniquement) ──────────────────
+  // 1 slide séparateur "Appendix — Flowcharts"
+  // 1 slide par flowchart : titre + image PNG
+  const flowcharts = Array.isArray(d.flowcharts) ? d.flowcharts
+    : (d.attachments && Array.isArray(d.attachments.flowcharts) ? d.attachments.flowcharts : []);
+  const flowchartsWithNodes = flowcharts.filter(fc => fc && Array.isArray(fc.nodes) && fc.nodes.length > 0);
+
+  if (!isBU && flowchartsWithNodes.length > 0) {
+    // Slide séparateur
+    const sFcSep = pres.addSlide();
+    sFcSep.background = { color: AR_COLORS.navy };
+    sFcSep.addText("Appendix — Flowcharts", {
+      x: 0.5, y: 3.0, w: 12.3, h: 1.0,
+      fontSize: 36, bold: true, color: AR_COLORS.white, fontFace: "Calibri", align: 'center',
+    });
+    sFcSep.addText(`${flowchartsWithNodes.length} process flowchart${flowchartsWithNodes.length > 1 ? 's' : ''}`, {
+      x: 0.5, y: 4.0, w: 12.3, h: 0.5,
+      fontSize: 18, italic: true, color: AR_COLORS.white, fontFace: "Calibri", align: 'center',
+    });
+
+    // Sous-processus pour les titres
+    const sps = (d.kickoffPrep && Array.isArray(d.kickoffPrep.subProcesses))
+      ? d.kickoffPrep.subProcesses : [];
+
+    // 1 slide par flowchart
+    for (const fc of flowchartsWithNodes) {
+      const sFc = pres.addSlide();
+      const sp = sps.find(x => x.id === fc.subProcessId);
+      const subTitle = sp ? (sp.name || '') : '';
+      ar_addTitleBar(pres, sFc, fc.label || 'Flowchart', subTitle);
+
+      try {
+        // Convertir SVG → PNG via le helper exposé par views.js
+        if (typeof _fcExportPng === 'function') {
+          const png = await _fcExportPng(fc, controls);
+          // Calcul du sizing pour rentrer dans la slide (max 12.3 × 5.5 inches, centré)
+          const slideMaxW = 12.3, slideMaxH = 5.3;
+          const imgRatio = png.width / png.height;
+          let imgW = slideMaxW, imgH = slideMaxW / imgRatio;
+          if (imgH > slideMaxH) {
+            imgH = slideMaxH;
+            imgW = slideMaxH * imgRatio;
+          }
+          const imgX = (13.33 - imgW) / 2;
+          const imgY = 1.6 + (slideMaxH - imgH) / 2;
+          sFc.addImage({
+            data: png.dataUrl,
+            x: imgX, y: imgY, w: imgW, h: imgH,
+          });
+        } else {
+          sFc.addText('(Export image indisponible)', {
+            x: 0.5, y: 3.5, w: 12.3, h: 0.5,
+            fontSize: 14, italic: true, color: AR_COLORS.textGray, fontFace: 'Calibri', align: 'center',
+          });
+        }
+      } catch (e) {
+        console.error('[AUDIT_REPORT] Erreur export flowchart :', fc.label, e);
+        sFc.addText(`(Erreur export du flowchart : ${e.message || e})`, {
+          x: 0.5, y: 3.5, w: 12.3, h: 0.5,
+          fontSize: 14, italic: true, color: AR_COLORS.red, fontFace: 'Calibri', align: 'center',
+        });
+      }
+
+      ar_addFooter(pres, sFc);
+    }
+  }
+
   // ─── Upload SharePoint UNIQUEMENT (plus de téléchargement local) ────
   const cleanTitle = (ap.titre || 'audit').replace(/[^a-zA-Z0-9_-]/g, '_');
   const todayStr = new Date().toISOString().slice(0, 10);

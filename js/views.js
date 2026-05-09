@@ -8057,7 +8057,7 @@ function _fcRenderNode(node, allCtrls) {
     if (c) label = (c.code || c.name || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
 
-  var dataAttrs = 'data-node-id="'+node.id+'" onmousedown="startDragNode(event,\''+node.id+'\')" style="cursor:move"';
+  var dataAttrs = 'data-node-id="'+node.id+'" onmousedown="startDragNode(event,\''+node.id+'\')" ondblclick="event.stopPropagation();startEditNodeText(\''+node.id+'\')" style="cursor:move"';
   var s = '<g '+dataAttrs+'>';
 
   switch (node.type) {
@@ -8468,6 +8468,82 @@ function _fcRefreshSvg() {
   svg.innerHTML = inner;
 }
 
+// ─── Conversion SVG → PNG (data URL) ──────────────────────────────
+// Utilisé pour exporter un flowchart en image (rapport, slide PPT…)
+async function _fcExportPng(flowchart, allCtrls) {
+  return new Promise(function(resolve, reject) {
+    if (!flowchart || !Array.isArray(flowchart.nodes) || flowchart.nodes.length === 0) {
+      return reject(new Error('Flowchart vide'));
+    }
+    // Calcul de la bounding box (avec padding pour les acteurs et labels)
+    var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    flowchart.nodes.forEach(function(n){
+      if (n.x < minX) minX = n.x;
+      if (n.y < minY) minY = n.y;
+      var rightX = n.x + (n.w||100);
+      var bottomY = n.y + (n.h||40);
+      // Acteur sous la forme : +20px en bas
+      if (n.actor && n.type !== 'start' && n.type !== 'end') bottomY += 22;
+      if (rightX > maxX) maxX = rightX;
+      if (bottomY > maxY) maxY = bottomY;
+    });
+    // Padding
+    var pad = 30;
+    minX -= pad; minY -= pad; maxX += pad; maxY += pad;
+    var width = Math.max(maxX - minX, 100);
+    var height = Math.max(maxY - minY, 100);
+
+    // Construire le SVG complet
+    var svgInner = '<defs><marker id="fc-arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#374151"/></marker></defs>';
+    // Edges en premier
+    (flowchart.edges||[]).forEach(function(e){
+      svgInner += _fcRenderEdge(e, flowchart.nodes);
+    });
+    // Nœuds (sans handles ni surbrillance — on simule "non sélectionné" en passant par _fcRenderNode mais avec un état temporaire)
+    var savedSelectedId = null;
+    if (typeof _flowchartEditor !== 'undefined' && _flowchartEditor) {
+      savedSelectedId = _flowchartEditor.selectedNodeId;
+      _flowchartEditor.selectedNodeId = null; // pas de surbrillance
+    }
+    flowchart.nodes.forEach(function(n){ svgInner += _fcRenderNode(n, allCtrls || []); });
+    if (typeof _flowchartEditor !== 'undefined' && _flowchartEditor) {
+      _flowchartEditor.selectedNodeId = savedSelectedId; // restaurer
+    }
+
+    var svgStr = '<svg xmlns="http://www.w3.org/2000/svg" width="'+width+'" height="'+height+'" viewBox="'+minX+' '+minY+' '+width+' '+height+'">'
+      + '<rect x="'+minX+'" y="'+minY+'" width="'+width+'" height="'+height+'" fill="#fff"/>'
+      + svgInner
+      + '</svg>';
+
+    // Convertir en PNG via canvas (avec scale x2 pour qualité)
+    var scale = 2;
+    var img = new Image();
+    var blob = new Blob([svgStr], {type: 'image/svg+xml;charset=utf-8'});
+    var url = URL.createObjectURL(blob);
+    img.onload = function() {
+      var canvas = document.createElement('canvas');
+      canvas.width = Math.round(width * scale);
+      canvas.height = Math.round(height * scale);
+      var ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(url);
+      try {
+        var dataUrl = canvas.toDataURL('image/png');
+        resolve({dataUrl: dataUrl, width: canvas.width, height: canvas.height});
+      } catch(e) {
+        reject(e);
+      }
+    };
+    img.onerror = function(e) {
+      URL.revokeObjectURL(url);
+      reject(new Error('Erreur chargement SVG'));
+    };
+    img.src = url;
+  });
+}
+
 // ─── Resize via les 8 poignées ─────────────────────────────────────
 function startResizeNode(event, nodeId, anchor) {
   if (!_flowchartEditor) return;
@@ -8580,6 +8656,84 @@ async function _fcOnResizeEnd(event) {
     // Rerender complet pour rafraîchir le panneau de propriétés (w,h mis à jour)
     document.getElementById('det-content').innerHTML = renderDetContent();
   }
+}
+
+// ─── Édition texte inline par double-clic ─────────────────────────
+function startEditNodeText(nodeId) {
+  if (!_flowchartEditor) return;
+  var fc = _fcGetCurrent();
+  if (!fc) return;
+  var node = fc.nodes.find(function(x){return x.id===nodeId;});
+  if (!node) return;
+
+  // Si lié à un contrôle, on n'autorise pas l'édition (le texte suit le code du contrôle)
+  if ((node.type === 'ctrl_existing' || node.type === 'ctrl_target') && node.controlId) {
+    toast('Ce nœud est lié à un contrôle — le texte est synchronisé automatiquement');
+    return;
+  }
+
+  // Trouver l'élément SVG du nœud pour positionner l'input par-dessus
+  var svg = document.getElementById('fc-canvas');
+  if (!svg) return;
+  var canvasWrap = document.getElementById('fc-canvas-wrap');
+  if (!canvasWrap) return;
+
+  // Coordonnées SVG → écran
+  var ctm = svg.getScreenCTM();
+  if (!ctm) return;
+  var wrapRect = canvasWrap.getBoundingClientRect();
+
+  // Position en pixels-écran absolus
+  var screenX = ctm.a * node.x + ctm.c * node.y + ctm.e;
+  var screenY = ctm.b * node.x + ctm.d * node.y + ctm.f;
+  // Conversion vers coordonnées relatives au canvas-wrap (qui est position:relative)
+  var relX = screenX - wrapRect.left + canvasWrap.scrollLeft;
+  var relY = screenY - wrapRect.top + canvasWrap.scrollTop;
+  var w = node.w * ctm.a; // largeur scaled
+  var h = node.h * ctm.d;
+
+  // Retirer un éditeur précédent si encore présent
+  var prev = document.getElementById('fc-inline-editor');
+  if (prev) prev.remove();
+
+  // Créer l'input HTML par-dessus la forme
+  var input = document.createElement('input');
+  input.id = 'fc-inline-editor';
+  input.type = 'text';
+  input.value = node.text || '';
+  input.style.position = 'absolute';
+  input.style.left = (relX) + 'px';
+  input.style.top = (relY) + 'px';
+  input.style.width = w + 'px';
+  input.style.height = h + 'px';
+  input.style.zIndex = '50';
+  input.style.fontSize = '11px';
+  input.style.textAlign = 'center';
+  input.style.padding = '4px 6px';
+  input.style.boxSizing = 'border-box';
+  input.style.border = '2px solid #3C3489';
+  input.style.borderRadius = '3px';
+  input.style.background = '#fff';
+  input.style.fontFamily = 'inherit';
+  input.style.outline = 'none';
+
+  canvasWrap.appendChild(input);
+  input.focus();
+  input.select();
+
+  function commit(save) {
+    if (!input.parentNode) return;
+    var newText = save ? input.value : node.text;
+    input.remove();
+    if (save && newText !== node.text) {
+      setFlowchartNodeText(nodeId, newText);
+    }
+  }
+  input.addEventListener('keydown', function(e){
+    if (e.key === 'Enter') { e.preventDefault(); commit(true); }
+    else if (e.key === 'Escape') { e.preventDefault(); commit(false); }
+  });
+  input.addEventListener('blur', function(){ commit(true); });
 }
 
 // ─── Narrative : indicateur "dirty" + save ───────────────────────
