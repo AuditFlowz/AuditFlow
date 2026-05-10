@@ -8,6 +8,30 @@ function uuidv4(){
 
 const V={},I={};
 
+// v75 fallback : si data.js n'a pas (encore) défini ces constantes/fonctions root cause,
+// on en fournit une version minimale ici pour ne pas casser le rendu.
+if (typeof ROOT_CAUSE_CATEGORIES === 'undefined') {
+  window.ROOT_CAUSE_CATEGORIES = [
+    {id: 'awareness',     label: 'Lack of awareness / Training',         shortLabel: 'Awareness/Training',  color: '#3C3489'},
+    {id: 'process',       label: 'Inadequate process design',            shortLabel: 'Process design',      color: '#7C3AED'},
+    {id: 'resources',     label: 'Insufficient resources',               shortLabel: 'Resources',           color: '#0E7490'},
+    {id: 'oversight',     label: 'Inadequate supervision / Oversight',   shortLabel: 'Oversight',           color: '#854F0B'},
+    {id: 'tooling',       label: 'Inadequate IT systems / Tooling',      shortLabel: 'IT/Tooling',          color: '#1E40AF'},
+    {id: 'sod',           label: 'Lack of segregation of duties',        shortLabel: 'Segregation of duties', color: '#9A3412'},
+    {id: 'policy',        label: 'Inadequate policies / Standards',      shortLabel: 'Policies',            color: '#085041'},
+    {id: 'culture',       label: 'Cultural / Behavioral',                shortLabel: 'Culture/Behavior',    color: '#BE185D'},
+    {id: 'external',      label: 'External constraints',                 shortLabel: 'External',            color: '#1F2937'},
+    {id: 'tbd',           label: 'À déterminer',                          shortLabel: 'À déterminer',         color: '#6B7280'},
+  ];
+}
+if (typeof _getRootCauseCategory === 'undefined') {
+  window._getRootCauseCategory = function(id) {
+    if (!id) return null;
+    return ROOT_CAUSE_CATEGORIES.find(function(c){return c.id === id;}) || null;
+  };
+}
+
+
 // ─── Constantes ───────────────────────────────────────────────
 var STEP_PCT=[10,20,30,40,50,60,70,80,90,100];
 
@@ -14084,41 +14108,60 @@ function showAnalyzeInterviewsModal() {
 
 // v73 : variante depuis l'étape ITW/Narratif (cible = narratif consolidé de l'audit)
 function showAnalyzeInterviewsModalForAudit() {
-  var d = getAudData(CA);
-  var allItvs = d.interviews || [];
-  if (!allItvs.length) {
-    toast('Bibliothèque d\'entretiens vide. Ajoute d\'abord un entretien.');
-    return;
+  console.log('[v75] showAnalyzeInterviewsModalForAudit() appelée');
+  try {
+    var d = getAudData(CA);
+    console.log('[v75] CA =', CA, '· d =', d ? 'OK' : 'NULL');
+    var allItvs = d.interviews || [];
+    console.log('[v75] interviews =', allItvs.length);
+    if (!allItvs.length) {
+      toast('Bibliothèque d\'entretiens vide. Ajoute d\'abord un entretien.');
+      return;
+    }
+
+    // Pré-sélection : tous les entretiens non analysés
+    var preSelectedIds = {};
+    allItvs.forEach(function(itv){
+      if (!itv.analyzedAt) preSelectedIds[itv.id] = true;
+    });
+    // Si tous sont déjà analysés, on sélectionne quand même tout pour permettre re-analyse
+    if (Object.keys(preSelectedIds).length === 0) {
+      allItvs.forEach(function(itv){ preSelectedIds[itv.id] = true; });
+    }
+    console.log('[v75] preSelectedIds =', Object.keys(preSelectedIds).length);
+
+    var hasNarrative = !!(d.consolidatedNarrative && d.consolidatedNarrative.trim());
+    console.log('[v75] hasNarrative =', hasNarrative);
+
+    _analyzeState = {
+      target: 'audit',
+      selectedIds: preSelectedIds,
+      mode: hasNarrative ? 'enrich' : 'replace',
+      fcId: null,
+    };
+    console.log('[v75] _analyzeState créé, appel _renderAnalyzeStep1');
+
+    _renderAnalyzeStep1();
+    console.log('[v75] _renderAnalyzeStep1 terminé');
+  } catch (e) {
+    console.error('[v75] ERREUR dans showAnalyzeInterviewsModalForAudit:', e);
+    toast('Erreur : '+(e.message||e));
   }
-
-  // Pré-sélection : tous les entretiens non analysés
-  var preSelectedIds = {};
-  allItvs.forEach(function(itv){
-    if (!itv.analyzedAt) preSelectedIds[itv.id] = true;
-  });
-  // Si tous sont déjà analysés, on sélectionne quand même tout pour permettre re-analyse
-  if (Object.keys(preSelectedIds).length === 0) {
-    allItvs.forEach(function(itv){ preSelectedIds[itv.id] = true; });
-  }
-
-  var hasNarrative = !!(d.consolidatedNarrative && d.consolidatedNarrative.trim());
-
-  _analyzeState = {
-    target: 'audit',
-    selectedIds: preSelectedIds,
-    mode: hasNarrative ? 'enrich' : 'replace',
-    fcId: null,
-  };
-
-  _renderAnalyzeStep1();
 }
 
 // ─── ÉTAPE 1 : sélection entretiens + mode + copy prompt ────────
 function _renderAnalyzeStep1() {
-  var d = getAudData(CA);
-  var isAuditTarget = _analyzeState && _analyzeState.target === 'audit';
-  var fc = isAuditTarget ? null : _fcGetCurrent();
-  if (!isAuditTarget && !fc) return;
+  console.log('[v75] _renderAnalyzeStep1 démarré');
+  try {
+    var d = getAudData(CA);
+    var isAuditTarget = _analyzeState && _analyzeState.target === 'audit';
+    console.log('[v75] isAuditTarget =', isAuditTarget);
+    var fc = isAuditTarget ? null : _fcGetCurrent();
+    console.log('[v75] fc =', fc ? fc.id : 'null');
+    if (!isAuditTarget && !fc) {
+      console.warn('[v75] Pas de cible (audit ou flowchart), abandon');
+      return;
+    }
   var allItvs = d.interviews || [];
   var sps = (d.kickoffPrep && Array.isArray(d.kickoffPrep.subProcesses)) ? d.kickoffPrep.subProcesses : [];
   var spById = {};
@@ -14262,12 +14305,18 @@ function _renderAnalyzeStep1() {
   var modalTitle = isAuditTarget
     ? '🤖 Analyser entretiens · Narratif consolidé'
     : '🤖 Analyser entretiens · '+(spForFc?spForFc.name:fc.label||'Flowchart');
+  console.log('[v75] openModal title=', modalTitle, '· body length=', body.length);
   openModal(modalTitle, body, null, {hideOk:true, cancelLabel:'', wide:true});
+  console.log('[v75] openModal terminé');
   // Cacher le footer par défaut (on a notre propre footer custom)
   setTimeout(function() {
     var footer = document.querySelector('#modal .mf');
     if (footer) footer.style.display = 'none';
   }, 50);
+  } catch (e) {
+    console.error('[v75] ERREUR dans _renderAnalyzeStep1:', e);
+    toast('Erreur affichage modale : '+(e.message||e));
+  }
 }
 
 function _toggleAnalyzeItv(itvId, checked) {
