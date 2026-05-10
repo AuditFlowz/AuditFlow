@@ -14108,12 +14108,9 @@ function showAnalyzeInterviewsModal() {
 
 // v73 : variante depuis l'étape ITW/Narratif (cible = narratif consolidé de l'audit)
 function showAnalyzeInterviewsModalForAudit() {
-  console.log('[v75] showAnalyzeInterviewsModalForAudit() appelée');
   try {
     var d = getAudData(CA);
-    console.log('[v75] CA =', CA, '· d =', d ? 'OK' : 'NULL');
     var allItvs = d.interviews || [];
-    console.log('[v75] interviews =', allItvs.length);
     if (!allItvs.length) {
       toast('Bibliothèque d\'entretiens vide. Ajoute d\'abord un entretien.');
       return;
@@ -14128,10 +14125,8 @@ function showAnalyzeInterviewsModalForAudit() {
     if (Object.keys(preSelectedIds).length === 0) {
       allItvs.forEach(function(itv){ preSelectedIds[itv.id] = true; });
     }
-    console.log('[v75] preSelectedIds =', Object.keys(preSelectedIds).length);
 
     var hasNarrative = !!(d.consolidatedNarrative && d.consolidatedNarrative.trim());
-    console.log('[v75] hasNarrative =', hasNarrative);
 
     _analyzeState = {
       target: 'audit',
@@ -14139,10 +14134,8 @@ function showAnalyzeInterviewsModalForAudit() {
       mode: hasNarrative ? 'enrich' : 'replace',
       fcId: null,
     };
-    console.log('[v75] _analyzeState créé, appel _renderAnalyzeStep1');
 
     _renderAnalyzeStep1();
-    console.log('[v75] _renderAnalyzeStep1 terminé');
   } catch (e) {
     console.error('[v75] ERREUR dans showAnalyzeInterviewsModalForAudit:', e);
     toast('Erreur : '+(e.message||e));
@@ -14151,13 +14144,10 @@ function showAnalyzeInterviewsModalForAudit() {
 
 // ─── ÉTAPE 1 : sélection entretiens + mode + copy prompt ────────
 function _renderAnalyzeStep1() {
-  console.log('[v75] _renderAnalyzeStep1 démarré');
   try {
     var d = getAudData(CA);
     var isAuditTarget = _analyzeState && _analyzeState.target === 'audit';
-    console.log('[v75] isAuditTarget =', isAuditTarget);
     var fc = isAuditTarget ? null : _fcGetCurrent();
-    console.log('[v75] fc =', fc ? fc.id : 'null');
     if (!isAuditTarget && !fc) {
       console.warn('[v75] Pas de cible (audit ou flowchart), abandon');
       return;
@@ -14205,7 +14195,7 @@ function _renderAnalyzeStep1() {
       var color = _intervColor(itv.intervieweName);
       var nbWords = itv.script ? itv.script.trim().split(/\s+/).filter(Boolean).length : 0;
       var dateStr = itv.interviewDate ? new Date(itv.interviewDate).toLocaleDateString('fr-FR', {day:'2-digit',month:'short'}) : '?';
-      var isRelated = fc.subProcessId && (itv.relatedSubProcessIds || []).indexOf(fc.subProcessId) >= 0;
+      var isRelated = fc && fc.subProcessId && (itv.relatedSubProcessIds || []).indexOf(fc.subProcessId) >= 0;
       var alreadyAnalyzed = !!itv.analyzedAt;
 
       // Layout grid : checkbox 16px / avatar 28px / contenu auto / status auto
@@ -14305,9 +14295,7 @@ function _renderAnalyzeStep1() {
   var modalTitle = isAuditTarget
     ? '🤖 Analyser entretiens · Narratif consolidé'
     : '🤖 Analyser entretiens · '+(spForFc?spForFc.name:fc.label||'Flowchart');
-  console.log('[v75] openModal title=', modalTitle, '· body length=', body.length);
   openModal(modalTitle, body, null, {hideOk:true, cancelLabel:'', wide:true});
-  console.log('[v75] openModal terminé');
   // Cacher le footer par défaut (on a notre propre footer custom)
   setTimeout(function() {
     var footer = document.querySelector('#modal .mf');
