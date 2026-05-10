@@ -10592,8 +10592,8 @@ function showDesignIssueAiModal(idx) {
   body += '<div style="font-size:11px;font-weight:600;color:var(--text-1);margin-bottom:8px;display:flex;align-items:center;gap:6px">🎯 Root cause <span style="font-size:9px;color:var(--text-3);font-weight:400;font-style:italic">— catégorie standard IIA / COSO</span></div>';
   // Catégorie
   body += '<div style="margin-bottom:8px">';
-  body += '<label style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;display:block;margin-bottom:3px">Catégorie</label>';
-  body += '<select id="di-rc-cat" style="width:100%;font-size:11px;padding:6px 9px;border:.5px solid var(--border);border-radius:3px;box-sizing:border-box;background:#fff">';
+  body += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;margin-bottom:3px">Catégorie</div>';
+  body += '<select id="di-rc-cat" onmousedown="event.stopPropagation()" onclick="event.stopPropagation()" style="width:100%;font-size:11px;padding:6px 9px;border:.5px solid var(--border);border-radius:3px;box-sizing:border-box;background:#fff">';
   ROOT_CAUSE_CATEGORIES.forEach(function(c){
     body += '<option value="'+c.id+'"'+(rcCat===c.id?' selected':'')+'>'+c.label.replace(/</g,'&lt;')+'</option>';
   });
@@ -10601,7 +10601,7 @@ function showDesignIssueAiModal(idx) {
   body += '</div>';
   // Explication
   body += '<div>';
-  body += '<label style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;display:block;margin-bottom:3px">Explication factuelle</label>';
+  body += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;margin-bottom:3px">Explication factuelle</div>';
   body += '<textarea id="di-rc-expl" placeholder="Justifie la catégorisation à partir d\'éléments concrets des entretiens (ex : « Le trésorier a indiqué qu\'il n\'a jamais reçu de formation sur la procédure de validation des paiements. »). 1-3 phrases." style="width:100%;min-height:60px;font-size:11px;padding:8px 10px;border:.5px solid var(--border);border-radius:3px;box-sizing:border-box;resize:vertical;font-family:inherit;line-height:1.5;overflow-wrap:anywhere;word-break:break-word">'+rcExpl.replace(/</g,'&lt;')+'</textarea>';
   body += '</div>';
   body += '</div>';
@@ -14439,6 +14439,10 @@ function _buildAnalyzePrompt() {
   p += '- une `rootCauseExplanation` : 1-3 phrases qui justifient cette catégorisation à partir des éléments concrets des entretiens (cite les éléments factuels)\n';
   p += 'Si tu hésites entre 2 catégories, choisis celle qui a le plus de poids et explique-le. Utilise `tbd` UNIQUEMENT si les entretiens ne donnent vraiment aucun élément.\n';
 
+  // v75.6 : interdiction d'inclure des URLs / liens (Teams Recordings, SharePoint, etc.)
+  p += '\n## RÈGLE IMPORTANTE — PAS D\'URL DANS LE TEXTE\n\n';
+  p += 'N\'inclus AUCUNE URL, AUCUN lien hypertexte, AUCUNE citation type `[1](https://...)` dans tes réponses (ni dans le narratif, ni dans les Design Issues, ni dans les explications root cause). Les URLs SharePoint/Teams Recording polluent les champs et ne sont pas pertinentes pour un rapport d\'audit. Cite plutôt textuellement ce qui a été dit dans l\'entretien (ex : « le Trésorier a indiqué que... »).\n';
+
   // Format de sortie
   p += '\n## FORMAT DE SORTIE (JSON STRICT)\n\n';
   p += 'Réponds UNIQUEMENT avec un objet JSON valide, sans texte avant ni après. Format :\n\n';
@@ -14707,6 +14711,28 @@ function _highlightNarrative(text) {
   return s;
 }
 
+// v75.6 : nettoyer les URLs dans les textes IA
+// Copilot peut injecter des URLs SharePoint/Teams Recording dans les explications
+// (ex : "[1](https://axwaysoftware-my.sharepoint.com/.../Interview.mp4)" pour citer la source)
+// On strippe ces URLs car elles polluent les champs et ne sont pas pertinentes en audit
+function _stripUrlsFromIa(text) {
+  if (!text) return text;
+  var s = String(text);
+  // Patterns à enlever (de plus spécifique à plus générique) :
+  // 1. Citations markdown style "[1](url)" ou "[texte](url)"
+  s = s.replace(/\[\d+\]\(https?:\/\/[^\)]+\)/g, '');
+  s = s.replace(/\[[^\]]*\]\(https?:\/\/[^\)]+\)/g, '');
+  // 2. URLs nues http(s)://... (jusqu'au premier espace, parenthèse fermante, ou fin de ligne)
+  s = s.replace(/https?:\/\/[^\s\)\]]+/g, '');
+  // 3. Nettoyage : doubles espaces, ponctuation orpheline
+  s = s.replace(/\s+([.,;:!?])/g, '$1'); // espace avant ponctuation
+  s = s.replace(/\s{2,}/g, ' ');         // doubles espaces
+  s = s.replace(/\(\s*\)/g, '');         // parenthèses vides
+  s = s.replace(/\[\s*\]/g, '');         // crochets vides
+  s = s.trim();
+  return s;
+}
+
 // ─── ÉTAPE 4 : import effectif ─────────────────────────────────
 async function _doImportAnalysis() {
   if (!_analyzeState || !_analyzeState.parsedResult) return;
@@ -14737,7 +14763,8 @@ async function _doImportAnalysis() {
         ? spById[spr.matchedExistingId].name
         : (spr.name || '(sans nom)');
       newNarrative += '## ' + spName + '\n\n';
-      newNarrative += (spr.narrative || '').trim() + '\n\n';
+      // v75.6 : strip des URLs IA polluantes
+      newNarrative += _stripUrlsFromIa((spr.narrative || '').trim()) + '\n\n';
     });
     newNarrative = newNarrative.trim();
 
@@ -14752,21 +14779,21 @@ async function _doImportAnalysis() {
         if (!di || (!di.title && !di.description)) return;
         var subtype = (di.subtype === 'missing' || di.subtype === 'weak') ? di.subtype : 'weak';
         var title = (di.title || '').trim() || (subtype === 'missing' ? 'Contrôle manquant' : 'Contrôle insuffisant');
-        var description = (di.description || '').trim();
+        var description = _stripUrlsFromIa((di.description || '').trim());
         // Résoudre l'ID du SP si fourni (et qu'il existe)
         var spId = di.relatedSpId && spById[di.relatedSpId] ? di.relatedSpId : null;
 
         // v75 : root cause IA (validée par l'auditeur ensuite)
         var rcCat = di.rootCauseCategory && _getRootCauseCategory(di.rootCauseCategory) ? di.rootCauseCategory : 'tbd';
-        var rcExpl = (di.rootCauseExplanation || '').trim();
+        var rcExpl = _stripUrlsFromIa((di.rootCauseExplanation || '').trim());
 
         d.issues.push({
           id: 'iss_' + Date.now() + '_' + Math.floor(Math.random()*100000) + '_' + nbDesignIssuesCreated,
           source: 'design',
           subtype: subtype, // 'missing' ou 'weak'
-          title: title,
+          title: _stripUrlsFromIa(title),
           description: description,
-          controlName: (di.controlName || '').trim(),
+          controlName: _stripUrlsFromIa((di.controlName || '').trim()),
           relatedSpId: spId,
           // v75 : root cause
           rootCauseCategory: rcCat,
