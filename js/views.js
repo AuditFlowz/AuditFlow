@@ -10531,28 +10531,28 @@ function showDesignIssueAiModal(idx) {
   var rcExpl = existing ? (existing.rootCauseExplanation || '') : '';
 
   var body = '';
-  // Subtype radios
+  // Subtype radios — v75.5 utilise <div onclick> au lieu de <label> pour éviter le bug CSS .mb label{display:block}
   body += '<div style="margin-bottom:12px">';
-  body += '<label style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;display:block;margin-bottom:6px">Type de défaillance *</label>';
+  body += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;margin-bottom:6px">Type de défaillance *</div>';
   body += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">';
   // Missing
   var mActive = subtype === 'missing';
-  body += '<label style="padding:9px 11px;border:1px solid '+(mActive?'#7F1D1D':'var(--border)')+';border-radius:4px;background:'+(mActive?'#FEF2F2':'#fff')+';cursor:pointer;display:flex;align-items:flex-start;gap:8px">';
-  body += '<input type="radio" name="di-subtype" value="missing" '+(mActive?'checked':'')+' style="margin:2px 0 0 0;flex-shrink:0"/>';
-  body += '<div style="flex:1;min-width:0">';
-  body += '<div style="font-size:11px;font-weight:600;color:'+(mActive?'#7F1D1D':'var(--text-2)')+'">⚑ CTRL Manquant</div>';
-  body += '<div style="font-size:10px;color:var(--text-3);margin-top:2px">Pas de contrôle là où il en faudrait</div>';
+  body += '<div onclick="_setDiSubtype(\'missing\')" style="padding:9px 11px;border:1px solid '+(mActive?'#7F1D1D':'var(--border)')+';border-radius:4px;background:'+(mActive?'#FEF2F2':'#fff')+';cursor:pointer;box-sizing:border-box;min-width:0">';
+  body += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">';
+  body += '<input type="radio" name="di-subtype" value="missing" '+(mActive?'checked':'')+' onclick="event.stopPropagation();_setDiSubtype(\'missing\')" style="margin:0;flex-shrink:0;width:auto;cursor:pointer"/>';
+  body += '<span style="font-size:11px;font-weight:600;color:'+(mActive?'#7F1D1D':'var(--text-2)')+'">⚑ CTRL Manquant</span>';
   body += '</div>';
-  body += '</label>';
+  body += '<div style="font-size:10px;color:var(--text-3);padding-left:22px">Pas de contrôle là où il en faudrait</div>';
+  body += '</div>';
   // Weak
   var wActive = subtype === 'weak';
-  body += '<label style="padding:9px 11px;border:1px solid '+(wActive?'#9A3412':'var(--border)')+';border-radius:4px;background:'+(wActive?'#FFF7ED':'#fff')+';cursor:pointer;display:flex;align-items:flex-start;gap:8px">';
-  body += '<input type="radio" name="di-subtype" value="weak" '+(wActive?'checked':'')+' style="margin:2px 0 0 0;flex-shrink:0"/>';
-  body += '<div style="flex:1;min-width:0">';
-  body += '<div style="font-size:11px;font-weight:600;color:'+(wActive?'#9A3412':'var(--text-2)')+'">⚠ CTRL Insuffisant</div>';
-  body += '<div style="font-size:10px;color:var(--text-3);margin-top:2px">Existe mais limité par design</div>';
+  body += '<div onclick="_setDiSubtype(\'weak\')" style="padding:9px 11px;border:1px solid '+(wActive?'#9A3412':'var(--border)')+';border-radius:4px;background:'+(wActive?'#FFF7ED':'#fff')+';cursor:pointer;box-sizing:border-box;min-width:0">';
+  body += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">';
+  body += '<input type="radio" name="di-subtype" value="weak" '+(wActive?'checked':'')+' onclick="event.stopPropagation();_setDiSubtype(\'weak\')" style="margin:0;flex-shrink:0;width:auto;cursor:pointer"/>';
+  body += '<span style="font-size:11px;font-weight:600;color:'+(wActive?'#9A3412':'var(--text-2)')+'">⚠ CTRL Insuffisant</span>';
   body += '</div>';
-  body += '</label>';
+  body += '<div style="font-size:10px;color:var(--text-3);padding-left:22px">Existe mais limité par design</div>';
+  body += '</div>';
   body += '</div>';
   body += '</div>';
 
@@ -10584,7 +10584,7 @@ function showDesignIssueAiModal(idx) {
   // Description
   body += '<div style="margin-bottom:10px">';
   body += '<label style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;display:block;margin-bottom:3px">Description détaillée</label>';
-  body += '<textarea id="di-description" placeholder="Décris la défaillance : quel est le gap ou la faiblesse de design, quel risque ça expose, pourquoi c\'est un problème (1-3 phrases)" style="width:100%;min-height:90px;font-size:11px;padding:8px 10px;border:.5px solid var(--border);border-radius:3px;box-sizing:border-box;resize:vertical;font-family:inherit;line-height:1.5">'+description.replace(/</g,'&lt;')+'</textarea>';
+  body += '<textarea id="di-description" placeholder="Décris la défaillance : quel est le gap ou la faiblesse de design, quel risque ça expose, pourquoi c\'est un problème (1-3 phrases)" style="width:100%;min-height:90px;font-size:11px;padding:8px 10px;border:.5px solid var(--border);border-radius:3px;box-sizing:border-box;resize:vertical;font-family:inherit;line-height:1.5;overflow-wrap:anywhere;word-break:break-word">'+description.replace(/</g,'&lt;')+'</textarea>';
   body += '</div>';
 
   // v75 : Root cause section
@@ -10602,7 +10602,7 @@ function showDesignIssueAiModal(idx) {
   // Explication
   body += '<div>';
   body += '<label style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;display:block;margin-bottom:3px">Explication factuelle</label>';
-  body += '<textarea id="di-rc-expl" placeholder="Justifie la catégorisation à partir d\'éléments concrets des entretiens (ex : « Le trésorier a indiqué qu\'il n\'a jamais reçu de formation sur la procédure de validation des paiements. »). 1-3 phrases." style="width:100%;min-height:60px;font-size:11px;padding:8px 10px;border:.5px solid var(--border);border-radius:3px;box-sizing:border-box;resize:vertical;font-family:inherit;line-height:1.5">'+rcExpl.replace(/</g,'&lt;')+'</textarea>';
+  body += '<textarea id="di-rc-expl" placeholder="Justifie la catégorisation à partir d\'éléments concrets des entretiens (ex : « Le trésorier a indiqué qu\'il n\'a jamais reçu de formation sur la procédure de validation des paiements. »). 1-3 phrases." style="width:100%;min-height:60px;font-size:11px;padding:8px 10px;border:.5px solid var(--border);border-radius:3px;box-sizing:border-box;resize:vertical;font-family:inherit;line-height:1.5;overflow-wrap:anywhere;word-break:break-word">'+rcExpl.replace(/</g,'&lt;')+'</textarea>';
   body += '</div>';
   body += '</div>';
 
@@ -10617,6 +10617,27 @@ function showDesignIssueAiModal(idx) {
     var okBtn = document.getElementById('mok');
     if (okBtn) okBtn.textContent = existing ? 'Enregistrer' : 'Ajouter';
   }, 50);
+}
+
+// Helper : changer le sous-type sélectionné dans la modale (clic sur card)
+function _setDiSubtype(subtype) {
+  var radios = document.querySelectorAll('input[name="di-subtype"]');
+  radios.forEach(function(r){ r.checked = (r.value === subtype); });
+  // Mettre à jour visuellement les cards (re-render light)
+  // Solution simple : re-trigger le render de la modale en gardant les valeurs
+  // Pour rester léger, on update juste les styles inline des 2 cards
+  var cards = document.querySelectorAll('input[name="di-subtype"]');
+  cards.forEach(function(r){
+    var card = r.closest('div[onclick]');
+    if (!card) return;
+    var isActive = r.value === subtype;
+    var color = r.value === 'missing' ? '#7F1D1D' : '#9A3412';
+    var bg = r.value === 'missing' ? '#FEF2F2' : '#FFF7ED';
+    card.style.border = '1px solid ' + (isActive ? color : 'var(--border)');
+    card.style.background = isActive ? bg : '#fff';
+    var span = card.querySelector('span');
+    if (span) span.style.color = isActive ? color : 'var(--text-2)';
+  });
 }
 
 async function saveDesignIssueAi(idx) {
