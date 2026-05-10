@@ -14224,27 +14224,28 @@ function _renderAnalyzeStep1() {
 
   // Section 2 : mode
   body += '<div style="margin-bottom:16px">';
-  body += '<label style="font-size:11px;color:var(--text-1);font-weight:600;display:block;margin-bottom:8px">2. Mode</label>';
+  body += '<div style="font-size:11px;color:var(--text-1);font-weight:600;margin-bottom:8px">2. Mode</div>';
   body += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">';
   // Replace
   var replaceActive = _analyzeState.mode === 'replace';
-  body += '<label style="padding:10px 12px;border:1px solid '+(replaceActive?'#3C3489':'var(--border)')+';border-radius:4px;background:'+(replaceActive?'#EEEDFE':'#fff')+';cursor:pointer;display:flex;align-items:flex-start;gap:8px">';
-  body += '<input type="radio" name="analyze-mode" value="replace" '+(replaceActive?'checked':'')+' onchange="_setAnalyzeMode(\'replace\')" style="margin:2px 0 0 0;flex-shrink:0;cursor:pointer"/>';
-  body += '<div style="flex:1;min-width:0">';
-  body += '<div style="font-size:11px;font-weight:500;color:'+(replaceActive?'#3C3489':'var(--text-2)')+'">↻ Remplacer</div>';
-  body += '<div style="font-size:10px;color:var(--text-3);margin-top:2px;font-style:italic">Le narratif existant sera écrasé</div>';
+  body += '<div onclick="_setAnalyzeMode(\'replace\')" style="padding:10px 12px;border:1px solid '+(replaceActive?'#3C3489':'var(--border)')+';border-radius:4px;background:'+(replaceActive?'#EEEDFE':'#fff')+';cursor:pointer;box-sizing:border-box;min-width:0">';
+  body += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">';
+  body += '<input type="radio" name="analyze-mode" value="replace" '+(replaceActive?'checked':'')+' onclick="event.stopPropagation();_setAnalyzeMode(\'replace\')" style="margin:0;flex-shrink:0;width:auto;cursor:pointer"/>';
+  body += '<span style="font-size:11px;font-weight:500;color:'+(replaceActive?'#3C3489':'var(--text-2)')+'">↻ Remplacer</span>';
   body += '</div>';
-  body += '</label>';
+  body += '<div style="font-size:10px;color:var(--text-3);font-style:italic;padding-left:22px">Le narratif existant sera écrasé</div>';
+  body += '</div>';
   // Enrich
   var enrichActive = _analyzeState.mode === 'enrich';
   var enrichDisabled = !hasNarrative;
-  body += '<label style="padding:10px 12px;border:1px solid '+(enrichActive?'#3C3489':'var(--border)')+';border-radius:4px;background:'+(enrichActive?'#EEEDFE':'#fff')+';cursor:'+(enrichDisabled?'not-allowed':'pointer')+';display:flex;align-items:flex-start;gap:8px;opacity:'+(enrichDisabled?'0.5':'1')+'">';
-  body += '<input type="radio" name="analyze-mode" value="enrich" '+(enrichActive?'checked':'')+' onchange="_setAnalyzeMode(\'enrich\')" '+(enrichDisabled?'disabled':'')+' style="margin:2px 0 0 0;flex-shrink:0;cursor:'+(enrichDisabled?'not-allowed':'pointer')+'"/>';
-  body += '<div style="flex:1;min-width:0">';
-  body += '<div style="font-size:11px;font-weight:500;color:'+(enrichActive?'#3C3489':'var(--text-2)')+'">+ Enrichir</div>';
-  body += '<div style="font-size:10px;color:var(--text-3);margin-top:2px;font-style:italic">Compléter, signaler divergences</div>';
+  var enrichClick = enrichDisabled ? '' : 'onclick="_setAnalyzeMode(\'enrich\')"';
+  body += '<div '+enrichClick+' style="padding:10px 12px;border:1px solid '+(enrichActive?'#3C3489':'var(--border)')+';border-radius:4px;background:'+(enrichActive?'#EEEDFE':'#fff')+';cursor:'+(enrichDisabled?'not-allowed':'pointer')+';box-sizing:border-box;min-width:0;opacity:'+(enrichDisabled?'0.5':'1')+'">';
+  body += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">';
+  body += '<input type="radio" name="analyze-mode" value="enrich" '+(enrichActive?'checked':'')+' '+(enrichDisabled?'disabled':'onclick="event.stopPropagation();_setAnalyzeMode(\'enrich\')"')+' style="margin:0;flex-shrink:0;width:auto;cursor:'+(enrichDisabled?'not-allowed':'pointer')+'"/>';
+  body += '<span style="font-size:11px;font-weight:500;color:'+(enrichActive?'#3C3489':'var(--text-2)')+'">+ Enrichir</span>';
   body += '</div>';
-  body += '</label>';
+  body += '<div style="font-size:10px;color:var(--text-3);font-style:italic;padding-left:22px">Compléter, signaler divergences</div>';
+  body += '</div>';
   body += '</div>';
   if (!hasNarrative) {
     body += '<div style="font-size:10px;color:var(--text-3);font-style:italic;margin-top:6px">Mode Enrichir disponible uniquement si un narratif existe déjà</div>';
