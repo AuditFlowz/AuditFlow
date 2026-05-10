@@ -769,6 +769,8 @@ async function loadAuditData(auditId) {
       var flowcharts = Array.isArray(attachments.flowcharts) ? attachments.flowcharts : [];
       // v71 : extraire les entretiens (bibliothèque audit-level)
       var interviews = Array.isArray(attachments.interviews) ? attachments.interviews : [];
+      // v73 : extraire le narratif consolidé
+      var consolidatedNarrative = typeof attachments.consolidatedNarrative === 'string' ? attachments.consolidatedNarrative : '';
       DB.auditData[auditId] = {
         tasks:tryParse(f.tasks_json,{}), controls:tryParse(f.controls_json,{}),
         findings:tryParse(f.findings_json,[]), mgtResp:tryParse(f.mgt_resp_json,[]),
@@ -789,13 +791,15 @@ async function loadAuditData(auditId) {
         flowcharts:flowcharts,
         // v71 : interviews exposés à la racine pour les vues
         interviews:interviews,
+        // v73 : narratif consolidé exposé à la racine
+        consolidatedNarrative:consolidatedNarrative,
       };
     } else {
-      DB.auditData[auditId] = {tasks:{},controls:{},findings:[],mgtResp:[],docs:[],notes:'',maturity:null,riskLinks:{},auditRisks:[],stepStates:{},prepNotes:{},revNotes:{},wcgw:{},kickoffPrep:{},workProgramBU:{processes:[]},issues:[],execSummaryHeader:'',attachments:{},flowcharts:[],interviews:[]};
+      DB.auditData[auditId] = {tasks:{},controls:{},findings:[],mgtResp:[],docs:[],notes:'',maturity:null,riskLinks:{},auditRisks:[],stepStates:{},prepNotes:{},revNotes:{},wcgw:{},kickoffPrep:{},workProgramBU:{processes:[]},issues:[],execSummaryHeader:'',attachments:{},flowcharts:[],interviews:[],consolidatedNarrative:''};
     }
   } catch(e) {
     console.warn('[SP] loadAuditData error:', e.message);
-    DB.auditData[auditId] = {tasks:{},controls:{},findings:[],mgtResp:[],docs:[],notes:'',maturity:null,riskLinks:{},auditRisks:[],stepStates:{},prepNotes:{},revNotes:{},wcgw:{},kickoffPrep:{},workProgramBU:{processes:[]},issues:[],execSummaryHeader:'',attachments:{},flowcharts:[],interviews:[]};
+    DB.auditData[auditId] = {tasks:{},controls:{},findings:[],mgtResp:[],docs:[],notes:'',maturity:null,riskLinks:{},auditRisks:[],stepStates:{},prepNotes:{},revNotes:{},wcgw:{},kickoffPrep:{},workProgramBU:{processes:[]},issues:[],execSummaryHeader:'',attachments:{},flowcharts:[],interviews:[],consolidatedNarrative:''};
   }
   AUD_DATA[auditId] = DB.auditData[auditId];
   return DB.auditData[auditId];
@@ -815,6 +819,11 @@ async function saveAuditData(auditId) {
   if (Array.isArray(d.interviews)) {
     if (!d.attachments) d.attachments = {};
     d.attachments.interviews = d.interviews;
+  }
+  // v73 : narratif consolidé au niveau de l'audit
+  if (typeof d.consolidatedNarrative === 'string') {
+    if (!d.attachments) d.attachments = {};
+    d.attachments.consolidatedNarrative = d.consolidatedNarrative;
   }
   var attachmentsJson = JSON.stringify(d.attachments||{});
   // v72.1 : log si la taille est conséquente (limite SharePoint ~63 KB par défaut sur multiline text)

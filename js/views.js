@@ -4492,30 +4492,31 @@ function renderAuditHeaderCompact(a, step, pct) {
         {idxs: [6,8,9],   name: 'Restitution', bg: '#FAEEDA', txt: '#854F0B'},
       ]
     : [
-        // Process : sauter index 3 (Interview) et 7 (Report Restitution)
+        // Process v73 : Réalisation = 3 (ITW/Narratif), 4 (Flowcharts), 5 (Testings)
         {idxs: [0,1,2],   name: 'Préparation', bg: '#EEEDFE', txt: '#3C3489'},
-        {idxs: [4,5],     name: 'Réalisation', bg: '#E1F5EE', txt: '#085041'},
+        {idxs: [3,4,5],   name: 'Réalisation', bg: '#E1F5EE', txt: '#085041'},
         {idxs: [6,8,9],   name: 'Restitution', bg: '#FAEEDA', txt: '#854F0B'},
       ];
 
   // Helper : renvoie le nom de l'étape (avec renommage spécifique BU pour l'étape 6)
   function _stepLabel(realIdx) {
     if (isBu && realIdx === 6) return 'Findings & Rapport';
-    // Process : renommer index 4 "ITW : WCGW & Contrôles" en "WCGW & Contrôles"
-    if (isProcess && realIdx === 4) return 'WCGW & Contrôles';
+    if (isBu && realIdx === 3) return 'Interview (Design Issues)';
+    // Process : renommer index 4 en "Flowcharts (WCGW & Contrôles)"
+    if (isProcess && realIdx === 4) return 'Flowcharts (WCGW & Contrôles)';
+    if (isProcess && realIdx === 3) return 'ITW / Narratif';
     return STEPS[realIdx] ? STEPS[realIdx].s : '—';
   }
 
-  // Pour le numéro d'étape affiché :
-  //   - BU : 0,1,2,3,5,6,8,9 → 1..8 (sauter idx 4 et 7)
-  //   - Process : 0,1,2,4,5,6,8,9 → 1..8 (sauter idx 3 et 7)
+  //   - BU : 0,1,2,3,5,6,8,9 → 1..8 (saute 4 et 7)
+  //   - Process v73 : 0,1,2,3,4,5,6,8,9 → 1..9 (saute juste idx 7)
   function _displayedStepNum(realIdx) {
     if (isBu) {
       var buMap = {0:1, 1:2, 2:3, 3:4, 5:5, 6:6, 8:7, 9:8};
       return buMap[realIdx] !== undefined ? buMap[realIdx] : realIdx + 1;
     }
-    // Process
-    var procMap = {0:1, 1:2, 2:3, 4:4, 5:5, 6:6, 8:7, 9:8};
+    // Process v73 : 9 étapes (ITW/Narratif ajoutée à idx 3)
+    var procMap = {0:1, 1:2, 2:3, 3:4, 4:5, 5:6, 6:7, 8:8, 9:9};
     return procMap[realIdx] !== undefined ? procMap[realIdx] : realIdx + 1;
   }
 
@@ -4616,18 +4617,15 @@ function renderDetContent(){
     html += renderKickoffGenerateBanner();
     html += renderKickoffBookingSection();
   } else if (CS === 3) {
-    // Étape 4 (index 3) : Interview / Flowcharts
-    // Pour les audits BU : on ajoute la possibilité de remonter des issues Design
-    // (problèmes de conception du process identifiés en interview).
-    // Ces issues seront agrégées en findings à l'étape Report.
+    // v73 : Process → ITW/Narratif (nouvelle étape) ; BU → reste comme avant (Design Issues, sera sauté en pratique)
     if (a.type === 'BU') {
       html += renderDesignIssuesSection();
+    } else {
+      // Process : nouvelle vue ITW / Narratif consolidé
+      html += renderItwNarrativeSection();
     }
-    // Pour les audits Process : aucune section spécifique (juste les docs + notes en bas)
   } else if (CS === 4) {
-    // Étape 4 (index 4) : Vue plein écran Flowcharts (Process uniquement)
-    // - Si pas de flowchart : splash avec bouton "Créer le 1er flowchart" + accès aux contrôles
-    // - Sinon : éditeur flowchart en grand, avec WCGW dans panneau latéral
+    // Étape 5 affichée (index 4) : Flowcharts (WCGW & Contrôles) Process / WCGW & Contrôles BU
     html += renderRiskSection();
     if (a.type === 'BU') {
       // BU : pas de flowchart, vue simplifiée Contrôles par sous-processus (v65)
@@ -8182,29 +8180,44 @@ function renderFlowchartBottomControls(fc, d, allCtrls) {
 function _fcRenderNarrativeSidePanel(fc) {
   var h = '';
 
-  // v72 : bouton Analyser entretiens (en haut du panneau)
+  // v73 : panneau Narratif passe en lecture seule, depuis le narratif consolidé de l'audit
   var d = getAudData(CA);
-  var nbInterviews = (d.interviews || []).length;
-  h += '<div style="margin-bottom:12px">';
-  if (nbInterviews > 0) {
-    h += '<button onclick="showAnalyzeInterviewsModal()" style="width:100%;font-size:11px;padding:8px 12px;background:#3C3489;color:#fff;border:none;border-radius:3px;cursor:pointer;font-weight:500;display:flex;align-items:center;justify-content:center;gap:6px">🤖 Analyser entretiens ('+nbInterviews+')</button>';
-    // Historique d'analyses si présent
-    var nbAnalyses = (fc.narrativeHistory || []).length;
-    if (nbAnalyses > 0) {
-      var lastAn = fc.narrativeHistory[fc.narrativeHistory.length-1];
-      var lastDate = lastAn && lastAn.analyzedAt ? new Date(lastAn.analyzedAt).toLocaleDateString('fr-FR', {day:'2-digit',month:'short'}) : '';
-      h += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:4px;text-align:center">'+nbAnalyses+' analyse'+(nbAnalyses>1?'s':'')+' · dernière le '+lastDate+'</div>';
-    }
-  } else {
-    h += '<button onclick="showInterviewsLibrary()" style="width:100%;font-size:11px;padding:8px 12px;background:#fff;color:var(--text-2);border:.5px dashed var(--border);border-radius:3px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">📋 Ajouter d\'abord un entretien</button>';
-    h += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:4px;text-align:center">Bibliothèque vide — analyse IA indisponible</div>';
+  var sps = (d.kickoffPrep && Array.isArray(d.kickoffPrep.subProcesses)) ? d.kickoffPrep.subProcesses : [];
+  var spForFc = fc.subProcessId ? sps.find(function(x){return x.id===fc.subProcessId;}) : null;
+  var consolidatedNarrative = d.consolidatedNarrative || '';
+
+  // Tenter d'extraire la section qui correspond au SP du flowchart
+  var sectionExtract = '';
+  if (spForFc && consolidatedNarrative) {
+    sectionExtract = _extractNarrativeSection(consolidatedNarrative, spForFc.name);
   }
+
+  // Bandeau d'info en haut : redirection vers l'étape ITW/Narratif
+  h += '<div style="background:#EEEDFE;border:.5px solid #CECBF6;border-radius:3px;padding:8px 10px;margin-bottom:10px;font-size:10px;color:#3C3489;line-height:1.5">';
+  h += '<div style="font-weight:600;margin-bottom:3px">📝 Narratif en lecture seule</div>';
+  h += '<div>Le narratif est désormais géré dans l\'étape <strong>ITW / Narratif</strong> (consolidé pour tout l\'audit). Pour modifier ce texte, retourne à cette étape.</div>';
+  h += '<button onclick="goStep(3)" style="margin-top:6px;width:100%;font-size:10px;padding:5px 8px;background:#3C3489;color:#fff;border:none;border-radius:3px;cursor:pointer;font-weight:500">↗ Aller à ITW / Narratif</button>';
   h += '</div>';
 
+  // Affichage du narratif (section SP courante si trouvée, sinon message)
   h += '<div style="margin-bottom:14px">';
-  h += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;margin-bottom:5px">Description du processus</div>';
-  h += '<textarea id="fc-narrative" oninput="_fcMarkNarrativeDirty()" onblur="saveFlowchartNarrative(this.value)" placeholder="Décris le flux : qui fait quoi, quand, sur quel système, avec quelles validations…" style="width:100%;min-height:160px;font-size:11px;padding:7px 9px;border:.5px solid var(--border);border-radius:3px;background:#fff;box-sizing:border-box;resize:vertical;font-family:inherit;line-height:1.5">'+(''+(fc.narrative||'')).replace(/</g,'&lt;')+'</textarea>';
-  h += '<div id="fc-narrative-status" style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:4px">'+(fc.narrative ? (''+fc.narrative.length+' caractères · sauvegardé') : 'Vide')+'</div>';
+  h += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;margin-bottom:5px">';
+  if (spForFc) h += 'Section · '+(spForFc.name||'').replace(/</g,'&lt;');
+  else h += 'Narratif';
+  h += '</div>';
+  if (sectionExtract) {
+    // Affichage avec highlight des marqueurs WCGW/CTRL/DIVERGENCE
+    h += '<div style="font-size:11px;line-height:1.7;color:var(--text-2);white-space:pre-wrap;background:#fff;padding:10px 12px;border:.5px solid var(--border);border-radius:3px;max-height:380px;overflow-y:auto">'+_highlightNarrative(sectionExtract)+'</div>';
+  } else if (consolidatedNarrative) {
+    h += '<div style="font-size:10px;color:var(--text-3);font-style:italic;background:#fafafa;padding:10px 12px;border:.5px dashed var(--border);border-radius:3px;line-height:1.5">';
+    h += 'Aucune section <code style="background:#fff;padding:1px 4px;border-radius:2px;border:.5px solid var(--border)">## '+(spForFc?spForFc.name:'?')+'</code> trouvée dans le narratif consolidé.';
+    h += '<br><br>Va à l\'étape ITW / Narratif et utilise le bouton « + section » pour ajouter cette section.';
+    h += '</div>';
+  } else {
+    h += '<div style="font-size:10px;color:var(--text-3);font-style:italic;background:#fafafa;padding:10px 12px;border:.5px dashed var(--border);border-radius:3px;line-height:1.5">';
+    h += 'Aucun narratif n\'a encore été rédigé pour cet audit.<br><br>Va à l\'étape ITW / Narratif pour le construire (à partir des entretiens si tu en as ajouté en bibliothèque).';
+    h += '</div>';
+  }
   h += '</div>';
 
   h += '<div style="margin-bottom:14px">';
@@ -10182,6 +10195,209 @@ async function _removeIssue(issueId) {
 //  Champs ultra-simples : titre + description + Process concerné.
 // ════════════════════════════════════════════════════════════════════
 
+// ════════════════════════════════════════════════════════════════════
+//  v73 : ÉTAPE ITW / NARRATIF (Process uniquement)
+//  - Une textarea unique pour le narratif consolidé de l'audit
+//  - Structuré par sections markdown `## [Nom du sous-processus]`
+//  - Bouton "🤖 Analyser entretiens" (déplacé depuis le flowchart)
+//  - Aide pour insérer rapidement les sections de chaque SP
+// ════════════════════════════════════════════════════════════════════
+
+function renderItwNarrativeSection() {
+  var d = getAudData(CA);
+  if (typeof d.consolidatedNarrative !== 'string') d.consolidatedNarrative = '';
+  var sps = (d.kickoffPrep && Array.isArray(d.kickoffPrep.subProcesses)) ? d.kickoffPrep.subProcesses : [];
+  var nbInterviews = (d.interviews || []).length;
+  var nbAnalyzed = (d.interviews || []).filter(function(i){return !!i.analyzedAt;}).length;
+
+  // Détection des sections existantes dans le narratif (par ## [Nom du SP])
+  var sectionsFound = _detectNarrativeSections(d.consolidatedNarrative, sps);
+
+  var h = '';
+
+  // ── HEADER avec actions principales ────────────
+  h += '<div style="background:linear-gradient(135deg,#3C3489 0%,#534AB7 100%);color:#fff;padding:14px 18px;border-radius:6px;margin-bottom:14px">';
+  h += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">';
+  h += '<div style="flex:1;min-width:240px">';
+  h += '<div style="font-size:11px;text-transform:uppercase;letter-spacing:.6px;opacity:.85;font-weight:500;margin-bottom:3px">Étape 4 · Réalisation</div>';
+  h += '<div style="font-size:17px;font-weight:600;margin-bottom:4px">📝 ITW / Narratif consolidé</div>';
+  h += '<div style="font-size:11px;opacity:.9;line-height:1.5">Construis un narratif global de l\'audit à partir des entretiens. Sépare les sous-processus par <code style="background:rgba(255,255,255,.2);padding:1px 5px;border-radius:2px">## [Nom du sous-processus]</code>.</div>';
+  h += '</div>';
+  h += '<div style="display:flex;gap:8px;flex-shrink:0">';
+  // Bouton Bibliothèque
+  h += '<button onclick="showInterviewsLibrary()" style="font-size:11px;padding:7px 12px;background:rgba(255,255,255,.18);color:#fff;border:.5px solid rgba(255,255,255,.4);border-radius:3px;cursor:pointer;font-weight:500" title="Gérer la bibliothèque d\'entretiens">📋 Entretiens ('+nbInterviews+')</button>';
+  // Bouton Analyser
+  if (nbInterviews > 0) {
+    h += '<button onclick="showAnalyzeInterviewsModalForAudit()" style="font-size:11px;padding:7px 14px;background:#fff;color:#3C3489;border:none;border-radius:3px;cursor:pointer;font-weight:600">🤖 Analyser entretiens</button>';
+  } else {
+    h += '<button disabled style="font-size:11px;padding:7px 14px;background:rgba(255,255,255,.3);color:rgba(255,255,255,.6);border:none;border-radius:3px;cursor:not-allowed;font-weight:500" title="Bibliothèque vide">🤖 Analyser entretiens</button>';
+  }
+  h += '</div>';
+  h += '</div>';
+  h += '</div>';
+
+  // ── LAYOUT 2 cols : narratif principal | side panel ────────────
+  h += '<div style="display:grid;grid-template-columns:1fr 280px;gap:14px;align-items:start">';
+
+  // Colonne gauche : NARRATIF PRINCIPAL
+  h += '<div style="min-width:0">';
+  h += '<div style="background:#fff;border:.5px solid var(--border);border-radius:6px;overflow:hidden">';
+  h += '<div style="padding:10px 14px;background:#fafafa;border-bottom:.5px solid var(--border);display:flex;justify-content:space-between;align-items:center">';
+  h += '<div style="font-size:11px;font-weight:600;color:var(--text-1)">Narratif consolidé</div>';
+  h += '<div id="itw-narrative-status" style="font-size:10px;color:var(--text-3);font-style:italic">'+(d.consolidatedNarrative ? d.consolidatedNarrative.length+' caractères · sauvegardé' : 'Vide')+'</div>';
+  h += '</div>';
+  h += '<textarea id="itw-narrative-textarea" oninput="_itwMarkNarrativeDirty()" onblur="saveConsolidatedNarrative(this.value)" placeholder="Décris ici les processus audités, à partir des entretiens et de tes observations.\n\nUtilise le format suivant pour structurer par sous-processus :\n\n## Cash Pooling\nChaque matin à 9h, le Trésorier consulte les soldes des filiales…\n\n## Loan Management\n…" style="width:100%;min-height:560px;font-size:12px;padding:14px 16px;border:none;box-sizing:border-box;resize:vertical;font-family:inherit;line-height:1.7;background:#fff">'+(d.consolidatedNarrative||'').replace(/</g,'&lt;')+'</textarea>';
+  h += '</div>';
+  // Aide / légende
+  h += '<div style="font-size:10px;color:var(--text-3);margin-top:6px;padding:6px 10px;background:#fafafa;border:.5px solid var(--border);border-radius:3px;line-height:1.5">';
+  h += '<strong style="font-weight:500;color:var(--text-2)">💡 Conventions de balisage :</strong> ';
+  h += '<code style="background:#fff;padding:1px 5px;border:.5px solid var(--border);border-radius:2px">## [Nom du SP]</code> pour démarrer une section, ';
+  h += '<code style="background:#FCEBEB;padding:1px 5px;border:.5px solid #F2C2C0;border-radius:2px;color:#993C1D">⚠ WCGW :</code> pour un risque, ';
+  h += '<code style="background:#F5FBF8;padding:1px 5px;border:.5px solid #A6E2CD;border-radius:2px;color:#085041">✓ CTRL Existant :</code> pour un contrôle existant, ';
+  h += '<code style="background:#FFFAF0;padding:1px 5px;border:.5px solid #FAC775;border-radius:2px;color:#854F0B">⚑ CTRL Cible :</code> pour un contrôle cible. ';
+  h += 'L\'IA respecte ces marqueurs automatiquement.';
+  h += '</div>';
+  h += '</div>';
+
+  // Colonne droite : SIDE PANEL (sections + raccourcis)
+  h += '<div style="min-width:0">';
+
+  // Couverture par SP
+  h += '<div style="background:#fff;border:.5px solid var(--border);border-radius:6px;padding:12px;margin-bottom:10px">';
+  h += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;margin-bottom:8px">Sections détectées</div>';
+  if (sps.length === 0) {
+    h += '<div style="font-size:10px;color:var(--text-3);font-style:italic">Aucun sous-processus défini en étape 2. Va d\'abord les définir.</div>';
+  } else {
+    sps.forEach(function(sp){
+      var found = sectionsFound[sp.id];
+      var bg = found ? '#F5FBF8' : '#fafafa';
+      var brd = found ? '#A6E2CD' : 'var(--border)';
+      var color = found ? '#085041' : 'var(--text-3)';
+      var icon = found ? '✓' : '○';
+      h += '<div style="padding:6px 8px;background:'+bg+';border:.5px solid '+brd+';border-radius:3px;margin-bottom:4px;display:flex;align-items:center;gap:6px;font-size:10px">';
+      h += '<span style="color:'+color+';font-weight:600;font-size:12px;flex-shrink:0">'+icon+'</span>';
+      h += '<span style="flex:1;min-width:0;color:'+(found?'var(--text-1)':'var(--text-2)')+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+(sp.name||'').replace(/"/g,'&quot;')+'">'+(sp.name||'(sans nom)').replace(/</g,'&lt;')+'</span>';
+      if (!found) {
+        h += '<button onclick="_itwInsertSpSection(\''+_escQ(sp.name)+'\')" title="Insérer la section dans le narratif" style="font-size:9px;padding:2px 6px;background:#fff;border:.5px solid var(--border);border-radius:2px;cursor:pointer;color:#3C3489;font-weight:500">+ section</button>';
+      }
+      h += '</div>';
+    });
+  }
+  h += '</div>';
+
+  // Raccourci entretiens
+  h += '<div style="background:#fff;border:.5px solid var(--border);border-radius:6px;padding:12px;margin-bottom:10px">';
+  h += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;margin-bottom:8px">Bibliothèque entretiens</div>';
+  if (nbInterviews === 0) {
+    h += '<div style="font-size:10px;color:var(--text-3);font-style:italic;margin-bottom:6px">Aucun entretien dans la bibliothèque.</div>';
+    h += '<button onclick="showInterviewsLibrary()" style="width:100%;font-size:11px;padding:7px;background:#3C3489;color:#fff;border:none;border-radius:3px;cursor:pointer;font-weight:500">+ Ajouter un entretien</button>';
+  } else {
+    h += '<div style="font-size:10px;color:var(--text-2);margin-bottom:8px">'+nbInterviews+' entretien'+(nbInterviews>1?'s':'')+' · '+nbAnalyzed+' analysé'+(nbAnalyzed>1?'s':'')+'</div>';
+    // Mini liste
+    var itvList = (d.interviews || []).slice(0, 5);
+    itvList.forEach(function(itv){
+      var initials = _intervInitials(itv.intervieweName);
+      var color = _intervColor(itv.intervieweName);
+      h += '<div style="display:flex;align-items:center;gap:6px;padding:4px 0;font-size:10px">';
+      h += '<div style="width:22px;height:22px;border-radius:50%;background:'+color+';color:#fff;display:flex;align-items:center;justify-content:center;font-weight:500;font-size:8px;flex-shrink:0">'+initials+'</div>';
+      h += '<div style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(itv.intervieweName||'').replace(/</g,'&lt;')+'</div>';
+      if (itv.analyzedAt) h += '<span style="color:#085041;font-size:9px;flex-shrink:0">✓</span>';
+      h += '</div>';
+    });
+    if (nbInterviews > 5) {
+      h += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:4px">+ '+(nbInterviews-5)+' autres…</div>';
+    }
+    h += '<button onclick="showInterviewsLibrary()" style="width:100%;margin-top:8px;font-size:10px;padding:6px;background:#fff;color:var(--text-2);border:.5px solid var(--border);border-radius:3px;cursor:pointer">Gérer la bibliothèque</button>';
+  }
+  h += '</div>';
+
+  h += '</div>'; // end side panel
+  h += '</div>'; // end grid
+
+  return h;
+}
+
+// Détection des sections SP dans le narratif (recherche `## [Nom du SP]`)
+function _detectNarrativeSections(narrative, sps) {
+  var found = {};
+  if (!narrative || !sps.length) return found;
+  sps.forEach(function(sp){
+    var name = (sp.name || '').trim();
+    if (!name) return;
+    // Regex : `## ` puis le nom (case-insensitive, ignore espaces autour)
+    var escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    var rx = new RegExp('^\\s*##\\s*\\[?\\s*' + escaped + '\\s*\\]?\\s*$', 'mi');
+    if (rx.test(narrative)) found[sp.id] = true;
+  });
+  return found;
+}
+
+// Extraction d'une section spécifique du narratif global (pour la lecture seule du flowchart)
+function _extractNarrativeSection(narrative, spName) {
+  if (!narrative || !spName) return '';
+  var escaped = spName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // Regex : capture depuis `## [SP]` jusqu'au prochain `## ` ou fin de texte
+  var rx = new RegExp('(^\\s*##\\s*\\[?\\s*' + escaped + '\\s*\\]?\\s*$)([\\s\\S]*?)(?=^\\s*##\\s|\\Z)', 'mi');
+  var m = narrative.match(rx);
+  if (!m) return '';
+  return (m[1] + m[2]).trim();
+}
+
+// Insertion d'une nouvelle section SP dans le narratif
+function _itwInsertSpSection(spName) {
+  var ta = document.getElementById('itw-narrative-textarea');
+  if (!ta) return;
+  var current = ta.value || '';
+  var sectionTpl = '\n\n## ' + spName + '\n\n[À compléter à partir des entretiens et observations…]\n';
+  // Insérer à la fin si vide, sinon à la position du curseur
+  if (!current.trim()) {
+    ta.value = sectionTpl.replace(/^\n\n/, '');
+  } else {
+    ta.value = current.trimEnd() + sectionTpl;
+  }
+  // Save + re-render
+  saveConsolidatedNarrative(ta.value);
+}
+
+function _itwMarkNarrativeDirty() {
+  var s = document.getElementById('itw-narrative-status');
+  if (s) {
+    s.textContent = 'Modifications non sauvegardées…';
+    s.style.color = '#854F0B';
+  }
+}
+
+async function saveConsolidatedNarrative(value) {
+  var d = getAudData(CA);
+  d.consolidatedNarrative = value || '';
+  await saveAuditData(CA);
+  var s = document.getElementById('itw-narrative-status');
+  if (s) {
+    s.textContent = (value ? value.length+' caractères · sauvegardé' : 'Vide');
+    s.style.color = 'var(--text-3)';
+  }
+  // Re-render side panel pour mettre à jour les sections détectées
+  var detContent = document.getElementById('det-content');
+  if (detContent && CS === 3) {
+    // On ne re-render que si on est toujours sur l'étape 3, et on garde le focus sur la textarea
+    var ta = document.getElementById('itw-narrative-textarea');
+    var savedSelStart = ta ? ta.selectionStart : null;
+    var savedSelEnd = ta ? ta.selectionEnd : null;
+    var savedScrollTop = ta ? ta.scrollTop : null;
+    detContent.innerHTML = renderDetContent();
+    // Restaurer le focus + position curseur
+    setTimeout(function() {
+      var newTa = document.getElementById('itw-narrative-textarea');
+      if (newTa) {
+        newTa.focus();
+        if (savedSelStart !== null) newTa.setSelectionRange(savedSelStart, savedSelEnd);
+        if (savedScrollTop !== null) newTa.scrollTop = savedScrollTop;
+      }
+    }, 0);
+  }
+}
+
+
 function renderDesignIssuesSection() {
   var d = getAudData(CA);
   _ensureIssues(d);
@@ -12011,15 +12227,16 @@ function goStep(i){
   CS=i;
   var auditObj = AUDIT_PLAN.find(function(x){return x.id===CA;});
   var isBu = auditObj && auditObj.type === 'BU';
-  // BU : sauter étapes 4 (idx 4) et 8 (idx 7)
+  // BU : passe par idx 3 (Design Issues), saute idx 4 (WCGW Process-only) et idx 7
   if (isBu && i === 4) { CS = 5; i = 5; }
   if (isBu && i === 7) { CS = 8; i = 8; }
-  // Process : sauter étapes 4 (idx 3) et 8 (idx 7)
-  if (!isBu && i === 3) { CS = 4; i = 4; }
+  // Process v73 : utilise toutes les étapes (3 = ITW/Narratif, 4 = Flowcharts), saute juste 7
   if (!isBu && i === 7) { CS = 8; i = 8; }
-  var totalSteps = 8;
-  var buMap = {0:1, 1:2, 2:3, 3:4, 5:5, 6:6, 8:7, 9:8};
-  var procMap = {0:1, 1:2, 2:3, 4:4, 5:5, 6:6, 8:7, 9:8};
+  // Process a 9 étapes (ITW/Narratif ajoutée), BU reste à 8
+  var totalSteps = isBu ? 8 : 9;
+  // Mapping index réel → numéro affiché
+  var buMap = {0:1, 1:2, 2:3, 3:4, 5:5, 6:6, 8:7, 9:8}; // BU : 8 étapes, saute 4 et 7
+  var procMap = {0:1, 1:2, 2:3, 3:4, 4:5, 5:6, 6:7, 8:8, 9:9}; // Process v73 : 9 étapes, saute juste idx 7
   var displayedNum;
   if (isBu) {
     displayedNum = buMap[i] !== undefined ? buMap[i] : i+1;
@@ -12030,7 +12247,9 @@ function goStep(i){
   // Renommer libellés selon type d'audit
   var stepLabel;
   if (isBu && i === 6) stepLabel = 'Findings & Rapport';
-  else if (!isBu && i === 4) stepLabel = 'WCGW & Contrôles';
+  else if (!isBu && i === 4) stepLabel = 'Flowcharts (WCGW & Contrôles)';
+  else if (!isBu && i === 3) stepLabel = 'ITW / Narratif';
+  else if (isBu && i === 3) stepLabel = 'Interview (Design Issues)';
   else stepLabel = (STEPS[i] ? STEPS[i].s : '—');
   document.getElementById('audit-header-compact').innerHTML=renderStepper();
   var pf=document.getElementById('gp-fill'); if(pf)pf.style.width=pct+'%';
@@ -13469,6 +13688,7 @@ function showAnalyzeInterviewsModal() {
 
   // État initial
   _analyzeState = {
+    target: 'flowchart',
     selectedIds: preSelectedIds,
     mode: (fc.narrative && fc.narrative.trim()) ? 'enrich' : 'replace',
     fcId: fc.id,
@@ -13477,100 +13697,172 @@ function showAnalyzeInterviewsModal() {
   _renderAnalyzeStep1();
 }
 
+// v73 : variante depuis l'étape ITW/Narratif (cible = narratif consolidé de l'audit)
+function showAnalyzeInterviewsModalForAudit() {
+  var d = getAudData(CA);
+  var allItvs = d.interviews || [];
+  if (!allItvs.length) {
+    toast('Bibliothèque d\'entretiens vide. Ajoute d\'abord un entretien.');
+    return;
+  }
+
+  // Pré-sélection : tous les entretiens non analysés
+  var preSelectedIds = {};
+  allItvs.forEach(function(itv){
+    if (!itv.analyzedAt) preSelectedIds[itv.id] = true;
+  });
+  // Si tous sont déjà analysés, on sélectionne quand même tout pour permettre re-analyse
+  if (Object.keys(preSelectedIds).length === 0) {
+    allItvs.forEach(function(itv){ preSelectedIds[itv.id] = true; });
+  }
+
+  var hasNarrative = !!(d.consolidatedNarrative && d.consolidatedNarrative.trim());
+
+  _analyzeState = {
+    target: 'audit',
+    selectedIds: preSelectedIds,
+    mode: hasNarrative ? 'enrich' : 'replace',
+    fcId: null,
+  };
+
+  _renderAnalyzeStep1();
+}
+
 // ─── ÉTAPE 1 : sélection entretiens + mode + copy prompt ────────
 function _renderAnalyzeStep1() {
-  var fc = _fcGetCurrent();
-  if (!fc) return;
   var d = getAudData(CA);
+  var isAuditTarget = _analyzeState && _analyzeState.target === 'audit';
+  var fc = isAuditTarget ? null : _fcGetCurrent();
+  if (!isAuditTarget && !fc) return;
   var allItvs = d.interviews || [];
   var sps = (d.kickoffPrep && Array.isArray(d.kickoffPrep.subProcesses)) ? d.kickoffPrep.subProcesses : [];
   var spById = {};
   sps.forEach(function(sp){ spById[sp.id] = sp; });
-  var spForFc = fc.subProcessId ? spById[fc.subProcessId] : null;
+  var spForFc = (!isAuditTarget && fc && fc.subProcessId) ? spById[fc.subProcessId] : null;
 
-  // Trier : SP-related en haut, puis non-analysés, puis analysés
+  // Trier : SP-related en haut (uniquement en mode flowchart), puis non-analysés, puis analysés
   var related = [], unrelatedUnanalyzed = [], unrelatedAnalyzed = [];
   allItvs.forEach(function(itv){
-    var isRelated = fc.subProcessId && (itv.relatedSubProcessIds || []).indexOf(fc.subProcessId) >= 0;
+    var isRelated = !isAuditTarget && fc && fc.subProcessId && (itv.relatedSubProcessIds || []).indexOf(fc.subProcessId) >= 0;
     if (isRelated) related.push(itv);
     else if (!itv.analyzedAt) unrelatedUnanalyzed.push(itv);
     else unrelatedAnalyzed.push(itv);
   });
   var sortedItvs = related.concat(unrelatedUnanalyzed).concat(unrelatedAnalyzed);
 
+  var nbSelected = Object.keys(_analyzeState.selectedIds).filter(function(id){return _analyzeState.selectedIds[id];}).length;
+  var hasNarrative = isAuditTarget
+    ? !!(d.consolidatedNarrative && d.consolidatedNarrative.trim())
+    : !!(fc && fc.narrative && fc.narrative.trim());
+
   var body = '';
 
-  // Section 1 : sélection
-  body += '<div style="margin-bottom:12px">';
-  body += '<label style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;display:block;margin-bottom:5px">1. Entretiens à analyser</label>';
-  body += '<div style="max-height:220px;overflow-y:auto;border:.5px solid var(--border);border-radius:3px;background:#fafafa;padding:5px">';
-  sortedItvs.forEach(function(itv){
-    var isSelected = !!_analyzeState.selectedIds[itv.id];
-    var initials = _intervInitials(itv.intervieweName);
-    var color = _intervColor(itv.intervieweName);
-    var nbWords = itv.script ? itv.script.trim().split(/\s+/).filter(Boolean).length : 0;
-    var dateStr = itv.interviewDate ? new Date(itv.interviewDate).toLocaleDateString('fr-FR', {day:'2-digit',month:'short'}) : '?';
-    var isRelated = fc.subProcessId && (itv.relatedSubProcessIds || []).indexOf(fc.subProcessId) >= 0;
-    var alreadyAnalyzed = !!itv.analyzedAt;
+  // Wrapper avec max-height et scroll, padding propre
+  body += '<div style="max-height:65vh;overflow-y:auto;padding:0 2px">';
 
-    body += '<label style="display:flex;align-items:center;gap:8px;padding:6px 8px;margin-bottom:3px;background:'+(isSelected?'#EEEDFE':'#fff')+';border:.5px solid '+(isSelected?'#CECBF6':'var(--border)')+';border-radius:3px;cursor:pointer">';
-    body += '<input type="checkbox" '+(isSelected?'checked':'')+' onchange="_toggleAnalyzeItv(\''+itv.id+'\',this.checked)" style="margin:0"/>';
-    body += '<div style="width:26px;height:26px;border-radius:50%;background:'+color+';color:#fff;display:flex;align-items:center;justify-content:center;font-weight:500;font-size:9px;flex-shrink:0">'+initials+'</div>';
-    body += '<div style="flex:1;min-width:0;font-size:11px">';
-    body += '<div style="color:var(--text-1);font-weight:500">'+(itv.intervieweName||'').replace(/</g,'&lt;')+(itv.intervieweRole?' · <span style="font-weight:400;color:var(--text-2)">'+itv.intervieweRole.replace(/</g,'&lt;')+'</span>':'')+'</div>';
-    body += '<div style="font-size:9px;color:var(--text-3);margin-top:2px">'+dateStr+' · '+nbWords+' mots';
-    if (isRelated) body += ' · <span style="color:#3C3489;font-weight:500">📌 mentionne ce SP</span>';
-    if (alreadyAnalyzed) body += ' · <span style="color:#085041;font-style:italic">✓ déjà analysé</span>';
-    body += '</div>';
-    body += '</div>';
-    body += '</label>';
-  });
+  // Section 1 : sélection entretiens
+  body += '<div style="margin-bottom:16px">';
+  body += '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">';
+  body += '<label style="font-size:11px;color:var(--text-1);font-weight:600">1. Entretiens à analyser</label>';
+  body += '<span style="font-size:10px;color:var(--text-3)">'+nbSelected+' / '+allItvs.length+' sélectionné'+(nbSelected>1?'s':'')+'</span>';
   body += '</div>';
+
+  if (!sortedItvs.length) {
+    body += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:14px;text-align:center;border:1px dashed var(--border);border-radius:4px">Bibliothèque vide. Ajoute d\'abord un entretien.</div>';
+  } else {
+    body += '<div style="border:.5px solid var(--border);border-radius:4px;background:#fafafa;padding:6px;display:flex;flex-direction:column;gap:4px">';
+    sortedItvs.forEach(function(itv){
+      var isSelected = !!_analyzeState.selectedIds[itv.id];
+      var initials = _intervInitials(itv.intervieweName);
+      var color = _intervColor(itv.intervieweName);
+      var nbWords = itv.script ? itv.script.trim().split(/\s+/).filter(Boolean).length : 0;
+      var dateStr = itv.interviewDate ? new Date(itv.interviewDate).toLocaleDateString('fr-FR', {day:'2-digit',month:'short'}) : '?';
+      var isRelated = fc.subProcessId && (itv.relatedSubProcessIds || []).indexOf(fc.subProcessId) >= 0;
+      var alreadyAnalyzed = !!itv.analyzedAt;
+
+      // Layout grid : checkbox 16px / avatar 28px / contenu auto / status auto
+      var bg = isSelected ? '#EEEDFE' : '#fff';
+      var brd = isSelected ? '#CECBF6' : 'var(--border)';
+      body += '<label style="display:grid;grid-template-columns:18px 28px 1fr;gap:10px;align-items:center;padding:8px 10px;background:'+bg+';border:.5px solid '+brd+';border-radius:3px;cursor:pointer">';
+      body += '<input type="checkbox" '+(isSelected?'checked':'')+' onchange="_toggleAnalyzeItv(\''+itv.id+'\',this.checked)" style="margin:0;cursor:pointer"/>';
+      body += '<div style="width:28px;height:28px;border-radius:50%;background:'+color+';color:#fff;display:flex;align-items:center;justify-content:center;font-weight:500;font-size:10px">'+initials+'</div>';
+      body += '<div style="min-width:0;font-size:11px">';
+      body += '<div style="color:var(--text-1);font-weight:500;display:flex;flex-wrap:wrap;gap:6px;align-items:baseline">';
+      body += '<span>'+(itv.intervieweName||'').replace(/</g,'&lt;')+'</span>';
+      if (itv.intervieweRole) body += '<span style="font-weight:400;color:var(--text-2);font-size:10px">· '+itv.intervieweRole.replace(/</g,'&lt;')+'</span>';
+      body += '</div>';
+      body += '<div style="font-size:9px;color:var(--text-3);margin-top:2px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">';
+      body += '<span>📅 '+dateStr+'</span>';
+      body += '<span>📝 '+nbWords+' mots</span>';
+      if (isRelated) body += '<span style="color:#3C3489;background:#EEEDFE;padding:1px 6px;border-radius:2px;font-weight:500">📌 mentionne ce SP</span>';
+      if (alreadyAnalyzed) body += '<span style="color:#085041;font-style:italic">✓ déjà analysé</span>';
+      body += '</div>';
+      body += '</div>';
+      body += '</label>';
+    });
+    body += '</div>';
+  }
   body += '</div>';
 
   // Section 2 : mode
-  var hasNarrative = !!(fc.narrative && fc.narrative.trim());
-  body += '<div style="margin-bottom:12px">';
-  body += '<label style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;display:block;margin-bottom:5px">2. Mode</label>';
-  body += '<div style="display:flex;gap:6px">';
+  body += '<div style="margin-bottom:16px">';
+  body += '<label style="font-size:11px;color:var(--text-1);font-weight:600;display:block;margin-bottom:8px">2. Mode</label>';
+  body += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">';
   // Replace
   var replaceActive = _analyzeState.mode === 'replace';
-  body += '<label style="flex:1;padding:8px 10px;border:.5px solid '+(replaceActive?'#3C3489':'var(--border)')+';border-radius:3px;background:'+(replaceActive?'#EEEDFE':'#fff')+';cursor:pointer">';
-  body += '<input type="radio" name="analyze-mode" value="replace" '+(replaceActive?'checked':'')+' onchange="_setAnalyzeMode(\'replace\')" style="margin-right:4px"/>';
-  body += '<strong style="font-weight:500;color:'+(replaceActive?'#3C3489':'var(--text-2)')+'">↻ Remplacer</strong>';
-  body += '<div style="font-size:9px;color:var(--text-3);margin-top:2px;font-style:italic">Le narratif existant sera écrasé</div>';
+  body += '<label style="padding:10px 12px;border:1px solid '+(replaceActive?'#3C3489':'var(--border)')+';border-radius:4px;background:'+(replaceActive?'#EEEDFE':'#fff')+';cursor:pointer;display:flex;align-items:flex-start;gap:8px">';
+  body += '<input type="radio" name="analyze-mode" value="replace" '+(replaceActive?'checked':'')+' onchange="_setAnalyzeMode(\'replace\')" style="margin:2px 0 0 0;flex-shrink:0;cursor:pointer"/>';
+  body += '<div style="flex:1;min-width:0">';
+  body += '<div style="font-size:11px;font-weight:500;color:'+(replaceActive?'#3C3489':'var(--text-2)')+'">↻ Remplacer</div>';
+  body += '<div style="font-size:10px;color:var(--text-3);margin-top:2px;font-style:italic">Le narratif existant sera écrasé</div>';
+  body += '</div>';
   body += '</label>';
   // Enrich
   var enrichActive = _analyzeState.mode === 'enrich';
-  body += '<label style="flex:1;padding:8px 10px;border:.5px solid '+(enrichActive?'#3C3489':'var(--border)')+';border-radius:3px;background:'+(enrichActive?'#EEEDFE':'#fff')+';cursor:pointer'+(!hasNarrative?';opacity:.5;cursor:not-allowed':'')+'">';
-  body += '<input type="radio" name="analyze-mode" value="enrich" '+(enrichActive?'checked':'')+' onchange="_setAnalyzeMode(\'enrich\')" '+(!hasNarrative?'disabled':'')+' style="margin-right:4px"/>';
-  body += '<strong style="font-weight:500;color:'+(enrichActive?'#3C3489':'var(--text-2)')+'">+ Enrichir</strong>';
-  body += '<div style="font-size:9px;color:var(--text-3);margin-top:2px;font-style:italic">Compléter, signaler divergences</div>';
+  var enrichDisabled = !hasNarrative;
+  body += '<label style="padding:10px 12px;border:1px solid '+(enrichActive?'#3C3489':'var(--border)')+';border-radius:4px;background:'+(enrichActive?'#EEEDFE':'#fff')+';cursor:'+(enrichDisabled?'not-allowed':'pointer')+';display:flex;align-items:flex-start;gap:8px;opacity:'+(enrichDisabled?'0.5':'1')+'">';
+  body += '<input type="radio" name="analyze-mode" value="enrich" '+(enrichActive?'checked':'')+' onchange="_setAnalyzeMode(\'enrich\')" '+(enrichDisabled?'disabled':'')+' style="margin:2px 0 0 0;flex-shrink:0;cursor:'+(enrichDisabled?'not-allowed':'pointer')+'"/>';
+  body += '<div style="flex:1;min-width:0">';
+  body += '<div style="font-size:11px;font-weight:500;color:'+(enrichActive?'#3C3489':'var(--text-2)')+'">+ Enrichir</div>';
+  body += '<div style="font-size:10px;color:var(--text-3);margin-top:2px;font-style:italic">Compléter, signaler divergences</div>';
+  body += '</div>';
   body += '</label>';
   body += '</div>';
   if (!hasNarrative) {
-    body += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:4px">Mode Enrichir disponible uniquement si un narratif existe déjà</div>';
+    body += '<div style="font-size:10px;color:var(--text-3);font-style:italic;margin-top:6px">Mode Enrichir disponible uniquement si un narratif existe déjà</div>';
   }
   body += '</div>';
 
   // Section 3 : contexte injecté
-  body += '<div style="background:#EEEDFE;border:.5px solid #CECBF6;border-radius:3px;padding:8px 10px;margin-bottom:12px;font-size:10px;color:#3C3489;line-height:1.5">';
-  body += '<strong style="font-weight:500">📦 Contexte injecté dans le prompt :</strong>';
-  body += '<ul style="margin:5px 0 0 16px;padding:0">';
+  body += '<div style="margin-bottom:14px;background:#EEEDFE;border:.5px solid #CECBF6;border-radius:4px;padding:10px 12px;font-size:11px;color:#3C3489;line-height:1.6">';
+  body += '<div style="font-weight:600;margin-bottom:5px">📦 Contexte injecté dans le prompt</div>';
+  body += '<div style="margin-left:0">';
   var auditObj = AUDIT_PLAN.find(function(x){return x.id===CA;});
-  body += '<li>Audit · '+(auditObj?(auditObj.titre||auditObj.id):CA).replace(/</g,'&lt;')+'</li>';
-  if (spForFc) body += '<li>Sous-processus focus : <strong>'+spForFc.name.replace(/</g,'&lt;')+'</strong></li>';
-  if (sps.length) body += '<li>SP existants : '+sps.map(function(sp){return sp.name;}).join(', ').replace(/</g,'&lt;')+'</li>';
+  body += '<div>• Audit · <strong style="font-weight:500">'+(auditObj?(auditObj.titre||auditObj.id):CA).replace(/</g,'&lt;')+'</strong></div>';
+  if (isAuditTarget) {
+    body += '<div>• Cible : <strong style="font-weight:500">narratif consolidé de l\'audit</strong> (toutes sections SP)</div>';
+  } else if (spForFc) {
+    body += '<div>• Sous-processus focus : <strong style="font-weight:500">'+spForFc.name.replace(/</g,'&lt;')+'</strong></div>';
+  }
+  if (sps.length) {
+    var spNamesShort = sps.map(function(sp){return sp.name;}).join(', ');
+    if (spNamesShort.length > 80) spNamesShort = spNamesShort.substring(0, 78) + '…';
+    body += '<div style="word-break:break-word">• '+sps.length+' SP existants : '+spNamesShort.replace(/</g,'&lt;')+'</div>';
+  }
   var auditRisks = d.auditRisks || [];
-  if (auditRisks.length) body += '<li>'+auditRisks.length+' risque(s) URD attaché(s)</li>';
-  if (hasNarrative) body += '<li>Narratif actuel ('+fc.narrative.length+' caractères)</li>';
-  var nbSelected = Object.keys(_analyzeState.selectedIds).filter(function(id){return _analyzeState.selectedIds[id];}).length;
-  body += '<li><strong>'+nbSelected+' entretien(s) sélectionné(s)</strong></li>';
-  body += '</ul>';
+  if (auditRisks.length) body += '<div>• '+auditRisks.length+' risque(s) URD attaché(s)</div>';
+  if (hasNarrative) {
+    var narLen = isAuditTarget ? d.consolidatedNarrative.length : fc.narrative.length;
+    body += '<div>• Narratif actuel ('+narLen+' caractères)</div>';
+  }
+  body += '<div style="margin-top:4px"><strong style="font-weight:600">→ '+nbSelected+' entretien(s) sélectionné(s)</strong></div>';
+  body += '</div>';
   body += '</div>';
 
-  // Footer custom
-  body += '<div style="display:flex;gap:8px;justify-content:space-between;align-items:center;padding-top:8px;border-top:.5px solid var(--border)">';
+  body += '</div>'; // end scroll wrapper
+
+  // Footer fixe (en dehors du scroll)
+  body += '<div style="display:flex;gap:8px;justify-content:space-between;align-items:center;padding-top:12px;margin-top:6px;border-top:.5px solid var(--border)">';
   body += '<div style="font-size:10px;color:var(--text-3);font-style:italic">Étape 1/2 — Génération du prompt</div>';
   body += '<div style="display:flex;gap:6px">';
   body += '<button class="bs" onclick="closeModal()">Annuler</button>';
@@ -13582,8 +13874,11 @@ function _renderAnalyzeStep1() {
   body += '</div>';
   body += '</div>';
 
-  openModal('🤖 Analyser entretiens · '+(spForFc?spForFc.name:fc.label||'Flowchart'), body, null, {hideOk:true, cancelLabel:'', wide:true});
-  // Cacher le footer par défaut (on a notre propre footer)
+  var modalTitle = isAuditTarget
+    ? '🤖 Analyser entretiens · Narratif consolidé'
+    : '🤖 Analyser entretiens · '+(spForFc?spForFc.name:fc.label||'Flowchart');
+  openModal(modalTitle, body, null, {hideOk:true, cancelLabel:'', wide:true});
+  // Cacher le footer par défaut (on a notre propre footer custom)
   setTimeout(function() {
     var footer = document.querySelector('#modal .mf');
     if (footer) footer.style.display = 'none';
@@ -13614,11 +13909,12 @@ function _setAnalyzeMode(mode) {
 
 // ─── Construction du prompt complet ─────────────────────────────
 function _buildAnalyzePrompt() {
-  var fc = _fcGetCurrent();
   var d = getAudData(CA);
+  var isAuditTarget = _analyzeState && _analyzeState.target === 'audit';
+  var fc = isAuditTarget ? null : _fcGetCurrent();
   var auditObj = AUDIT_PLAN.find(function(x){return x.id===CA;});
   var sps = (d.kickoffPrep && Array.isArray(d.kickoffPrep.subProcesses)) ? d.kickoffPrep.subProcesses : [];
-  var spForFc = fc.subProcessId ? sps.find(function(x){return x.id===fc.subProcessId;}) : null;
+  var spForFc = (!isAuditTarget && fc && fc.subProcessId) ? sps.find(function(x){return x.id===fc.subProcessId;}) : null;
 
   // Entretiens sélectionnés
   var selectedItvs = (d.interviews || []).filter(function(itv){return _analyzeState.selectedIds[itv.id];});
@@ -13634,7 +13930,9 @@ function _buildAnalyzePrompt() {
   p += '## CONTEXTE DE L\'AUDIT\n\n';
   p += '- **Nom de l\'audit** : '+(auditObj?(auditObj.titre||auditObj.id):CA)+'\n';
   p += '- **Type d\'audit** : '+(auditObj?(auditObj.type||'Process'):'Process')+'\n';
-  if (spForFc) {
+  if (isAuditTarget) {
+    p += '- **Cible** : narratif consolidé de l\'audit (toutes sections sous-processus combinées)\n';
+  } else if (spForFc) {
     p += '- **Sous-processus focus** : '+spForFc.name+' (id: '+spForFc.id+')\n';
     if (spForFc.description) p += '  - Description : '+spForFc.description+'\n';
   }
@@ -13652,10 +13950,13 @@ function _buildAnalyzePrompt() {
   }
 
   // Narratif existant si mode enrich
-  if (_analyzeState.mode === 'enrich' && fc.narrative && fc.narrative.trim()) {
-    p += '\n## NARRATIF ACTUEL (à enrichir)\n\n';
-    p += '```\n'+fc.narrative+'\n```\n';
-    p += '\n**Important** : Tu dois compléter/affiner ce narratif avec les nouveaux entretiens. Si une information du nouveau script contredit le narratif actuel, signale explicitement la divergence avec ⚠️ DIVERGENCE.\n';
+  if (_analyzeState.mode === 'enrich') {
+    var currentNar = isAuditTarget ? (d.consolidatedNarrative || '') : (fc ? (fc.narrative || '') : '');
+    if (currentNar.trim()) {
+      p += '\n## NARRATIF ACTUEL (à enrichir)\n\n';
+      p += '```\n'+currentNar+'\n```\n';
+      p += '\n**Important** : Tu dois compléter/affiner ce narratif avec les nouveaux entretiens. Si une information du nouveau script contredit le narratif actuel, signale explicitement la divergence avec ⚠️ DIVERGENCE.\n';
+    }
   }
 
   // Instructions
@@ -13718,34 +14019,37 @@ async function _copyAnalyzePrompt() {
 function _renderAnalyzeStep2(promptToShow) {
   var body = '';
 
-  body += '<div style="background:#FAEEDA;border:.5px solid #FAC775;color:#854F0B;padding:8px 10px;border-radius:3px;margin-bottom:12px;font-size:11px">';
-  body += '<strong style="font-weight:500">📝 Prochaine étape :</strong> ouvre <strong>Copilot Chat</strong> (Teams, Word ou app M365), colle le prompt, attends la réponse JSON, puis colle-la ci-dessous.';
+  // Scroll wrapper
+  body += '<div style="max-height:65vh;overflow-y:auto;padding:0 2px">';
+
+  body += '<div style="background:#FAEEDA;border:.5px solid #FAC775;color:#854F0B;padding:10px 12px;border-radius:4px;margin-bottom:14px;font-size:11px;line-height:1.5">';
+  body += '<div style="font-weight:600;margin-bottom:3px">📝 Prochaine étape</div>';
+  body += '<div>Ouvre <strong>Copilot Chat</strong> (Teams, Word ou app M365), colle le prompt, attends la réponse JSON, puis colle-la ci-dessous.</div>';
   body += '</div>';
 
   // Si on doit afficher le prompt manuellement
   if (promptToShow) {
-    body += '<div style="margin-bottom:12px">';
-    body += '<label style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;display:block;margin-bottom:5px">Prompt à copier (sélectionne tout puis Ctrl+C)</label>';
-    body += '<textarea readonly onclick="this.select()" style="width:100%;min-height:120px;font-size:10px;padding:6px 8px;border:.5px solid var(--border);border-radius:3px;box-sizing:border-box;font-family:monospace;background:#fafafa">'+promptToShow.replace(/</g,'&lt;')+'</textarea>';
+    body += '<div style="margin-bottom:14px">';
+    body += '<label style="font-size:11px;color:var(--text-1);font-weight:600;display:block;margin-bottom:6px">Prompt à copier (clique pour sélectionner tout)</label>';
+    body += '<textarea readonly onclick="this.select()" style="width:100%;min-height:120px;font-size:10px;padding:8px 10px;border:.5px solid var(--border);border-radius:4px;box-sizing:border-box;font-family:monospace;background:#fafafa">'+promptToShow.replace(/</g,'&lt;')+'</textarea>';
     body += '</div>';
   }
 
-  body += '<div style="margin-bottom:12px">';
-  body += '<label style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;display:block;margin-bottom:5px">Réponse de Copilot (colle le JSON ici)</label>';
-  body += '<textarea id="analyze-json-input" placeholder=\'{"subProcesses": [...]}\' style="width:100%;min-height:140px;font-size:10px;padding:6px 8px;border:.5px solid var(--border);border-radius:3px;box-sizing:border-box;font-family:monospace;line-height:1.5"></textarea>';
-  body += '<div id="analyze-parse-status" style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:4px">Le JSON sera validé automatiquement</div>';
+  body += '<div style="margin-bottom:14px">';
+  body += '<label style="font-size:11px;color:var(--text-1);font-weight:600;display:block;margin-bottom:6px">Réponse de Copilot</label>';
+  body += '<textarea id="analyze-json-input" placeholder=\'Colle ici le JSON renvoyé par Copilot. Format attendu : {"subProcesses": [...]}\' style="width:100%;min-height:160px;font-size:10px;padding:8px 10px;border:.5px solid var(--border);border-radius:4px;box-sizing:border-box;font-family:monospace;line-height:1.5"></textarea>';
+  body += '<div id="analyze-parse-status" style="font-size:10px;color:var(--text-3);font-style:italic;margin-top:5px">Le JSON sera validé automatiquement à la saisie</div>';
   body += '</div>';
 
-  // Aperçu (vide au départ)
-  body += '<div id="analyze-preview" style="display:none">';
-  body += '</div>';
+  body += '</div>'; // end scroll wrapper
 
-  body += '<div style="display:flex;gap:8px;justify-content:space-between;align-items:center;padding-top:8px;border-top:.5px solid var(--border)">';
+  // Footer fixe
+  body += '<div style="display:flex;gap:8px;justify-content:space-between;align-items:center;padding-top:12px;margin-top:6px;border-top:.5px solid var(--border)">';
   body += '<div style="font-size:10px;color:var(--text-3);font-style:italic">Étape 2/2 — Import du résultat</div>';
   body += '<div style="display:flex;gap:6px">';
   body += '<button class="bs" onclick="_renderAnalyzeStep1()">← Retour</button>';
   body += '<button class="bs" onclick="closeModal()">Annuler</button>';
-  body += '<button class="bp" onclick="_validateAndPreviewJson()" style="font-weight:500">Aperçu</button>';
+  body += '<button class="bp" onclick="_validateAndPreviewJson()" style="font-weight:500">Aperçu →</button>';
   body += '</div>';
   body += '</div>';
 
@@ -13760,7 +14064,7 @@ function _renderAnalyzeStep2(promptToShow) {
         var status = document.getElementById('analyze-parse-status');
         if (!status) return;
         var v = ta.value.trim();
-        if (!v) { status.textContent = 'Le JSON sera validé automatiquement'; status.style.color = 'var(--text-3)'; return; }
+        if (!v) { status.textContent = 'Le JSON sera validé automatiquement à la saisie'; status.style.color = 'var(--text-3)'; return; }
         try {
           var parsed = _extractJson(v);
           if (parsed && Array.isArray(parsed.subProcesses)) {
@@ -13830,8 +14134,12 @@ function _renderAnalyzePreview() {
 
   var body = '';
 
-  body += '<div style="background:#E1F5EE;border:.5px solid #A6E2CD;color:#085041;padding:8px 10px;border-radius:3px;margin-bottom:12px;font-size:11px">';
-  body += '<strong style="font-weight:500">✓ Aperçu du résultat IA</strong> — vérifie avant d\'importer dans le narratif';
+  // Scroll wrapper
+  body += '<div style="max-height:65vh;overflow-y:auto;padding:0 2px">';
+
+  body += '<div style="background:#E1F5EE;border:.5px solid #A6E2CD;color:#085041;padding:10px 12px;border-radius:4px;margin-bottom:14px;font-size:11px;line-height:1.5">';
+  body += '<div style="font-weight:600;margin-bottom:3px">✓ Aperçu du résultat IA</div>';
+  body += '<div>Vérifie le contenu avant de l\'importer dans le narratif du flowchart.</div>';
   body += '</div>';
 
   result.subProcesses.forEach(function(spr, i){
@@ -13839,27 +14147,32 @@ function _renderAnalyzePreview() {
     var isCurrentSp = matchedSp && matchedSp.id === fc.subProcessId;
     var isUnmatched = !matchedSp;
 
-    body += '<div style="background:#fff;border:.5px solid '+(isCurrentSp?'#3C3489':(isUnmatched?'#FAC775':'var(--border)'))+';border-radius:4px;padding:10px 12px;margin-bottom:8px">';
-    body += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px">';
+    var headerColor = isCurrentSp ? '#3C3489' : (isUnmatched ? '#FAC775' : 'var(--border)');
+    body += '<div style="background:#fff;border:1px solid '+headerColor+';border-radius:4px;padding:12px 14px;margin-bottom:10px">';
+    // Header avec nom + badge
+    body += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:8px;flex-wrap:wrap">';
     body += '<div style="flex:1;min-width:0">';
-    body += '<div style="font-size:12px;font-weight:500;color:var(--text-1)">'+(spr.name||'(sans nom)').replace(/</g,'&lt;')+'</div>';
+    body += '<div style="font-size:12px;font-weight:600;color:var(--text-1);margin-bottom:4px">'+(spr.name||'(sans nom)').replace(/</g,'&lt;')+'</div>';
     if (isCurrentSp) {
-      body += '<div style="font-size:9px;color:#3C3489;background:#EEEDFE;border:.5px solid #CECBF6;padding:1px 6px;border-radius:2px;display:inline-block;margin-top:3px;font-weight:500">↻ Correspond au SP du flowchart courant</div>';
+      body += '<div style="font-size:10px;color:#3C3489;background:#EEEDFE;border:.5px solid #CECBF6;padding:2px 8px;border-radius:3px;display:inline-block;font-weight:500">↻ SP du flowchart courant</div>';
     } else if (matchedSp) {
-      body += '<div style="font-size:9px;color:var(--text-2);background:#fafafa;border:.5px solid var(--border);padding:1px 6px;border-radius:2px;display:inline-block;margin-top:3px">↻ '+matchedSp.name.replace(/</g,'&lt;')+' (autre SP de l\'audit)</div>';
+      body += '<div style="font-size:10px;color:var(--text-2);background:#fafafa;border:.5px solid var(--border);padding:2px 8px;border-radius:3px;display:inline-block">↻ '+matchedSp.name.replace(/</g,'&lt;')+' (autre SP de l\'audit)</div>';
     } else {
-      body += '<div style="font-size:9px;color:#854F0B;background:#FAEEDA;border:.5px solid #FAC775;padding:1px 6px;border-radius:2px;display:inline-block;margin-top:3px;font-weight:500">+ Nouveau SP (à valider)</div>';
+      body += '<div style="font-size:10px;color:#854F0B;background:#FAEEDA;border:.5px solid #FAC775;padding:2px 8px;border-radius:3px;display:inline-block;font-weight:500">+ Nouveau SP (validation requise)</div>';
     }
     body += '</div>';
     body += '</div>';
     // Narratif preview
-    body += '<div style="font-size:10px;line-height:1.6;color:var(--text-2);white-space:pre-wrap;background:#fafafa;padding:8px 10px;border-radius:3px;max-height:160px;overflow-y:auto">'+_highlightNarrative(spr.narrative||'')+'</div>';
+    body += '<div style="font-size:11px;line-height:1.6;color:var(--text-2);white-space:pre-wrap;background:#fafafa;padding:10px 12px;border-radius:3px;max-height:200px;overflow-y:auto;border:.5px solid var(--border)">'+_highlightNarrative(spr.narrative||'')+'</div>';
     body += '</div>';
   });
 
-  body += '<div style="display:flex;gap:8px;justify-content:space-between;align-items:center;padding-top:8px;border-top:.5px solid var(--border);margin-top:4px">';
-  body += '<div style="font-size:10px;color:var(--text-3);font-style:italic">'+result.subProcesses.length+' sous-processus à importer</div>';
-  body += '<div style="display:flex;gap:6px">';
+  body += '</div>'; // end scroll wrapper
+
+  // Footer fixe
+  body += '<div style="display:flex;gap:8px;justify-content:space-between;align-items:center;padding-top:12px;margin-top:6px;border-top:.5px solid var(--border)">';
+  body += '<div style="font-size:10px;color:var(--text-3);font-style:italic">'+result.subProcesses.length+' sous-processus à importer · seul le SP courant sera appliqué au narratif</div>';
+  body += '<div style="display:flex;gap:6px;flex-shrink:0">';
   body += '<button class="bs" onclick="_renderAnalyzeStep2()">← Retour</button>';
   body += '<button class="bs" onclick="closeModal()">Annuler</button>';
   body += '<button class="bp" onclick="_doImportAnalysis()" style="font-weight:500">✓ Importer dans le narratif</button>';
@@ -13885,58 +14198,85 @@ function _highlightNarrative(text) {
 
 // ─── ÉTAPE 4 : import effectif ─────────────────────────────────
 async function _doImportAnalysis() {
-  var fc = _fcGetCurrent();
-  if (!fc || !_analyzeState || !_analyzeState.parsedResult) return;
+  if (!_analyzeState || !_analyzeState.parsedResult) return;
   var d = getAudData(CA);
   var sps = (d.kickoffPrep && Array.isArray(d.kickoffPrep.subProcesses)) ? d.kickoffPrep.subProcesses : [];
   var spById = {};
   sps.forEach(function(sp){ spById[sp.id] = sp; });
 
+  var isAuditTarget = _analyzeState.target === 'audit';
+  var fc = isAuditTarget ? null : _fcGetCurrent();
+  if (!isAuditTarget && !fc) return;
+
   var result = _analyzeState.parsedResult;
-
-  // Trouver le SP "courant" dans le résultat
-  var currentSpResult = null;
-  if (fc.subProcessId) {
-    currentSpResult = result.subProcesses.find(function(spr){ return spr.matchedExistingId === fc.subProcessId; });
-    if (!currentSpResult) {
-      // Fallback : prendre le 1er du résultat (souvent le SP focus)
-      currentSpResult = result.subProcesses[0];
-    }
-  } else {
-    currentSpResult = result.subProcesses[0];
-  }
-
-  // Confirmation si narratif existe et mode = replace
-  if (_analyzeState.mode === 'replace' && fc.narrative && fc.narrative.trim()) {
-    if (!confirm('Le narratif actuel sera entièrement remplacé. Continuer ?')) return;
-  }
-
-  // Sauvegarder l'historique avant modification
-  if (!Array.isArray(fc.narrativeHistory)) fc.narrativeHistory = [];
-  var narrativeBefore = fc.narrative || '';
   var selectedItvIds = Object.keys(_analyzeState.selectedIds).filter(function(id){return _analyzeState.selectedIds[id];});
 
-  // Appliquer le narratif au flowchart courant
-  if (currentSpResult && currentSpResult.narrative) {
-    if (_analyzeState.mode === 'replace') {
-      fc.narrative = currentSpResult.narrative;
+  if (isAuditTarget) {
+    // ─── Cible : narratif consolidé de l'audit ───
+    // Confirmation si narratif existe et mode = replace
+    if (_analyzeState.mode === 'replace' && d.consolidatedNarrative && d.consolidatedNarrative.trim()) {
+      if (!confirm('Le narratif consolidé actuel sera entièrement remplacé. Continuer ?')) return;
+    }
+
+    // Construire le narratif consolidé : sections `## [Nom du SP]` pour chaque SP du résultat
+    var newNarrative = '';
+    result.subProcesses.forEach(function(spr){
+      // Privilégier le nom du SP existant matché, sinon le nom proposé
+      var spName = spr.matchedExistingId && spById[spr.matchedExistingId]
+        ? spById[spr.matchedExistingId].name
+        : (spr.name || '(sans nom)');
+      newNarrative += '## ' + spName + '\n\n';
+      newNarrative += (spr.narrative || '').trim() + '\n\n';
+    });
+    newNarrative = newNarrative.trim();
+
+    d.consolidatedNarrative = newNarrative;
+
+    // Historique au niveau de l'audit (dans attachments.narrativeHistory)
+    if (!d.attachments) d.attachments = {};
+    if (!Array.isArray(d.attachments.narrativeHistory)) d.attachments.narrativeHistory = [];
+    d.attachments.narrativeHistory.push({
+      id: 'an_' + Date.now() + '_' + Math.floor(Math.random()*100000),
+      analyzedAt: new Date().toISOString(),
+      interviewIds: selectedItvIds,
+      mode: _analyzeState.mode,
+      nbInterviews: selectedItvIds.length,
+      nbSubProcesses: result.subProcesses.length,
+      target: 'audit',
+    });
+  } else {
+    // ─── Cible : flowchart (mode legacy, conservé pour compatibilité) ───
+    // Trouver le SP "courant" dans le résultat
+    var currentSpResult = null;
+    if (fc.subProcessId) {
+      currentSpResult = result.subProcesses.find(function(spr){ return spr.matchedExistingId === fc.subProcessId; });
+      if (!currentSpResult) currentSpResult = result.subProcesses[0];
     } else {
-      // Enrichir = remplacer aussi (Copilot a déjà reçu le narratif existant et l'a enrichi)
+      currentSpResult = result.subProcesses[0];
+    }
+
+    if (_analyzeState.mode === 'replace' && fc.narrative && fc.narrative.trim()) {
+      if (!confirm('Le narratif actuel sera entièrement remplacé. Continuer ?')) return;
+    }
+
+    if (!Array.isArray(fc.narrativeHistory)) fc.narrativeHistory = [];
+
+    if (currentSpResult && currentSpResult.narrative) {
       fc.narrative = currentSpResult.narrative;
     }
+
+    fc.narrativeHistory.push({
+      id: 'an_' + Date.now() + '_' + Math.floor(Math.random()*100000),
+      analyzedAt: new Date().toISOString(),
+      interviewIds: selectedItvIds,
+      mode: _analyzeState.mode,
+      nbInterviews: selectedItvIds.length,
+      nbSubProcesses: result.subProcesses.length,
+      target: 'flowchart',
+    });
   }
 
-  // Log dans l'historique
-  fc.narrativeHistory.push({
-    id: 'an_' + Date.now() + '_' + Math.floor(Math.random()*100000),
-    analyzedAt: new Date().toISOString(),
-    interviewIds: selectedItvIds,
-    mode: _analyzeState.mode,
-    nbInterviews: selectedItvIds.length,
-    nbSubProcesses: result.subProcesses.length,
-  });
-
-  // Marquer les entretiens comme analysés
+  // Marquer les entretiens comme analysés (commun aux deux cibles)
   selectedItvIds.forEach(function(itvId){
     var itv = (d.interviews || []).find(function(i){return i.id === itvId;});
     if (itv) itv.analyzedAt = new Date().toISOString();
@@ -13949,7 +14289,7 @@ async function _doImportAnalysis() {
 
   closeModal();
   document.getElementById('det-content').innerHTML = renderDetContent();
-  toast('✓ Narratif importé');
+  toast(isAuditTarget ? '✓ Narratif consolidé importé' : '✓ Narratif importé');
 
   // Si SPs non matchés : proposer à l'auditeur slot par slot
   if (unmatched.length > 0) {
