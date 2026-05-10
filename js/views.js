@@ -8400,35 +8400,40 @@ function _fcRenderEdge(edge, nodes) {
 
   var label = (edge.label || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   var style = edge.style || 'straight';
+
+  // v69.1 : si lien WCGW ↔ Contrôle → ligne d'association (pas de flèche, plus fine)
+  var isWcgwCtrlAssoc = (
+    (nodeFrom.type === 'wcgw' && (nodeTo.type === 'ctrl_existing' || nodeTo.type === 'ctrl_target')) ||
+    ((nodeFrom.type === 'ctrl_existing' || nodeFrom.type === 'ctrl_target') && nodeTo.type === 'wcgw')
+  );
+  var strokeColor = isWcgwCtrlAssoc ? '#993C1D' : '#374151';
+  var strokeWidth = isWcgwCtrlAssoc ? '1.5' : '1.5';
+  var strokeDash = isWcgwCtrlAssoc ? ' stroke-dasharray="2,3"' : '';
+  var arrowAttr = isWcgwCtrlAssoc ? '' : ' marker-end="url(#fc-arrow)"';
+
   var s = '<g data-edge-id="'+edge.id+'" onclick="event.stopPropagation();selectEdge(\''+edge.id+'\')" style="cursor:pointer">';
 
   if (style === 'orthogonal') {
-    // ─── Calcul du chemin orthogonal ───
-    // Stratégie : sortir du nœud source par le côté le plus proche du nœud cible (haut/bas/gauche/droite),
-    // faire un coude, entrer dans le nœud cible par le côté approprié.
     var path = _fcOrthogonalPath(bFrom, bTo);
-    // Hitbox invisible pour le clic
     s += '<path d="'+path.d+'" stroke="transparent" stroke-width="10" fill="none"/>';
-    // Tracé visible
-    s += '<path d="'+path.d+'" stroke="#374151" stroke-width="1.5" fill="none" marker-end="url(#fc-arrow)"/>';
+    s += '<path d="'+path.d+'" stroke="'+strokeColor+'" stroke-width="'+strokeWidth+'" fill="none"'+strokeDash+arrowAttr+'/>';
     if (label) {
       var midX = path.midX, midY = path.midY;
       var labelW = Math.max(label.length * 5.5, 18);
       s += '<rect x="'+(midX - labelW/2 - 3)+'" y="'+(midY - 8)+'" width="'+(labelW + 6)+'" height="14" fill="#fff" stroke="#e5e5e5" stroke-width=".5" rx="2"/>';
-      s += '<text x="'+midX+'" y="'+(midY + 3)+'" text-anchor="middle" font-size="9" fill="#374151" font-family="sans-serif">'+label+'</text>';
+      s += '<text x="'+midX+'" y="'+(midY + 3)+'" text-anchor="middle" font-size="9" fill="'+strokeColor+'" font-family="sans-serif">'+label+'</text>';
     }
   } else {
-    // ─── Ligne droite (style original) ───
     var pFrom = _fcEdgePoint(nodeFrom, bTo.cx, bTo.cy);
     var pTo = _fcEdgePoint(nodeTo, bFrom.cx, bFrom.cy);
     var midX2 = (pFrom.x + pTo.x) / 2;
     var midY2 = (pFrom.y + pTo.y) / 2;
     s += '<line x1="'+pFrom.x+'" y1="'+pFrom.y+'" x2="'+pTo.x+'" y2="'+pTo.y+'" stroke="transparent" stroke-width="10"/>';
-    s += '<line x1="'+pFrom.x+'" y1="'+pFrom.y+'" x2="'+pTo.x+'" y2="'+pTo.y+'" stroke="#374151" stroke-width="1.5" marker-end="url(#fc-arrow)"/>';
+    s += '<line x1="'+pFrom.x+'" y1="'+pFrom.y+'" x2="'+pTo.x+'" y2="'+pTo.y+'" stroke="'+strokeColor+'" stroke-width="'+strokeWidth+'"'+strokeDash+arrowAttr+'/>';
     if (label) {
       var labelW2 = Math.max(label.length * 5.5, 18);
       s += '<rect x="'+(midX2 - labelW2/2 - 3)+'" y="'+(midY2 - 8)+'" width="'+(labelW2 + 6)+'" height="14" fill="#fff" stroke="#e5e5e5" stroke-width=".5" rx="2"/>';
-      s += '<text x="'+midX2+'" y="'+(midY2 + 3)+'" text-anchor="middle" font-size="9" fill="#374151" font-family="sans-serif">'+label+'</text>';
+      s += '<text x="'+midX2+'" y="'+(midY2 + 3)+'" text-anchor="middle" font-size="9" fill="'+strokeColor+'" font-family="sans-serif">'+label+'</text>';
     }
   }
   s += '</g>';
