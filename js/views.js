@@ -4268,6 +4268,7 @@ V['audit-detail']=()=>{
   // Compter les docs de l'audit
   const audData = getAudData(CA);
   const docsCount = (audData.docs || []).length;
+  const interviewsCount = (audData.interviews || []).length; // v71
   // État panneau ouvert/fermé (lu depuis variable globale, par défaut fermé)
   if (typeof DOCS_PANEL_OPEN === 'undefined') window.DOCS_PANEL_OPEN = false;
   const panelOpen = !!window.DOCS_PANEL_OPEN;
@@ -4278,6 +4279,7 @@ V['audit-detail']=()=>{
         <div class="tbtitle">${a.name}</div>
       </div>
       <div style="display:flex;gap:7px" id="step-actions">
+        <button class="bs" onclick="showInterviewsLibrary()" style="font-size:11px;" title="Bibliothèque d'entretiens de l'audit">📋 Entretiens (${interviewsCount})</button>
         <button class="bs" onclick="toggleDocsPanel()" style="font-size:11px;${panelOpen?'background:#EEEDFE;color:#3C3489;border-color:#CECBF6':''}" title="Voir les documents de l'audit">📁 Documents (${docsCount})</button>
         <button class="bs" onclick="exportAuditPDF(CA)" style="font-size:11px;">⬇ Export PDF</button>
         ${getStepActionButtonHTML()}
@@ -13089,3 +13091,268 @@ function exportAuditPDF(auditId){
 
 // Helper anti-XSS pour les attributs onclick (apostrophes)
 function _escQ(s){return(s||'').replace(/'/g,'&#39;');}
+
+// ════════════════════════════════════════════════════════════════════
+//  v71 : BIBLIOTHÈQUE D'ENTRETIENS (CRUD)
+//  - Modale plein-écran pour gérer les entretiens d'un audit
+//  - Stockage : audit.interviews dans attachments_json
+//  - Modèle :
+//    {
+//      id, intervieweName, intervieweRole, interviewDate,
+//      script, relatedSubProcessIds[], createdAt, analyzedAt
+//    }
+// ════════════════════════════════════════════════════════════════════
+
+// Helper : initiales colorées (style Material) pour avatar
+function _intervInitials(name) {
+  if (!name) return '?';
+  var parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length-1][0]).toUpperCase();
+}
+
+// Helper : couleur déterministe à partir du nom
+function _intervColor(name) {
+  var palette = ['#3C3489', '#0E7490', '#085041', '#854F0B', '#BE185D', '#7C3AED', '#1F2937'];
+  var hash = 0;
+  for (var i = 0; i < (name||'').length; i++) hash = (hash * 31 + name.charCodeAt(i)) | 0;
+  return palette[Math.abs(hash) % palette.length];
+}
+
+// Affichage de la bibliothèque (modale plein écran)
+function showInterviewsLibrary() {
+  var d = getAudData(CA);
+  if (!Array.isArray(d.interviews)) d.interviews = [];
+
+  var sps = (d.kickoffPrep && Array.isArray(d.kickoffPrep.subProcesses)) ? d.kickoffPrep.subProcesses : [];
+  var spById = {};
+  sps.forEach(function(sp){ spById[sp.id] = sp; });
+
+  // Tri : plus récent en premier
+  var itvs = d.interviews.slice().sort(function(a, b){
+    return (b.createdAt || '').localeCompare(a.createdAt || '');
+  });
+
+  var totalAnalyzed = itvs.filter(function(i){return !!i.analyzedAt;}).length;
+
+  var body = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">';
+  body += '<div style="font-size:11px;color:var(--text-3)">'+itvs.length+' entretien'+(itvs.length>1?'s':'')+' · '+totalAnalyzed+' analysé'+(totalAnalyzed>1?'s':'')+'</div>';
+  body += '<button class="bp" style="font-size:11px;padding:6px 12px" onclick="showInterviewModal()">+ Ajouter un entretien</button>';
+  body += '</div>';
+
+  if (!itvs.length) {
+    body += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:30px;text-align:center;border:1px dashed var(--border);border-radius:6px">Aucun entretien dans la bibliothèque. Clique « + Ajouter un entretien » pour commencer.</div>';
+  } else {
+    body += '<div style="display:flex;flex-direction:column;gap:6px">';
+    itvs.forEach(function(itv){
+      var idx = d.interviews.indexOf(itv);
+      var initials = _intervInitials(itv.intervieweName);
+      var color = _intervColor(itv.intervieweName);
+      var nbWords = itv.script ? itv.script.trim().split(/\s+/).filter(Boolean).length : 0;
+      var dateStr = itv.interviewDate ? new Date(itv.interviewDate).toLocaleDateString('fr-FR', {day:'2-digit',month:'short',year:'numeric'}) : '?';
+      var role = itv.intervieweRole || '';
+
+      body += '<div style="background:#fff;border:.5px solid var(--border);border-radius:4px;padding:10px 12px;display:flex;align-items:center;gap:10px;font-size:11px">';
+      // Avatar initiales
+      body += '<div style="flex-shrink:0;width:36px;height:36px;border-radius:50%;background:'+color+';color:#fff;display:flex;align-items:center;justify-content:center;font-weight:500;font-size:11px">'+initials+'</div>';
+      // Info
+      body += '<div style="flex:1;min-width:0">';
+      body += '<div style="font-weight:500;color:var(--text-1);font-size:12px">'+(itv.intervieweName || '(sans nom)').replace(/</g,'&lt;');
+      if (role) body += ' · <span style="font-weight:400;color:var(--text-2);font-size:11px">'+role.replace(/</g,'&lt;')+'</span>';
+      body += '</div>';
+      body += '<div style="font-size:9px;color:var(--text-3);margin-top:3px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">';
+      body += '<span>📅 '+dateStr+'</span>';
+      body += '<span>📝 '+nbWords+' mots</span>';
+      // Tags SP
+      var spIds = itv.relatedSubProcessIds || [];
+      spIds.forEach(function(spId){
+        var sp = spById[spId];
+        if (sp) {
+          body += '<span style="background:#F5FBF8;color:#085041;border:.5px solid #A6E2CD;padding:1px 6px;border-radius:2px;font-weight:500">'+(sp.name||'').replace(/</g,'&lt;')+'</span>';
+        }
+      });
+      // Statut analyse
+      if (itv.analyzedAt) {
+        var analyzedDate = new Date(itv.analyzedAt).toLocaleDateString('fr-FR', {day:'2-digit',month:'short'});
+        body += '<span style="color:#085041;font-style:italic">✓ analysé · '+analyzedDate+'</span>';
+      } else {
+        body += '<span style="color:var(--text-3);font-style:italic">non analysé</span>';
+      }
+      body += '</div>';
+      body += '</div>';
+      // Actions
+      body += '<div style="display:flex;gap:4px;flex-shrink:0">';
+      body += '<button class="bs" style="font-size:11px;padding:4px 8px" onclick="showInterviewModal('+idx+',true)" title="Voir/Éditer">✎</button>';
+      body += '<button class="bd" style="font-size:11px;padding:4px 8px" onclick="deleteInterview('+idx+')" title="Supprimer">🗑</button>';
+      body += '</div>';
+      body += '</div>';
+    });
+    body += '</div>';
+  }
+
+  showModal_interviews_list(body);
+}
+
+// Wrapper utilisant openModal (la modale globale d'AuditFlow)
+function showModal_interviews_list(body) {
+  openModal(
+    '📋 Bibliothèque d\'entretiens',
+    body,
+    null,
+    {hideOk: true, cancelLabel: 'Fermer', wide: true}
+  );
+}
+
+// Modale d'ajout/édition d'un entretien
+function showInterviewModal(idx, isEdit) {
+  var d = getAudData(CA);
+  if (!Array.isArray(d.interviews)) d.interviews = [];
+  var existing = (idx !== undefined && idx !== null) ? d.interviews[idx] : null;
+
+  var sps = (d.kickoffPrep && Array.isArray(d.kickoffPrep.subProcesses)) ? d.kickoffPrep.subProcesses : [];
+
+  var name = existing ? (existing.intervieweName || '') : '';
+  var role = existing ? (existing.intervieweRole || '') : '';
+  var date = existing ? (existing.interviewDate || '') : new Date().toISOString().substring(0, 10);
+  var script = existing ? (existing.script || '') : '';
+  var spIds = existing ? (existing.relatedSubProcessIds || []) : [];
+
+  var body = '';
+  body += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">';
+  body += '<div>';
+  body += '<label style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;display:block;margin-bottom:3px">Nom de la personne *</label>';
+  body += '<input id="itv-name" type="text" value="'+name.replace(/"/g,'&quot;')+'" placeholder="ex : Marc Dupont" style="width:100%;font-size:11px;padding:5px 8px;border:.5px solid var(--border);border-radius:3px;box-sizing:border-box"/>';
+  body += '</div>';
+  body += '<div>';
+  body += '<label style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;display:block;margin-bottom:3px">Rôle / Fonction</label>';
+  body += '<input id="itv-role" type="text" value="'+role.replace(/"/g,'&quot;')+'" placeholder="ex : Trésorier" style="width:100%;font-size:11px;padding:5px 8px;border:.5px solid var(--border);border-radius:3px;box-sizing:border-box"/>';
+  body += '</div>';
+  body += '</div>';
+
+  body += '<div style="margin-bottom:10px">';
+  body += '<label style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;display:block;margin-bottom:3px">Date de l\'entretien</label>';
+  body += '<input id="itv-date" type="date" value="'+date+'" style="font-size:11px;padding:5px 8px;border:.5px solid var(--border);border-radius:3px"/>';
+  body += '</div>';
+
+  // SP discutés (multi-select checkboxes)
+  if (sps.length > 0) {
+    body += '<div style="margin-bottom:10px">';
+    body += '<label style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;display:block;margin-bottom:3px">Sous-processus discutés (cocher ceux abordés)</label>';
+    body += '<div style="display:flex;flex-wrap:wrap;gap:5px;padding:6px;border:.5px solid var(--border);border-radius:3px;background:#fafafa">';
+    sps.forEach(function(sp){
+      var checked = spIds.indexOf(sp.id) >= 0 ? 'checked' : '';
+      body += '<label style="display:inline-flex;align-items:center;gap:4px;font-size:10px;padding:3px 8px;background:#fff;border:.5px solid var(--border);border-radius:3px;cursor:pointer">';
+      body += '<input type="checkbox" class="itv-sp" data-sp-id="'+sp.id+'" '+checked+' style="margin:0"/>';
+      body += '<span>'+(''+sp.name).replace(/</g,'&lt;')+'</span>';
+      body += '</label>';
+    });
+    body += '</div>';
+    body += '</div>';
+  } else {
+    body += '<div style="font-size:10px;color:var(--text-3);font-style:italic;background:#fafafa;padding:6px 8px;border-radius:3px;margin-bottom:10px">Aucun sous-processus défini en étape 2 — tu pourras les associer plus tard.</div>';
+  }
+
+  body += '<div style="margin-bottom:10px">';
+  body += '<label style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;display:block;margin-bottom:3px">Script de l\'entretien *</label>';
+  body += '<textarea id="itv-script" placeholder="Colle ici la transcription Teams (Recap), ton compte-rendu Word, ou tes notes manuscrites mises au propre…" style="width:100%;min-height:240px;font-size:11px;padding:8px 10px;border:.5px solid var(--border);border-radius:3px;box-sizing:border-box;resize:vertical;font-family:inherit;line-height:1.5">'+script.replace(/</g,'&lt;')+'</textarea>';
+  body += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:3px"><span id="itv-script-count">'+(script.trim().split(/\s+/).filter(Boolean).length)+'</span> mots — tu pourras analyser ce script avec Copilot plus tard</div>';
+  body += '</div>';
+
+  var idxAttr = (idx !== undefined && idx !== null) ? idx : -1;
+  // Utilise openModal global d'AuditFlow ; le bouton OK déclenche saveInterview
+  openModal(
+    existing ? '📋 Éditer l\'entretien' : '📋 Ajouter un entretien',
+    body,
+    function() { return saveInterview(idxAttr); },
+    {wide: true, cancelLabel: 'Annuler'}
+  );
+
+  // Compteur de mots dynamique (après ouverture de la modale)
+  setTimeout(function() {
+    var ta = document.getElementById('itv-script');
+    var counter = document.getElementById('itv-script-count');
+    if (ta && counter) {
+      ta.addEventListener('input', function(){
+        counter.textContent = ta.value.trim().split(/\s+/).filter(Boolean).length;
+      });
+    }
+  }, 50);
+
+  // Personnaliser le label du bouton OK
+  setTimeout(function() {
+    var okBtn = document.getElementById('mok');
+    if (okBtn) okBtn.textContent = existing ? 'Enregistrer' : 'Ajouter';
+  }, 50);
+}
+
+async function saveInterview(idx) {
+  var nameEl = document.getElementById('itv-name');
+  var roleEl = document.getElementById('itv-role');
+  var dateEl = document.getElementById('itv-date');
+  var scriptEl = document.getElementById('itv-script');
+  if (!nameEl || !scriptEl) return;
+  var name = (nameEl.value || '').trim();
+  var role = (roleEl ? roleEl.value : '' || '').trim();
+  var date = (dateEl ? dateEl.value : '' || '').trim();
+  var script = (scriptEl.value || '').trim();
+  var spIds = [];
+  document.querySelectorAll('.itv-sp:checked').forEach(function(cb){
+    spIds.push(cb.getAttribute('data-sp-id'));
+  });
+
+  // Validation
+  if (!name) { toast('Indique le nom de la personne'); throw new Error('Nom requis'); }
+  if (!script) { toast('Le script de l\'entretien ne peut pas être vide'); throw new Error('Script requis'); }
+
+  var d = getAudData(CA);
+  if (!Array.isArray(d.interviews)) d.interviews = [];
+
+  if (idx !== undefined && idx !== null && idx >= 0 && d.interviews[idx]) {
+    // Édition
+    var itv = d.interviews[idx];
+    itv.intervieweName = name;
+    itv.intervieweRole = role;
+    itv.interviewDate = date;
+    itv.script = script;
+    itv.relatedSubProcessIds = spIds;
+    addHist('edit', 'Entretien modifié — ' + name);
+  } else {
+    // Création
+    var newItv = {
+      id: 'itv_' + Date.now() + '_' + Math.floor(Math.random()*100000),
+      intervieweName: name,
+      intervieweRole: role,
+      interviewDate: date,
+      script: script,
+      relatedSubProcessIds: spIds,
+      createdAt: new Date().toISOString(),
+      analyzedAt: null,
+    };
+    d.interviews.push(newItv);
+    addHist('create', 'Entretien ajouté — ' + name);
+  }
+
+  await saveAuditData(CA);
+  // Re-render le contenu pour mettre à jour le compteur dans la top bar
+  document.getElementById('vc').innerHTML = V['audit-detail']();
+  toast('✓ Entretien sauvegardé');
+  // openModal va fermer la modale automatiquement après ce return
+  // Réouvrir la liste après un court délai
+  setTimeout(function() { showInterviewsLibrary(); }, 100);
+}
+
+async function deleteInterview(idx) {
+  var d = getAudData(CA);
+  if (!Array.isArray(d.interviews)) return;
+  var itv = d.interviews[idx];
+  if (!itv) return;
+  if (!confirm('Supprimer définitivement l\'entretien avec « '+itv.intervieweName+' » ?')) return;
+  d.interviews.splice(idx, 1);
+  addHist('delete', 'Entretien supprimé — ' + itv.intervieweName);
+  await saveAuditData(CA);
+  // Re-render top bar puis la liste
+  document.getElementById('vc').innerHTML = V['audit-detail']();
+  setTimeout(function() { showInterviewsLibrary(); }, 50);
+  toast('✓ Entretien supprimé');
+}
+

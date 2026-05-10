@@ -767,6 +767,8 @@ async function loadAuditData(auditId) {
       var attachments = tryParse(f.attachments_json, legacyAttach || {});
       // Extraire les flowcharts depuis attachments (où ils sont stockés)
       var flowcharts = Array.isArray(attachments.flowcharts) ? attachments.flowcharts : [];
+      // v71 : extraire les entretiens (bibliothèque audit-level)
+      var interviews = Array.isArray(attachments.interviews) ? attachments.interviews : [];
       DB.auditData[auditId] = {
         tasks:tryParse(f.tasks_json,{}), controls:tryParse(f.controls_json,{}),
         findings:tryParse(f.findings_json,[]), mgtResp:tryParse(f.mgt_resp_json,[]),
@@ -785,13 +787,15 @@ async function loadAuditData(auditId) {
         attachments:attachments,
         // flowcharts : exposé directement à la racine pour les vues, mais persisté via attachments
         flowcharts:flowcharts,
+        // v71 : interviews exposés à la racine pour les vues
+        interviews:interviews,
       };
     } else {
-      DB.auditData[auditId] = {tasks:{},controls:{},findings:[],mgtResp:[],docs:[],notes:'',maturity:null,riskLinks:{},auditRisks:[],stepStates:{},prepNotes:{},revNotes:{},wcgw:{},kickoffPrep:{},workProgramBU:{processes:[]},issues:[],execSummaryHeader:'',attachments:{},flowcharts:[]};
+      DB.auditData[auditId] = {tasks:{},controls:{},findings:[],mgtResp:[],docs:[],notes:'',maturity:null,riskLinks:{},auditRisks:[],stepStates:{},prepNotes:{},revNotes:{},wcgw:{},kickoffPrep:{},workProgramBU:{processes:[]},issues:[],execSummaryHeader:'',attachments:{},flowcharts:[],interviews:[]};
     }
   } catch(e) {
     console.warn('[SP] loadAuditData error:', e.message);
-    DB.auditData[auditId] = {tasks:{},controls:{},findings:[],mgtResp:[],docs:[],notes:'',maturity:null,riskLinks:{},auditRisks:[],stepStates:{},prepNotes:{},revNotes:{},wcgw:{},kickoffPrep:{},workProgramBU:{processes:[]},issues:[],execSummaryHeader:'',attachments:{},flowcharts:[]};
+    DB.auditData[auditId] = {tasks:{},controls:{},findings:[],mgtResp:[],docs:[],notes:'',maturity:null,riskLinks:{},auditRisks:[],stepStates:{},prepNotes:{},revNotes:{},wcgw:{},kickoffPrep:{},workProgramBU:{processes:[]},issues:[],execSummaryHeader:'',attachments:{},flowcharts:[],interviews:[]};
   }
   AUD_DATA[auditId] = DB.auditData[auditId];
   return DB.auditData[auditId];
@@ -806,6 +810,11 @@ async function saveAuditData(auditId) {
   if (Array.isArray(d.flowcharts)) {
     if (!d.attachments) d.attachments = {};
     d.attachments.flowcharts = d.flowcharts;
+  }
+  // v71 : pareil pour les entretiens (bibliothèque audit-level)
+  if (Array.isArray(d.interviews)) {
+    if (!d.attachments) d.attachments = {};
+    d.attachments.interviews = d.interviews;
   }
   await spUpsert('AF_AuditData', auditId, {
     tasks_json:JSON.stringify(d.tasks), controls_json:JSON.stringify(d.controls),
