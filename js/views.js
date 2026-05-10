@@ -8181,6 +8181,26 @@ function renderFlowchartBottomControls(fc, d, allCtrls) {
 // ─── Side panel : Narratif ──────────────────────────────────────
 function _fcRenderNarrativeSidePanel(fc) {
   var h = '';
+
+  // v72 : bouton Analyser entretiens (en haut du panneau)
+  var d = getAudData(CA);
+  var nbInterviews = (d.interviews || []).length;
+  h += '<div style="margin-bottom:12px">';
+  if (nbInterviews > 0) {
+    h += '<button onclick="showAnalyzeInterviewsModal()" style="width:100%;font-size:11px;padding:8px 12px;background:#3C3489;color:#fff;border:none;border-radius:3px;cursor:pointer;font-weight:500;display:flex;align-items:center;justify-content:center;gap:6px">🤖 Analyser entretiens ('+nbInterviews+')</button>';
+    // Historique d'analyses si présent
+    var nbAnalyses = (fc.narrativeHistory || []).length;
+    if (nbAnalyses > 0) {
+      var lastAn = fc.narrativeHistory[fc.narrativeHistory.length-1];
+      var lastDate = lastAn && lastAn.analyzedAt ? new Date(lastAn.analyzedAt).toLocaleDateString('fr-FR', {day:'2-digit',month:'short'}) : '';
+      h += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:4px;text-align:center">'+nbAnalyses+' analyse'+(nbAnalyses>1?'s':'')+' · dernière le '+lastDate+'</div>';
+    }
+  } else {
+    h += '<button onclick="showInterviewsLibrary()" style="width:100%;font-size:11px;padding:8px 12px;background:#fff;color:var(--text-2);border:.5px dashed var(--border);border-radius:3px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">📋 Ajouter d\'abord un entretien</button>';
+    h += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:4px;text-align:center">Bibliothèque vide — analyse IA indisponible</div>';
+  }
+  h += '</div>';
+
   h += '<div style="margin-bottom:14px">';
   h += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;margin-bottom:5px">Description du processus</div>';
   h += '<textarea id="fc-narrative" oninput="_fcMarkNarrativeDirty()" onblur="saveFlowchartNarrative(this.value)" placeholder="Décris le flux : qui fait quoi, quand, sur quel système, avec quelles validations…" style="width:100%;min-height:160px;font-size:11px;padding:7px 9px;border:.5px solid var(--border);border-radius:3px;background:#fff;box-sizing:border-box;resize:vertical;font-family:inherit;line-height:1.5">'+(''+(fc.narrative||'')).replace(/</g,'&lt;')+'</textarea>';
@@ -13354,5 +13374,561 @@ async function deleteInterview(idx) {
   document.getElementById('vc').innerHTML = V['audit-detail']();
   setTimeout(function() { showInterviewsLibrary(); }, 50);
   toast('✓ Entretien supprimé');
+}
+
+
+// ════════════════════════════════════════════════════════════════════
+//  v72 : ANALYSE D'ENTRETIENS VIA COPILOT
+//  Workflow : sélection entretiens → mode → copy prompt → coller dans
+//  Copilot M365 → coller JSON retour → preview → import dans narratif
+// ════════════════════════════════════════════════════════════════════
+
+// État éphémère de la modale d'analyse
+var _analyzeState = null;
+
+function showAnalyzeInterviewsModal() {
+  var fc = _fcGetCurrent();
+  if (!fc) { toast('Aucun flowchart actif'); return; }
+
+  var d = getAudData(CA);
+  var allItvs = d.interviews || [];
+  if (!allItvs.length) {
+    toast('Bibliothèque d\'entretiens vide. Ajoute d\'abord un entretien.');
+    return;
+  }
+
+  // Pré-sélection : entretiens qui mentionnent le SP du flowchart courant
+  var preSelectedIds = {};
+  if (fc.subProcessId) {
+    allItvs.forEach(function(itv){
+      if ((itv.relatedSubProcessIds || []).indexOf(fc.subProcessId) >= 0) {
+        preSelectedIds[itv.id] = true;
+      }
+    });
+  }
+  // Si aucune pré-sélection, sélectionner tous les non-analysés
+  if (Object.keys(preSelectedIds).length === 0) {
+    allItvs.forEach(function(itv){
+      if (!itv.analyzedAt) preSelectedIds[itv.id] = true;
+    });
+  }
+
+  // État initial
+  _analyzeState = {
+    selectedIds: preSelectedIds,
+    mode: (fc.narrative && fc.narrative.trim()) ? 'enrich' : 'replace',
+    fcId: fc.id,
+  };
+
+  _renderAnalyzeStep1();
+}
+
+// ─── ÉTAPE 1 : sélection entretiens + mode + copy prompt ────────
+function _renderAnalyzeStep1() {
+  var fc = _fcGetCurrent();
+  if (!fc) return;
+  var d = getAudData(CA);
+  var allItvs = d.interviews || [];
+  var sps = (d.kickoffPrep && Array.isArray(d.kickoffPrep.subProcesses)) ? d.kickoffPrep.subProcesses : [];
+  var spById = {};
+  sps.forEach(function(sp){ spById[sp.id] = sp; });
+  var spForFc = fc.subProcessId ? spById[fc.subProcessId] : null;
+
+  // Trier : SP-related en haut, puis non-analysés, puis analysés
+  var related = [], unrelatedUnanalyzed = [], unrelatedAnalyzed = [];
+  allItvs.forEach(function(itv){
+    var isRelated = fc.subProcessId && (itv.relatedSubProcessIds || []).indexOf(fc.subProcessId) >= 0;
+    if (isRelated) related.push(itv);
+    else if (!itv.analyzedAt) unrelatedUnanalyzed.push(itv);
+    else unrelatedAnalyzed.push(itv);
+  });
+  var sortedItvs = related.concat(unrelatedUnanalyzed).concat(unrelatedAnalyzed);
+
+  var body = '';
+
+  // Section 1 : sélection
+  body += '<div style="margin-bottom:12px">';
+  body += '<label style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;display:block;margin-bottom:5px">1. Entretiens à analyser</label>';
+  body += '<div style="max-height:220px;overflow-y:auto;border:.5px solid var(--border);border-radius:3px;background:#fafafa;padding:5px">';
+  sortedItvs.forEach(function(itv){
+    var isSelected = !!_analyzeState.selectedIds[itv.id];
+    var initials = _intervInitials(itv.intervieweName);
+    var color = _intervColor(itv.intervieweName);
+    var nbWords = itv.script ? itv.script.trim().split(/\s+/).filter(Boolean).length : 0;
+    var dateStr = itv.interviewDate ? new Date(itv.interviewDate).toLocaleDateString('fr-FR', {day:'2-digit',month:'short'}) : '?';
+    var isRelated = fc.subProcessId && (itv.relatedSubProcessIds || []).indexOf(fc.subProcessId) >= 0;
+    var alreadyAnalyzed = !!itv.analyzedAt;
+
+    body += '<label style="display:flex;align-items:center;gap:8px;padding:6px 8px;margin-bottom:3px;background:'+(isSelected?'#EEEDFE':'#fff')+';border:.5px solid '+(isSelected?'#CECBF6':'var(--border)')+';border-radius:3px;cursor:pointer">';
+    body += '<input type="checkbox" '+(isSelected?'checked':'')+' onchange="_toggleAnalyzeItv(\''+itv.id+'\',this.checked)" style="margin:0"/>';
+    body += '<div style="width:26px;height:26px;border-radius:50%;background:'+color+';color:#fff;display:flex;align-items:center;justify-content:center;font-weight:500;font-size:9px;flex-shrink:0">'+initials+'</div>';
+    body += '<div style="flex:1;min-width:0;font-size:11px">';
+    body += '<div style="color:var(--text-1);font-weight:500">'+(itv.intervieweName||'').replace(/</g,'&lt;')+(itv.intervieweRole?' · <span style="font-weight:400;color:var(--text-2)">'+itv.intervieweRole.replace(/</g,'&lt;')+'</span>':'')+'</div>';
+    body += '<div style="font-size:9px;color:var(--text-3);margin-top:2px">'+dateStr+' · '+nbWords+' mots';
+    if (isRelated) body += ' · <span style="color:#3C3489;font-weight:500">📌 mentionne ce SP</span>';
+    if (alreadyAnalyzed) body += ' · <span style="color:#085041;font-style:italic">✓ déjà analysé</span>';
+    body += '</div>';
+    body += '</div>';
+    body += '</label>';
+  });
+  body += '</div>';
+  body += '</div>';
+
+  // Section 2 : mode
+  var hasNarrative = !!(fc.narrative && fc.narrative.trim());
+  body += '<div style="margin-bottom:12px">';
+  body += '<label style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;display:block;margin-bottom:5px">2. Mode</label>';
+  body += '<div style="display:flex;gap:6px">';
+  // Replace
+  var replaceActive = _analyzeState.mode === 'replace';
+  body += '<label style="flex:1;padding:8px 10px;border:.5px solid '+(replaceActive?'#3C3489':'var(--border)')+';border-radius:3px;background:'+(replaceActive?'#EEEDFE':'#fff')+';cursor:pointer">';
+  body += '<input type="radio" name="analyze-mode" value="replace" '+(replaceActive?'checked':'')+' onchange="_setAnalyzeMode(\'replace\')" style="margin-right:4px"/>';
+  body += '<strong style="font-weight:500;color:'+(replaceActive?'#3C3489':'var(--text-2)')+'">↻ Remplacer</strong>';
+  body += '<div style="font-size:9px;color:var(--text-3);margin-top:2px;font-style:italic">Le narratif existant sera écrasé</div>';
+  body += '</label>';
+  // Enrich
+  var enrichActive = _analyzeState.mode === 'enrich';
+  body += '<label style="flex:1;padding:8px 10px;border:.5px solid '+(enrichActive?'#3C3489':'var(--border)')+';border-radius:3px;background:'+(enrichActive?'#EEEDFE':'#fff')+';cursor:pointer'+(!hasNarrative?';opacity:.5;cursor:not-allowed':'')+'">';
+  body += '<input type="radio" name="analyze-mode" value="enrich" '+(enrichActive?'checked':'')+' onchange="_setAnalyzeMode(\'enrich\')" '+(!hasNarrative?'disabled':'')+' style="margin-right:4px"/>';
+  body += '<strong style="font-weight:500;color:'+(enrichActive?'#3C3489':'var(--text-2)')+'">+ Enrichir</strong>';
+  body += '<div style="font-size:9px;color:var(--text-3);margin-top:2px;font-style:italic">Compléter, signaler divergences</div>';
+  body += '</label>';
+  body += '</div>';
+  if (!hasNarrative) {
+    body += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:4px">Mode Enrichir disponible uniquement si un narratif existe déjà</div>';
+  }
+  body += '</div>';
+
+  // Section 3 : contexte injecté
+  body += '<div style="background:#EEEDFE;border:.5px solid #CECBF6;border-radius:3px;padding:8px 10px;margin-bottom:12px;font-size:10px;color:#3C3489;line-height:1.5">';
+  body += '<strong style="font-weight:500">📦 Contexte injecté dans le prompt :</strong>';
+  body += '<ul style="margin:5px 0 0 16px;padding:0">';
+  var auditObj = AUDIT_PLAN.find(function(x){return x.id===CA;});
+  body += '<li>Audit · '+(auditObj?(auditObj.titre||auditObj.id):CA).replace(/</g,'&lt;')+'</li>';
+  if (spForFc) body += '<li>Sous-processus focus : <strong>'+spForFc.name.replace(/</g,'&lt;')+'</strong></li>';
+  if (sps.length) body += '<li>SP existants : '+sps.map(function(sp){return sp.name;}).join(', ').replace(/</g,'&lt;')+'</li>';
+  var auditRisks = d.auditRisks || [];
+  if (auditRisks.length) body += '<li>'+auditRisks.length+' risque(s) URD attaché(s)</li>';
+  if (hasNarrative) body += '<li>Narratif actuel ('+fc.narrative.length+' caractères)</li>';
+  var nbSelected = Object.keys(_analyzeState.selectedIds).filter(function(id){return _analyzeState.selectedIds[id];}).length;
+  body += '<li><strong>'+nbSelected+' entretien(s) sélectionné(s)</strong></li>';
+  body += '</ul>';
+  body += '</div>';
+
+  // Footer custom
+  body += '<div style="display:flex;gap:8px;justify-content:space-between;align-items:center;padding-top:8px;border-top:.5px solid var(--border)">';
+  body += '<div style="font-size:10px;color:var(--text-3);font-style:italic">Étape 1/2 — Génération du prompt</div>';
+  body += '<div style="display:flex;gap:6px">';
+  body += '<button class="bs" onclick="closeModal()">Annuler</button>';
+  if (nbSelected > 0) {
+    body += '<button class="bp" onclick="_copyAnalyzePrompt()" style="font-weight:500">📋 Copier le prompt</button>';
+  } else {
+    body += '<button class="bp" disabled style="opacity:.5;cursor:not-allowed">📋 Copier le prompt</button>';
+  }
+  body += '</div>';
+  body += '</div>';
+
+  openModal('🤖 Analyser entretiens · '+(spForFc?spForFc.name:fc.label||'Flowchart'), body, null, {hideOk:true, cancelLabel:'', wide:true});
+  // Cacher le footer par défaut (on a notre propre footer)
+  setTimeout(function() {
+    var footer = document.querySelector('#modal .mf');
+    if (footer) footer.style.display = 'none';
+  }, 50);
+}
+
+function _toggleAnalyzeItv(itvId, checked) {
+  if (!_analyzeState) return;
+  if (checked) _analyzeState.selectedIds[itvId] = true;
+  else delete _analyzeState.selectedIds[itvId];
+  _renderAnalyzeStep1();
+  // Réafficher le footer caché
+  setTimeout(function() {
+    var footer = document.querySelector('#modal .mf');
+    if (footer) footer.style.display = 'none';
+  }, 50);
+}
+
+function _setAnalyzeMode(mode) {
+  if (!_analyzeState) return;
+  _analyzeState.mode = mode;
+  _renderAnalyzeStep1();
+  setTimeout(function() {
+    var footer = document.querySelector('#modal .mf');
+    if (footer) footer.style.display = 'none';
+  }, 50);
+}
+
+// ─── Construction du prompt complet ─────────────────────────────
+function _buildAnalyzePrompt() {
+  var fc = _fcGetCurrent();
+  var d = getAudData(CA);
+  var auditObj = AUDIT_PLAN.find(function(x){return x.id===CA;});
+  var sps = (d.kickoffPrep && Array.isArray(d.kickoffPrep.subProcesses)) ? d.kickoffPrep.subProcesses : [];
+  var spForFc = fc.subProcessId ? sps.find(function(x){return x.id===fc.subProcessId;}) : null;
+
+  // Entretiens sélectionnés
+  var selectedItvs = (d.interviews || []).filter(function(itv){return _analyzeState.selectedIds[itv.id];});
+
+  // Risques URD
+  var auditRisks = d.auditRisks || [];
+
+  var p = '';
+  p += '# AUDIT INTERNE — ANALYSE D\'ENTRETIENS\n\n';
+  p += 'Tu es un assistant d\'audit interne. Analyse les transcriptions d\'entretiens ci-dessous et produis un narratif structuré du processus, en JSON.\n\n';
+
+  // Contexte audit
+  p += '## CONTEXTE DE L\'AUDIT\n\n';
+  p += '- **Nom de l\'audit** : '+(auditObj?(auditObj.titre||auditObj.id):CA)+'\n';
+  p += '- **Type d\'audit** : '+(auditObj?(auditObj.type||'Process'):'Process')+'\n';
+  if (spForFc) {
+    p += '- **Sous-processus focus** : '+spForFc.name+' (id: '+spForFc.id+')\n';
+    if (spForFc.description) p += '  - Description : '+spForFc.description+'\n';
+  }
+  if (sps.length > 0) {
+    p += '- **Sous-processus déjà définis dans cet audit** (essaie de matcher en priorité avec ceux-ci) :\n';
+    sps.forEach(function(sp){
+      p += '  - `'+sp.id+'` : '+sp.name+(sp.description?' — '+sp.description:'')+'\n';
+    });
+  }
+  if (auditRisks.length > 0) {
+    p += '- **Risques URD attachés à l\'audit** :\n';
+    auditRisks.forEach(function(r){
+      p += '  - '+(r.code||r.id)+' : '+(r.name||r.title||'')+'\n';
+    });
+  }
+
+  // Narratif existant si mode enrich
+  if (_analyzeState.mode === 'enrich' && fc.narrative && fc.narrative.trim()) {
+    p += '\n## NARRATIF ACTUEL (à enrichir)\n\n';
+    p += '```\n'+fc.narrative+'\n```\n';
+    p += '\n**Important** : Tu dois compléter/affiner ce narratif avec les nouveaux entretiens. Si une information du nouveau script contredit le narratif actuel, signale explicitement la divergence avec ⚠️ DIVERGENCE.\n';
+  }
+
+  // Instructions
+  p += '\n## INSTRUCTIONS\n\n';
+  p += '1. Identifie quel(s) sous-processus est/sont décrit(s) dans les entretiens. Essaie de matcher avec les SP existants ci-dessus (utilise leur `id`). Si un sous-processus mentionné ne correspond à aucun existant, propose-le comme nouveau (matchedExistingId = null).\n';
+  p += '2. Pour chaque sous-processus, écris un narratif **chronologique et fluide** (paragraphes, pas listes à puces) qui décrit :\n';
+  p += '   - Les étapes du processus (qui fait quoi, quand, sur quel système)\n';
+  p += '   - Les décisions et critères (seuils, validations)\n';
+  p += '   - Les **WCGW** potentiels repérés. Format : `⚠ WCGW : [scénario à risque]`\n';
+  p += '   - Les **contrôles existants** mentionnés. Format : `✓ CTRL Existant : [nom du contrôle] (Acteur : qui · Fréquence : quand · Quoi : description · Preuves : documents/traces)`\n';
+  p += '   - Les **contrôles cibles** suggérés (ce qui manque). Format : `⚑ CTRL Cible : [nom proposé] (Acteur : qui · Fréquence : quand · Quoi : description)`\n';
+  p += '3. Si plusieurs intervenants sont en désaccord sur un point factuel (ex : un seuil), signale avec `⚠️ DIVERGENCE : [Intervenant A] indique X, [Intervenant B] indique Y. À clarifier.`\n';
+  p += '4. Le narratif doit être en **français professionnel d\'audit**, ton neutre, sans jugement.\n';
+
+  // Format de sortie
+  p += '\n## FORMAT DE SORTIE (JSON STRICT)\n\n';
+  p += 'Réponds UNIQUEMENT avec un objet JSON valide, sans texte avant ni après. Format :\n\n';
+  p += '```json\n';
+  p += '{\n';
+  p += '  "subProcesses": [\n';
+  p += '    {\n';
+  p += '      "name": "Nom du sous-processus",\n';
+  p += '      "matchedExistingId": "sp_xxx" ou null,\n';
+  p += '      "narrative": "Texte narratif chronologique avec ⚠ WCGW, ✓ CTRL Existant, ⚑ CTRL Cible et ⚠️ DIVERGENCE inline."\n';
+  p += '    }\n';
+  p += '  ]\n';
+  p += '}\n';
+  p += '```\n';
+
+  // Scripts d'entretiens
+  p += '\n## TRANSCRIPTIONS D\'ENTRETIENS À ANALYSER\n';
+  selectedItvs.forEach(function(itv, i){
+    var dateStr = itv.interviewDate ? new Date(itv.interviewDate).toLocaleDateString('fr-FR') : '';
+    p += '\n### Entretien '+(i+1)+' — '+itv.intervieweName+(itv.intervieweRole?' ('+itv.intervieweRole+')':'')+(dateStr?' · '+dateStr:'')+'\n\n';
+    p += '```\n'+itv.script+'\n```\n';
+  });
+
+  return p;
+}
+
+async function _copyAnalyzePrompt() {
+  if (!_analyzeState) return;
+  var nbSelected = Object.keys(_analyzeState.selectedIds).filter(function(id){return _analyzeState.selectedIds[id];}).length;
+  if (nbSelected === 0) { toast('Sélectionne au moins un entretien'); return; }
+
+  var prompt = _buildAnalyzePrompt();
+  try {
+    await navigator.clipboard.writeText(prompt);
+    toast('✓ Prompt copié — colle-le dans Copilot Chat (Teams/Word/M365)');
+    // Passer à l'étape 2 (saisie du JSON retour)
+    setTimeout(function() { _renderAnalyzeStep2(); }, 800);
+  } catch (e) {
+    // Fallback : afficher dans une textarea
+    alert('Impossible de copier automatiquement. Le prompt va s\'afficher, copie-le manuellement.');
+    _renderAnalyzeStep2(prompt);
+  }
+}
+
+// ─── ÉTAPE 2 : coller le JSON retour de Copilot ───────────────
+function _renderAnalyzeStep2(promptToShow) {
+  var body = '';
+
+  body += '<div style="background:#FAEEDA;border:.5px solid #FAC775;color:#854F0B;padding:8px 10px;border-radius:3px;margin-bottom:12px;font-size:11px">';
+  body += '<strong style="font-weight:500">📝 Prochaine étape :</strong> ouvre <strong>Copilot Chat</strong> (Teams, Word ou app M365), colle le prompt, attends la réponse JSON, puis colle-la ci-dessous.';
+  body += '</div>';
+
+  // Si on doit afficher le prompt manuellement
+  if (promptToShow) {
+    body += '<div style="margin-bottom:12px">';
+    body += '<label style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;display:block;margin-bottom:5px">Prompt à copier (sélectionne tout puis Ctrl+C)</label>';
+    body += '<textarea readonly onclick="this.select()" style="width:100%;min-height:120px;font-size:10px;padding:6px 8px;border:.5px solid var(--border);border-radius:3px;box-sizing:border-box;font-family:monospace;background:#fafafa">'+promptToShow.replace(/</g,'&lt;')+'</textarea>';
+    body += '</div>';
+  }
+
+  body += '<div style="margin-bottom:12px">';
+  body += '<label style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;display:block;margin-bottom:5px">Réponse de Copilot (colle le JSON ici)</label>';
+  body += '<textarea id="analyze-json-input" placeholder=\'{"subProcesses": [...]}\' style="width:100%;min-height:140px;font-size:10px;padding:6px 8px;border:.5px solid var(--border);border-radius:3px;box-sizing:border-box;font-family:monospace;line-height:1.5"></textarea>';
+  body += '<div id="analyze-parse-status" style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:4px">Le JSON sera validé automatiquement</div>';
+  body += '</div>';
+
+  // Aperçu (vide au départ)
+  body += '<div id="analyze-preview" style="display:none">';
+  body += '</div>';
+
+  body += '<div style="display:flex;gap:8px;justify-content:space-between;align-items:center;padding-top:8px;border-top:.5px solid var(--border)">';
+  body += '<div style="font-size:10px;color:var(--text-3);font-style:italic">Étape 2/2 — Import du résultat</div>';
+  body += '<div style="display:flex;gap:6px">';
+  body += '<button class="bs" onclick="_renderAnalyzeStep1()">← Retour</button>';
+  body += '<button class="bs" onclick="closeModal()">Annuler</button>';
+  body += '<button class="bp" onclick="_validateAndPreviewJson()" style="font-weight:500">Aperçu</button>';
+  body += '</div>';
+  body += '</div>';
+
+  openModal('🤖 Importer la réponse Copilot', body, null, {hideOk:true, cancelLabel:'', wide:true});
+  setTimeout(function() {
+    var footer = document.querySelector('#modal .mf');
+    if (footer) footer.style.display = 'none';
+    // Auto-validation au paste
+    var ta = document.getElementById('analyze-json-input');
+    if (ta) {
+      ta.addEventListener('input', function(){
+        var status = document.getElementById('analyze-parse-status');
+        if (!status) return;
+        var v = ta.value.trim();
+        if (!v) { status.textContent = 'Le JSON sera validé automatiquement'; status.style.color = 'var(--text-3)'; return; }
+        try {
+          var parsed = _extractJson(v);
+          if (parsed && Array.isArray(parsed.subProcesses)) {
+            status.textContent = '✓ JSON valide · '+parsed.subProcesses.length+' sous-processus détecté(s)';
+            status.style.color = '#085041';
+          } else {
+            status.textContent = '⚠ JSON valide mais structure incorrecte (manque subProcesses[])';
+            status.style.color = '#854F0B';
+          }
+        } catch (e) {
+          status.textContent = '✗ JSON invalide : '+e.message;
+          status.style.color = '#993C1D';
+        }
+      });
+    }
+  }, 50);
+}
+
+// Extraction du JSON même si entouré de markdown ```json ```
+function _extractJson(text) {
+  var s = (text || '').trim();
+  // Retirer les fences ```json ```
+  s = s.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+  // Si pas commencer par { trouver le 1er {
+  var firstBrace = s.indexOf('{');
+  var lastBrace = s.lastIndexOf('}');
+  if (firstBrace > 0 && lastBrace > firstBrace) {
+    s = s.substring(firstBrace, lastBrace + 1);
+  }
+  return JSON.parse(s);
+}
+
+function _validateAndPreviewJson() {
+  var ta = document.getElementById('analyze-json-input');
+  if (!ta) return;
+  var v = ta.value.trim();
+  if (!v) { toast('Colle d\'abord le JSON de Copilot'); return; }
+
+  var parsed;
+  try {
+    parsed = _extractJson(v);
+  } catch (e) {
+    toast('JSON invalide : '+e.message);
+    return;
+  }
+
+  if (!parsed || !Array.isArray(parsed.subProcesses) || !parsed.subProcesses.length) {
+    toast('JSON sans subProcesses[] valide');
+    return;
+  }
+
+  _analyzeState.parsedResult = parsed;
+  _renderAnalyzePreview();
+}
+
+// ─── ÉTAPE 3 : preview avant import ─────────────────────────────
+function _renderAnalyzePreview() {
+  var fc = _fcGetCurrent();
+  if (!fc || !_analyzeState || !_analyzeState.parsedResult) return;
+  var d = getAudData(CA);
+  var sps = (d.kickoffPrep && Array.isArray(d.kickoffPrep.subProcesses)) ? d.kickoffPrep.subProcesses : [];
+  var spById = {};
+  sps.forEach(function(sp){ spById[sp.id] = sp; });
+
+  var result = _analyzeState.parsedResult;
+  var spForFc = fc.subProcessId ? spById[fc.subProcessId] : null;
+
+  var body = '';
+
+  body += '<div style="background:#E1F5EE;border:.5px solid #A6E2CD;color:#085041;padding:8px 10px;border-radius:3px;margin-bottom:12px;font-size:11px">';
+  body += '<strong style="font-weight:500">✓ Aperçu du résultat IA</strong> — vérifie avant d\'importer dans le narratif';
+  body += '</div>';
+
+  result.subProcesses.forEach(function(spr, i){
+    var matchedSp = spr.matchedExistingId ? spById[spr.matchedExistingId] : null;
+    var isCurrentSp = matchedSp && matchedSp.id === fc.subProcessId;
+    var isUnmatched = !matchedSp;
+
+    body += '<div style="background:#fff;border:.5px solid '+(isCurrentSp?'#3C3489':(isUnmatched?'#FAC775':'var(--border)'))+';border-radius:4px;padding:10px 12px;margin-bottom:8px">';
+    body += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px">';
+    body += '<div style="flex:1;min-width:0">';
+    body += '<div style="font-size:12px;font-weight:500;color:var(--text-1)">'+(spr.name||'(sans nom)').replace(/</g,'&lt;')+'</div>';
+    if (isCurrentSp) {
+      body += '<div style="font-size:9px;color:#3C3489;background:#EEEDFE;border:.5px solid #CECBF6;padding:1px 6px;border-radius:2px;display:inline-block;margin-top:3px;font-weight:500">↻ Correspond au SP du flowchart courant</div>';
+    } else if (matchedSp) {
+      body += '<div style="font-size:9px;color:var(--text-2);background:#fafafa;border:.5px solid var(--border);padding:1px 6px;border-radius:2px;display:inline-block;margin-top:3px">↻ '+matchedSp.name.replace(/</g,'&lt;')+' (autre SP de l\'audit)</div>';
+    } else {
+      body += '<div style="font-size:9px;color:#854F0B;background:#FAEEDA;border:.5px solid #FAC775;padding:1px 6px;border-radius:2px;display:inline-block;margin-top:3px;font-weight:500">+ Nouveau SP (à valider)</div>';
+    }
+    body += '</div>';
+    body += '</div>';
+    // Narratif preview
+    body += '<div style="font-size:10px;line-height:1.6;color:var(--text-2);white-space:pre-wrap;background:#fafafa;padding:8px 10px;border-radius:3px;max-height:160px;overflow-y:auto">'+_highlightNarrative(spr.narrative||'')+'</div>';
+    body += '</div>';
+  });
+
+  body += '<div style="display:flex;gap:8px;justify-content:space-between;align-items:center;padding-top:8px;border-top:.5px solid var(--border);margin-top:4px">';
+  body += '<div style="font-size:10px;color:var(--text-3);font-style:italic">'+result.subProcesses.length+' sous-processus à importer</div>';
+  body += '<div style="display:flex;gap:6px">';
+  body += '<button class="bs" onclick="_renderAnalyzeStep2()">← Retour</button>';
+  body += '<button class="bs" onclick="closeModal()">Annuler</button>';
+  body += '<button class="bp" onclick="_doImportAnalysis()" style="font-weight:500">✓ Importer dans le narratif</button>';
+  body += '</div>';
+  body += '</div>';
+
+  openModal('🤖 Aperçu de l\'analyse IA', body, null, {hideOk:true, cancelLabel:'', wide:true});
+  setTimeout(function() {
+    var footer = document.querySelector('#modal .mf');
+    if (footer) footer.style.display = 'none';
+  }, 50);
+}
+
+// Highlight des marqueurs WCGW/CTRL/DIVERGENCE pour la preview
+function _highlightNarrative(text) {
+  var s = (text||'').replace(/</g,'&lt;');
+  s = s.replace(/(⚠️\s*DIVERGENCE\s*:[^\n.]+[.])/g, '<span style="background:#FFF4D9;color:#854F0B;padding:1px 5px;border-radius:2px;font-weight:500">$1</span>');
+  s = s.replace(/(⚠\s*WCGW\s*:[^\n.]+[.])/g, '<span style="background:#FCEBEB;color:#993C1D;padding:1px 5px;border-radius:2px;font-weight:500">$1</span>');
+  s = s.replace(/(✓\s*CTRL Existant\s*:[^\n.]+[.])/g, '<span style="background:#F5FBF8;color:#085041;padding:1px 5px;border-radius:2px;font-weight:500">$1</span>');
+  s = s.replace(/(⚑\s*CTRL Cible\s*:[^\n.]+[.])/g, '<span style="background:#FFFAF0;color:#854F0B;padding:1px 5px;border-radius:2px;font-weight:500">$1</span>');
+  return s;
+}
+
+// ─── ÉTAPE 4 : import effectif ─────────────────────────────────
+async function _doImportAnalysis() {
+  var fc = _fcGetCurrent();
+  if (!fc || !_analyzeState || !_analyzeState.parsedResult) return;
+  var d = getAudData(CA);
+  var sps = (d.kickoffPrep && Array.isArray(d.kickoffPrep.subProcesses)) ? d.kickoffPrep.subProcesses : [];
+  var spById = {};
+  sps.forEach(function(sp){ spById[sp.id] = sp; });
+
+  var result = _analyzeState.parsedResult;
+
+  // Trouver le SP "courant" dans le résultat
+  var currentSpResult = null;
+  if (fc.subProcessId) {
+    currentSpResult = result.subProcesses.find(function(spr){ return spr.matchedExistingId === fc.subProcessId; });
+    if (!currentSpResult) {
+      // Fallback : prendre le 1er du résultat (souvent le SP focus)
+      currentSpResult = result.subProcesses[0];
+    }
+  } else {
+    currentSpResult = result.subProcesses[0];
+  }
+
+  // Confirmation si narratif existe et mode = replace
+  if (_analyzeState.mode === 'replace' && fc.narrative && fc.narrative.trim()) {
+    if (!confirm('Le narratif actuel sera entièrement remplacé. Continuer ?')) return;
+  }
+
+  // Sauvegarder l'historique avant modification
+  if (!Array.isArray(fc.narrativeHistory)) fc.narrativeHistory = [];
+  var narrativeBefore = fc.narrative || '';
+  var selectedItvIds = Object.keys(_analyzeState.selectedIds).filter(function(id){return _analyzeState.selectedIds[id];});
+
+  // Appliquer le narratif au flowchart courant
+  if (currentSpResult && currentSpResult.narrative) {
+    if (_analyzeState.mode === 'replace') {
+      fc.narrative = currentSpResult.narrative;
+    } else {
+      // Enrichir = remplacer aussi (Copilot a déjà reçu le narratif existant et l'a enrichi)
+      fc.narrative = currentSpResult.narrative;
+    }
+  }
+
+  // Log dans l'historique
+  fc.narrativeHistory.push({
+    id: 'an_' + Date.now() + '_' + Math.floor(Math.random()*100000),
+    analyzedAt: new Date().toISOString(),
+    interviewIds: selectedItvIds,
+    mode: _analyzeState.mode,
+    nbInterviews: selectedItvIds.length,
+    nbSubProcesses: result.subProcesses.length,
+  });
+
+  // Marquer les entretiens comme analysés
+  selectedItvIds.forEach(function(itvId){
+    var itv = (d.interviews || []).find(function(i){return i.id === itvId;});
+    if (itv) itv.analyzedAt = new Date().toISOString();
+  });
+
+  // Identifier les SPs non matchés à proposer en création
+  var unmatched = result.subProcesses.filter(function(spr){return !spr.matchedExistingId;});
+
+  await saveAuditData(CA);
+
+  closeModal();
+  document.getElementById('det-content').innerHTML = renderDetContent();
+  toast('✓ Narratif importé');
+
+  // Si SPs non matchés : proposer à l'auditeur slot par slot
+  if (unmatched.length > 0) {
+    setTimeout(function() {
+      _askToCreateNewSps(unmatched, 0);
+    }, 800);
+  }
+
+  _analyzeState = null;
+}
+
+// Demander slot par slot à l'auditeur s'il veut créer les nouveaux SPs
+function _askToCreateNewSps(unmatched, idx) {
+  if (idx >= unmatched.length) return;
+  var spr = unmatched[idx];
+  var msg = 'Copilot a détecté un sous-processus qui n\'existe pas dans cet audit :\n\n';
+  msg += '« '+spr.name+' »\n\n';
+  msg += 'Veux-tu le créer en étape 2 (Processus Couverts) ?';
+
+  if (confirm(msg)) {
+    var d = getAudData(CA);
+    if (!d.kickoffPrep) d.kickoffPrep = {};
+    if (!Array.isArray(d.kickoffPrep.subProcesses)) d.kickoffPrep.subProcesses = [];
+    d.kickoffPrep.subProcesses.push({
+      id: 'sp_' + Date.now() + '_' + Math.floor(Math.random()*100000),
+      name: spr.name,
+      description: '',
+    });
+    saveAuditData(CA);
+    toast('✓ Sous-processus "'+spr.name+'" créé en étape 2');
+  }
+
+  // Passer au suivant
+  setTimeout(function() { _askToCreateNewSps(unmatched, idx + 1); }, 300);
 }
 
