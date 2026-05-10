@@ -7590,6 +7590,7 @@ var _FC_DEFAULTS = {
   meeting:  {w: 80, h: 80, label: 'Meeting'},
   document: {w: 130, h: 56, label: 'Document'},
   database: {w: 110, h: 50, label: 'Système'},
+  wcgw:     {w: 90, h: 65, label: 'WCGW'}, // v68 : nouveau type WCGW (losange rouge)
   ctrl_existing: {w: 60, h: 60, label: 'CTRL'},
   ctrl_target:   {w: 60, h: 60, label: 'CTRL-T'},
 };
@@ -7866,6 +7867,27 @@ function renderFlowchartEditor() {
   html += '</div>';
   html += '</div>';
 
+  // ─── v68 : Bandeau d'alerte (orphelins + non-couverts) ──────────
+  var fcVal = _fcAnalyzeWcgwCoverage(fc);
+  var nbOrphan = fcVal.orphanCtrlNodeIds.length;
+  var nbUncovered = fcVal.uncoveredWcgwNodeIds.length;
+  if (nbOrphan + nbUncovered > 0) {
+    html += '<div style="background:#FCEBEB;border-bottom:.5px solid #F2C2C0;color:#993C1D;padding:8px 14px;font-size:11px;display:flex;align-items:center;gap:8px">';
+    html += '<span style="font-size:14px">⚠</span>';
+    html += '<span><strong style="font-weight:600">'+(nbOrphan+nbUncovered)+' alerte'+(nbOrphan+nbUncovered>1?'s':'')+'</strong> · ';
+    var msgs = [];
+    if (nbUncovered > 0) msgs.push(nbUncovered+' WCGW non couvert'+(nbUncovered>1?'s':'')+' (ajoute un Existant ou Target lié)');
+    if (nbOrphan > 0) msgs.push(nbOrphan+' contrôle'+(nbOrphan>1?'s':'')+' orphelin'+(nbOrphan>1?'s':'')+' (lie-le à un WCGW)');
+    html += msgs.join(' · ');
+    html += '</span>';
+    html += '</div>';
+  } else if ((fcVal.wcgwNodes.length + fcVal.ctrlNodes.length) > 0) {
+    html += '<div style="background:#E1F5EE;border-bottom:.5px solid #A6E2CD;color:#085041;padding:8px 14px;font-size:11px;display:flex;align-items:center;gap:8px">';
+    html += '<span style="font-size:14px">✓</span>';
+    html += '<span>Tous les WCGW sont couverts et tous les contrôles sont liés</span>';
+    html += '</div>';
+  }
+
   // ─── TOOLBAR : titre éditable + actions ─────────────────────────
   html += '<div style="display:flex;gap:8px;padding:8px 14px;background:#fafafa;border-bottom:.5px solid var(--border);align-items:center;flex-wrap:wrap">';
   html += '<input id="fc-label" value="'+(''+(fc.label||'')).replace(/"/g,'&quot;')+'" placeholder="Titre du flowchart..." onchange="setFlowchartLabel(this.value)" style="font-size:12px;padding:4px 9px;border:.5px solid var(--border);border-radius:3px;width:280px;font-weight:500;box-sizing:border-box"/>';
@@ -7890,6 +7912,23 @@ function renderFlowchartEditor() {
   if (_flowchartEditor.selectedNodeId) {
     html += '<button class="bd" style="font-size:10px;padding:4px 10px" onclick="deleteSelectedNode()">🗑 Supprimer la forme</button>';
   }
+  // v68 : bouton "Importer" si des WCGW/Contrôles non représentés
+  if (fc.subProcessId) {
+    var dForImport = getAudData(CA);
+    var wcgwListImport = (dForImport.wcgw && dForImport.wcgw[4]) || [];
+    var ctrlsImport = (dForImport.controls && dForImport.controls[4]) || [];
+    var wcgwsForSPImport = wcgwListImport.filter(function(w){return w.subProcessId === fc.subProcessId;});
+    var existingWcgwIds = (fc.nodes || []).filter(function(n){return n.type === 'wcgw' && n.wcgwId;}).map(function(n){return n.wcgwId;});
+    var nbWcgwToImport = wcgwsForSPImport.filter(function(w){return existingWcgwIds.indexOf(w.id) < 0;}).length;
+    var wcgwIdsForSPImport = wcgwsForSPImport.map(function(w){return w.id;});
+    var ctrlsForSPImport = ctrlsImport.filter(function(c){return wcgwIdsForSPImport.indexOf(c.wcgwId) >= 0;});
+    var existingCtrlIds = (fc.nodes || []).filter(function(n){return (n.type === 'ctrl_existing' || n.type === 'ctrl_target') && n.controlId;}).map(function(n){return n.controlId;});
+    var nbCtrlToImport = ctrlsForSPImport.filter(function(c){return existingCtrlIds.indexOf(c.id) < 0;}).length;
+    var totalToImport = nbWcgwToImport + nbCtrlToImport;
+    if (totalToImport > 0) {
+      html += '<button onclick="importExistingWcgwsAndControls()" title="Crée des losanges et cercles pour les WCGW/contrôles déjà définis dans ce sous-processus" style="font-size:10px;padding:4px 10px;background:#FFF4D9;color:#854F0B;border:.5px solid #FAC775;border-radius:3px;cursor:pointer;font-weight:500">🔄 Importer ('+totalToImport+')</button>';
+    }
+  }
   html += '<span style="margin-left:auto;font-size:10px;color:var(--text-3);font-style:italic">'+(fc.nodes||[]).length+' nœud(s) · '+(fc.edges||[]).length+' lien(s)</span>';
   html += '</div>';
 
@@ -7908,6 +7947,10 @@ function renderFlowchartEditor() {
   html += _fcRenderPaletteSection('Données', [
     {type:'document', icon:'<span style="display:inline-block;width:18px;height:15px;background:#ECFEFF;border:1.5px solid #0E7490;text-align:center;line-height:13px;font-size:9px">📄</span>', label:'Document'},
     {type:'database', icon:'<span style="display:inline-block;width:18px;height:14px;background:#F5FBF8;border:1.5px solid #5DCAA5;border-radius:50%/30%"></span>', label:'Système'},
+  ]);
+  // v68 : section Risques (nouveau type WCGW)
+  html += _fcRenderPaletteSection('⚠ Risques', [
+    {type:'wcgw', icon:'<span style="display:inline-block;width:13px;height:13px;background:#FCEBEB;border:2px solid #993C1D;transform:rotate(45deg);margin:1px 3px"></span>', label:'WCGW'},
   ]);
   html += _fcRenderPaletteSection('Contrôles', [
     {type:'ctrl_existing', icon:'<span style="display:inline-block;width:13px;height:13px;background:#E1F5EE;border:2px solid #5DCAA5;border-radius:50%"></span>', label:'Existant'},
@@ -7935,9 +7978,12 @@ function renderFlowchartEditor() {
     html += _fcRenderEdge(edge, fc.nodes);
   });
 
+  // v68 : calcul de validation (orphelins/non-couverts) pour halo rouge
+  var fcValidation = _fcAnalyzeWcgwCoverage(fc);
+
   // Render nodes
   (fc.nodes||[]).forEach(function(node){
-    html += _fcRenderNode(node, allCtrls);
+    html += _fcRenderNode(node, allCtrls, fcValidation);
   });
 
   html += '</svg>';
@@ -7996,107 +8042,137 @@ function renderFlowchartEditor() {
 // Liste les contrôles du sous-processus courant. Highlight bidirectionnel
 // avec les cercles CTRL du flowchart : cliquer une card highlight le cercle,
 // cliquer un cercle highlight la card.
+
+// v68 : Vue dérivée WCGW → Contrôles, lecture seule
+// Construit la vue à partir des nœuds du flowchart (qui sont la source de vérité)
 function renderFlowchartBottomControls(fc, d, allCtrls) {
   if (!fc.subProcessId) {
     return '<div style="border-top:1.5px solid #CECBF6;background:#fff;padding:10px 14px;font-size:11px;color:var(--text-3);font-style:italic">Aucun sous-processus rattaché à ce flowchart : pas de contrôles à afficher.</div>';
   }
-  // Récupérer le sous-processus
   var sps = (d.kickoffPrep && Array.isArray(d.kickoffPrep.subProcesses)) ? d.kickoffPrep.subProcesses : [];
   var sp = sps.find(function(x){return x.id===fc.subProcessId;});
   var spName = sp ? (sp.name || '(sans nom)') : '';
 
-  // Récupérer les WCGW du SP, puis les contrôles
-  var wcgwList = (d.wcgw && d.wcgw[4]) || [];
-  var wcgwsForSP = wcgwList.filter(function(w){return w.subProcessId === fc.subProcessId;});
-  var wcgwIdsForSP = wcgwsForSP.map(function(w){return w.id;});
+  var validation = _fcAnalyzeWcgwCoverage(fc);
   var wcgwById = {};
-  wcgwsForSP.forEach(function(w){ wcgwById[w.id] = w; });
-  var ctrlsForSP = allCtrls.filter(function(c){return wcgwIdsForSP.indexOf(c.wcgwId) >= 0;});
-
-  // Compteurs
-  var nbE = ctrlsForSP.filter(function(c){return c.design==='existing';}).length;
-  var nbT = ctrlsForSP.filter(function(c){return c.design==='target';}).length;
-
-  // IDs des contrôles liés à un cercle du flowchart (pour le badge "🔗 lié")
-  var ctrlIdsLinkedToFlowchart = {};
-  (fc.nodes||[]).forEach(function(n){
-    if ((n.type === 'ctrl_existing' || n.type === 'ctrl_target') && n.controlId) {
-      ctrlIdsLinkedToFlowchart[n.controlId] = true;
-    }
-  });
+  ((d.wcgw && d.wcgw[4]) || []).forEach(function(w){ wcgwById[w.id] = w; });
+  var ctrlById = {};
+  (allCtrls || []).forEach(function(c){ ctrlById[c.id] = c; });
 
   var highlightedId = _flowchartEditor && _flowchartEditor.highlightedControlId;
   var hasHighlight = !!highlightedId;
+
+  var nbE = 0, nbT = 0;
+  validation.ctrlNodes.forEach(function(n){
+    if (n.type === 'ctrl_existing') nbE++;
+    else if (n.type === 'ctrl_target') nbT++;
+  });
 
   var h = '';
   h += '<div style="border-top:1.5px solid #CECBF6;background:#fff;padding:12px 14px">';
 
   // Header
   h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">';
-  h += '<div style="display:flex;align-items:center;gap:8px">';
-  h += '<div style="font-size:12px;font-weight:600;color:#3C3489;display:flex;align-items:center;gap:6px">🛡 Contrôles · '+spName.replace(/</g,'&lt;')+'</div>';
-  h += '<span style="font-size:10px;color:var(--text-3);font-style:italic"><strong style="color:#085041;font-weight:500">'+nbE+' Existant'+(nbE>1?'s':'')+'</strong> · <strong style="color:#854F0B;font-weight:500">'+nbT+' Target</strong></span>';
+  h += '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
+  h += '<div style="font-size:12px;font-weight:600;color:#3C3489;display:flex;align-items:center;gap:6px">🛡 WCGW & Contrôles · '+spName.replace(/</g,'&lt;')+'</div>';
+  h += '<span style="font-size:10px;color:var(--text-3);font-style:italic"><strong style="color:#993C1D;font-weight:500">'+validation.wcgwNodes.length+' WCGW</strong> · <strong style="color:#085041;font-weight:500">'+nbE+' Existant'+(nbE>1?'s':'')+'</strong> · <strong style="color:#854F0B;font-weight:500">'+nbT+' Target</strong></span>';
+  h += '<span style="font-size:9px;color:var(--text-3);background:#fafafa;padding:2px 7px;border-radius:3px;border:.5px solid var(--border);font-style:italic">📊 dérivé du flowchart · lecture seule</span>';
   h += '</div>';
   h += '<div style="display:flex;gap:6px">';
   if (hasHighlight) {
-    h += '<button onclick="setHighlightedControl(null)" style="font-size:10px;padding:4px 9px;background:#fff;color:var(--text-2);border:.5px solid var(--border);border-radius:3px;cursor:pointer" title="Tout réafficher">× Désélectionner</button>';
+    h += '<button onclick="setHighlightedControl(null)" style="font-size:10px;padding:4px 9px;background:#fff;color:var(--text-2);border:.5px solid var(--border);border-radius:3px;cursor:pointer">× Désélectionner</button>';
   }
-  h += '<button onclick="showAddControlForSP(\''+_escJsArg(fc.subProcessId)+'\',\'existing\')" style="font-size:10px;padding:4px 9px;background:#F5FBF8;color:#085041;border:.5px solid #A6E2CD;border-radius:3px;cursor:pointer;font-weight:500">+ Existant</button>';
-  h += '<button onclick="showAddControlForSP(\''+_escJsArg(fc.subProcessId)+'\',\'target\')" style="font-size:10px;padding:4px 9px;background:#FFFAF0;color:#854F0B;border:.5px solid #FAC775;border-radius:3px;cursor:pointer;font-weight:500">+ Target</button>';
   h += '</div>';
   h += '</div>';
 
-  if (!ctrlsForSP.length) {
-    h += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:14px;text-align:center;border:1px dashed var(--border);border-radius:4px">Aucun contrôle pour ce sous-processus. Clique « + Existant » ou « + Target » pour en ajouter.</div>';
+  if (!validation.wcgwNodes.length && !validation.ctrlNodes.length) {
+    h += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:14px;text-align:center;border:1px dashed var(--border);border-radius:4px">Aucun WCGW ni contrôle. Ajoute des losanges WCGW depuis la palette puis lie-les à des cercles Existant/Target.</div>';
     h += '</div>';
     return h;
   }
 
-  // Liste : cards mélangées Existants + Target
-  h += '<div style="display:flex;flex-direction:column;gap:5px">';
-  ctrlsForSP.forEach(function(c){
-    var globalIdx = allCtrls.indexOf(c);
-    var isExisting = c.design === 'existing';
-    var bg = isExisting ? '#F5FBF8' : '#FFFAF0';
-    var border = isExisting ? '#A6E2CD' : '#FAC775';
-    var codeColor = isExisting ? '#5DCAA5' : '#F59E0B';
-    var code = (c.code || ('CTRL-'+(globalIdx+1))).replace(/</g,'&lt;');
-    var name = (c.name || c.label || '(sans nom)').replace(/</g,'&lt;');
-    var wcgw = c.wcgwId ? wcgwById[c.wcgwId] : null;
-    var isHighlighted = (highlightedId === c.id);
-    var isDimmed = hasHighlight && !isHighlighted;
-    var linkedToFlowchart = !!ctrlIdsLinkedToFlowchart[c.id];
+  // ── Liste : 1 carte par WCGW + ses contrôles ─────────
+  h += '<div style="display:flex;flex-direction:column;gap:8px">';
 
-    var cardStyle = 'background:'+bg+';border:.5px solid '+border+';border-radius:4px;padding:8px 10px;display:flex;align-items:flex-start;gap:8px;font-size:11px;cursor:pointer;transition:all .2s';
-    if (isHighlighted) cardStyle += ';box-shadow:0 0 0 2px #3C3489;transform:translateX(2px)';
-    if (isDimmed) cardStyle += ';opacity:.35';
+  validation.wcgwNodes.forEach(function(wNode){
+    var wDef = wNode.wcgwId ? wcgwById[wNode.wcgwId] : null;
+    var wTitle = wDef && wDef.title ? wDef.title : (wNode.text || '(à décrire)');
+    var wCode = wDef && wDef.code ? wDef.code : 'WCGW';
+    var ctrlNodeIds = validation.mapWcgwToCtrls[wNode.id] || [];
+    var isUncovered = ctrlNodeIds.length === 0;
 
-    h += '<div onclick="setHighlightedControl(\''+_escJsArg(c.id)+'\')" style="'+cardStyle+'">';
-    h += '<span style="font-weight:600;font-size:10px;flex-shrink:0;padding:2px 7px;border-radius:3px;background:'+codeColor+';color:#fff">'+code+'</span>';
-    h += '<div style="flex:1;min-width:0;line-height:1.5">';
-    h += '<div style="color:var(--text-1);font-weight:500">'+name;
-    if (linkedToFlowchart) {
-      h += ' <span style="font-size:9px;color:#3C3489;background:#EEEDFE;border:.5px solid #CECBF6;padding:1px 5px;border-radius:2px;margin-left:5px;font-weight:500">🔗 lié au flowchart</span>';
+    h += '<div style="background:#fafafa;border:.5px solid var(--border);border-radius:4px;padding:8px 10px">';
+    // Header WCGW
+    h += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">';
+    h += '<span style="font-size:9px;background:#FCEBEB;color:#993C1D;border:.5px solid #F2C2C0;padding:2px 7px;border-radius:3px;font-weight:600">⚠ '+wCode.replace(/</g,'&lt;')+'</span>';
+    h += '<span style="color:var(--text-1);font-weight:500;font-size:11px;flex:1">'+wTitle.replace(/</g,'&lt;')+'</span>';
+    if (isUncovered) {
+      h += '<span style="font-size:9px;color:#993C1D;background:#FCEBEB;border:.5px solid #F2C2C0;padding:2px 6px;border-radius:3px;font-weight:500">⚠ Non couvert</span>';
     } else {
-      h += ' <span style="font-size:9px;color:var(--text-3);font-style:italic;margin-left:5px">non lié</span>';
+      h += '<span style="font-size:9px;color:#085041;background:#E1F5EE;border:.5px solid #A6E2CD;padding:2px 6px;border-radius:3px;font-weight:500">✓ Couvert ('+ctrlNodeIds.length+')</span>';
     }
     h += '</div>';
-    if (wcgw && wcgw.title) {
-      h += '<div style="font-size:9px;color:#3C3489;font-style:italic;margin-top:2px;background:#EEEDFE;padding:1px 5px;border-radius:2px;display:inline-block">WCGW : '+(''+wcgw.title).replace(/</g,'&lt;')+'</div>';
+
+    // Liste des contrôles backed
+    if (isUncovered) {
+      h += '<div style="margin-left:18px;font-size:10px;color:#993C1D;font-style:italic;background:#FCEBEB;padding:3px 8px;border-radius:3px;border:.5px dashed #F2C2C0;display:inline-block">→ Ajoute un cercle Existant ou Target dans le flowchart, puis lie-le à ce WCGW</div>';
+    } else {
+      h += '<div style="margin-left:18px;display:flex;gap:5px;flex-wrap:wrap">';
+      ctrlNodeIds.forEach(function(ctrlNodeId){
+        var ctrlNode = (fc.nodes||[]).find(function(n){return n.id === ctrlNodeId;});
+        if (!ctrlNode) return;
+        var c = ctrlNode.controlId ? ctrlById[ctrlNode.controlId] : null;
+        var isExisting = ctrlNode.type === 'ctrl_existing';
+        var bg = isExisting ? '#F5FBF8' : '#FFFAF0';
+        var border = isExisting ? '#A6E2CD' : '#FAC775';
+        var codeColor = isExisting ? '#5DCAA5' : '#F59E0B';
+        var code = c ? (c.code || 'CTRL') : ctrlNode.text;
+        var name = c ? (c.name || c.label || '(à décrire)') : '(non lié au modèle)';
+        var isHighlighted = c && (highlightedId === c.id);
+        var isDimmed = hasHighlight && c && !isHighlighted;
+        var pillStyle = 'font-size:10px;padding:3px 8px;border-radius:3px;display:flex;align-items:center;gap:4px;background:'+bg+';border:.5px solid '+(isExisting?border:border)+(isExisting?'':';border-style:dashed')+';cursor:pointer;transition:all .2s';
+        if (isHighlighted) pillStyle += ';box-shadow:0 0 0 2px #3C3489';
+        if (isDimmed) pillStyle += ';opacity:.4';
+        h += '<div onclick="setHighlightedControl(\''+(c?_escJsArg(c.id):'')+'\')" style="'+pillStyle+'">';
+        h += '<span style="font-weight:600;font-size:9px;padding:1px 5px;border-radius:2px;background:'+codeColor+';color:#fff">'+code.replace(/</g,'&lt;')+'</span>';
+        h += '<span>'+name.replace(/</g,'&lt;')+'</span>';
+        if (c) {
+          h += '<button onclick="event.stopPropagation();showEditControlModal('+(allCtrls.indexOf(c))+')" title="Éditer" style="background:transparent;border:none;color:var(--text-3);font-size:11px;padding:0 2px;cursor:pointer;line-height:1;margin-left:4px">✎</button>';
+        }
+        h += '</div>';
+      });
+      h += '</div>';
     }
-    if (c.description) {
-      h += '<div style="font-size:9px;color:var(--text-3);margin-top:2px">'+(''+c.description).replace(/</g,'&lt;')+'</div>';
-    }
-    h += '</div>';
-    h += '<div style="display:flex;gap:3px;flex-shrink:0">';
-    h += '<button onclick="event.stopPropagation();showEditControlModal('+globalIdx+')" title="Éditer" style="background:transparent;border:.5px solid transparent;color:var(--text-3);font-size:11px;padding:1px 5px;cursor:pointer;border-radius:2px">✎</button>';
-    h += '<button onclick="event.stopPropagation();removeControl('+globalIdx+')" title="Supprimer" style="background:transparent;border:.5px solid transparent;color:var(--text-3);font-size:11px;padding:1px 5px;cursor:pointer;border-radius:2px">×</button>';
-    h += '</div>';
     h += '</div>';
   });
-  h += '</div>';
 
-  h += '</div>';
+  // ── Carte spéciale "Contrôles orphelins" ─────────
+  if (validation.orphanCtrlNodeIds.length > 0) {
+    h += '<div style="background:#FCEBEB;border:.5px solid #F2C2C0;border-radius:4px;padding:8px 10px">';
+    h += '<div style="font-size:9px;color:#993C1D;font-weight:600;text-transform:uppercase;letter-spacing:.3px;margin-bottom:6px">⚠ Contrôles orphelins ('+validation.orphanCtrlNodeIds.length+')</div>';
+    h += '<div style="margin-left:0;display:flex;gap:5px;flex-wrap:wrap">';
+    validation.orphanCtrlNodeIds.forEach(function(ctrlNodeId){
+      var ctrlNode = (fc.nodes||[]).find(function(n){return n.id === ctrlNodeId;});
+      if (!ctrlNode) return;
+      var c = ctrlNode.controlId ? ctrlById[ctrlNode.controlId] : null;
+      var isExisting = ctrlNode.type === 'ctrl_existing';
+      var bg = '#fff';
+      var border = isExisting ? '#A6E2CD' : '#FAC775';
+      var codeColor = isExisting ? '#5DCAA5' : '#F59E0B';
+      var code = c ? (c.code || 'CTRL') : ctrlNode.text;
+      var name = c ? (c.name || '(à décrire)') : '(non lié)';
+      h += '<div style="font-size:10px;padding:3px 8px;border-radius:3px;display:flex;align-items:center;gap:4px;background:'+bg+';border:.5px solid '+border+(isExisting?'':';border-style:dashed')+'">';
+      h += '<span style="font-weight:600;font-size:9px;padding:1px 5px;border-radius:2px;background:'+codeColor+';color:#fff">'+code.replace(/</g,'&lt;')+'</span>';
+      h += '<span>'+name.replace(/</g,'&lt;')+'</span>';
+      h += '<span style="font-style:italic;color:var(--text-3);font-size:9px;margin-left:3px">→ lie à un WCGW</span>';
+      h += '</div>';
+    });
+    h += '</div>';
+    h += '</div>';
+  }
+
+  h += '</div>'; // end list
+  h += '</div>'; // end card
   return h;
 }
 
@@ -8443,11 +8519,68 @@ function _fcRenderPaletteSection(title, items) {
   return h;
 }
 
+// ════════════════════════════════════════════════════════════════════
+//  v68 : Helpers de validation "flowchart-as-source"
+//  - Identifie WCGW non couverts (sans contrôle backed)
+//  - Identifie contrôles orphelins (sans WCGW backed)
+// ════════════════════════════════════════════════════════════════════
+
+// Pour un flowchart donné, calcule :
+//  - mapWcgwToCtrls : { wcgwNodeId → [ctrlNodeIds] } via les edges
+//  - orphanCtrlNodeIds : ctrls qui ne sont liés à AUCUN wcgw
+//  - uncoveredWcgwNodeIds : wcgw qui n'ont AUCUN ctrl lié
+function _fcAnalyzeWcgwCoverage(fc) {
+  if (!fc) return {mapWcgwToCtrls:{}, orphanCtrlNodeIds:[], uncoveredWcgwNodeIds:[]};
+  var nodes = fc.nodes || [];
+  var edges = fc.edges || [];
+  var wcgwNodes = nodes.filter(function(n){return n.type === 'wcgw';});
+  var ctrlNodes = nodes.filter(function(n){return n.type === 'ctrl_existing' || n.type === 'ctrl_target';});
+
+  // Map des edges entre wcgw et ctrl (dans les 2 sens)
+  var wcgwToCtrls = {};
+  var ctrlsToWcgws = {};
+  wcgwNodes.forEach(function(w){ wcgwToCtrls[w.id] = []; });
+  ctrlNodes.forEach(function(c){ ctrlsToWcgws[c.id] = []; });
+  edges.forEach(function(e){
+    var nFrom = nodes.find(function(x){return x.id===e.from;});
+    var nTo = nodes.find(function(x){return x.id===e.to;});
+    if (!nFrom || !nTo) return;
+    // wcgw → ctrl
+    if (nFrom.type === 'wcgw' && (nTo.type === 'ctrl_existing' || nTo.type === 'ctrl_target')) {
+      wcgwToCtrls[nFrom.id].push(nTo.id);
+      ctrlsToWcgws[nTo.id].push(nFrom.id);
+    }
+    // ctrl → wcgw (autorisé aussi)
+    else if ((nFrom.type === 'ctrl_existing' || nFrom.type === 'ctrl_target') && nTo.type === 'wcgw') {
+      wcgwToCtrls[nTo.id].push(nFrom.id);
+      ctrlsToWcgws[nFrom.id].push(nTo.id);
+    }
+  });
+
+  var orphanCtrlNodeIds = ctrlNodes.filter(function(c){return ctrlsToWcgws[c.id].length === 0;}).map(function(c){return c.id;});
+  var uncoveredWcgwNodeIds = wcgwNodes.filter(function(w){return wcgwToCtrls[w.id].length === 0;}).map(function(w){return w.id;});
+
+  return {
+    mapWcgwToCtrls: wcgwToCtrls,
+    mapCtrlsToWcgws: ctrlsToWcgws,
+    orphanCtrlNodeIds: orphanCtrlNodeIds,
+    uncoveredWcgwNodeIds: uncoveredWcgwNodeIds,
+    wcgwNodes: wcgwNodes,
+    ctrlNodes: ctrlNodes,
+  };
+}
+
 // Rendu SVG d'un nœud selon son type
-function _fcRenderNode(node, allCtrls) {
+// validation : objet retourné par _fcAnalyzeWcgwCoverage (optionnel, pour halo orphelin/non-couvert)
+function _fcRenderNode(node, allCtrls, validation) {
   var sel = _flowchartEditor && _flowchartEditor.selectedNodeId === node.id;
   var x = node.x, y = node.y, w = node.w, h = node.h;
   var label = (node.text || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+  // v68 : flag d'erreur pour halo rouge
+  var isOrphan = validation && validation.orphanCtrlNodeIds && validation.orphanCtrlNodeIds.indexOf(node.id) >= 0;
+  var isUncovered = validation && validation.uncoveredWcgwNodeIds && validation.uncoveredWcgwNodeIds.indexOf(node.id) >= 0;
+  var hasError = isOrphan || isUncovered;
 
   // Si lié à un contrôle, on prend le code du contrôle comme label
   if ((node.type === 'ctrl_existing' || node.type === 'ctrl_target') && node.controlId) {
@@ -8486,6 +8619,15 @@ function _fcRenderNode(node, allCtrls) {
       var pts = (cx)+','+(y)+' '+(x+w)+','+(cy)+' '+(cx)+','+(y+h)+' '+(x)+','+(cy);
       s += '<polygon points="'+pts+'" fill="#FFFAF0" stroke="#FAC775" stroke-width="1.5"/>';
       s += '<text x="'+cx+'" y="'+(cy+3)+'" text-anchor="middle" font-size="10" fill="#854F0B" font-weight="500" font-family="sans-serif">'+label+'</text>';
+      break;
+    case 'wcgw':
+      // v68 : losange rouge (risque) — WCGW
+      var wcx = x + w/2, wcy = y + h/2;
+      var wpts = (wcx)+','+(y)+' '+(x+w)+','+(wcy)+' '+(wcx)+','+(y+h)+' '+(x)+','+(wcy);
+      s += '<polygon points="'+wpts+'" fill="#FCEBEB" stroke="#993C1D" stroke-width="2"/>';
+      // Icône ⚠ en haut + label en dessous
+      s += '<text x="'+wcx+'" y="'+(wcy-3)+'" text-anchor="middle" font-size="13" fill="#993C1D" font-weight="600" font-family="sans-serif">⚠</text>';
+      s += '<text x="'+wcx+'" y="'+(wcy+10)+'" text-anchor="middle" font-size="9" fill="#993C1D" font-weight="600" font-family="sans-serif">'+label+'</text>';
       break;
     case 'document':
       // Document : icône 📄 + titre, vague prononcée en bas
@@ -8545,6 +8687,17 @@ function _fcRenderNode(node, allCtrls) {
   if (isHighlighted && !sel) {
     var hcx = x + w/2, hcy = y + h/2, hr = Math.min(w,h)/2 + 6;
     s += '<circle cx="'+hcx+'" cy="'+hcy+'" r="'+hr+'" fill="none" stroke="#3C3489" stroke-width="3" pointer-events="none"/>';
+  }
+
+  // v68 : halo rouge + label "⚠ orphelin" / "⚠ non couvert"
+  if (hasError && !sel) {
+    s += '<rect x="'+(x-3)+'" y="'+(y-3)+'" width="'+(w+6)+'" height="'+(h+6)+'" rx="3" ry="3" fill="none" stroke="#993C1D" stroke-width="2.5" stroke-dasharray="3,2" pointer-events="none"/>';
+    var warnLabel = isOrphan ? '⚠ orphelin' : '⚠ non couvert';
+    var warnW = warnLabel.length * 5.5 + 8;
+    var warnX = x + w/2 - warnW/2;
+    var warnY = y + h + 4;
+    s += '<rect x="'+warnX+'" y="'+warnY+'" width="'+warnW+'" height="13" fill="#FCEBEB" stroke="#993C1D" stroke-width="0.5" rx="2" pointer-events="none"/>';
+    s += '<text x="'+(x+w/2)+'" y="'+(warnY+9)+'" text-anchor="middle" font-size="9" fill="#993C1D" font-weight="600" font-family="sans-serif" pointer-events="none">'+warnLabel+'</text>';
   }
 
   // Surbrillance si sélectionné + 8 poignées de redimensionnement
@@ -8666,6 +8819,98 @@ async function setFlowchartLabel(val) {
   await saveAuditData(CA);
 }
 
+// v68 : Importe les WCGW + Contrôles existants du sous-processus dans le flowchart courant
+// si ils ne sont pas encore représentés (création de losanges + cercles flottants au centre)
+async function importExistingWcgwsAndControls() {
+  var fc = _fcGetCurrent();
+  if (!fc) return;
+  if (!fc.subProcessId) {
+    toast('Ce flowchart n\'a pas de sous-processus rattaché');
+    return;
+  }
+  var d = getAudData(CA);
+  var wcgwList = (d.wcgw && d.wcgw[4]) || [];
+  var ctrls = (d.controls && d.controls[4]) || [];
+
+  // WCGW du SP non encore représentés
+  var wcgwsForSP = wcgwList.filter(function(w){return w.subProcessId === fc.subProcessId;});
+  var existingWcgwIds = (fc.nodes || []).filter(function(n){return n.type === 'wcgw' && n.wcgwId;}).map(function(n){return n.wcgwId;});
+  var wcgwsToImport = wcgwsForSP.filter(function(w){return existingWcgwIds.indexOf(w.id) < 0;});
+
+  // Contrôles dont wcgwId fait partie d'un WCGW du SP, non encore représentés
+  var wcgwIdsForSP = wcgwsForSP.map(function(w){return w.id;});
+  var ctrlsForSP = ctrls.filter(function(c){return wcgwIdsForSP.indexOf(c.wcgwId) >= 0;});
+  var existingCtrlIds = (fc.nodes || []).filter(function(n){return (n.type === 'ctrl_existing' || n.type === 'ctrl_target') && n.controlId;}).map(function(n){return n.controlId;});
+  var ctrlsToImport = ctrlsForSP.filter(function(c){return existingCtrlIds.indexOf(c.id) < 0;});
+
+  if (!wcgwsToImport.length && !ctrlsToImport.length) {
+    toast('Tous les WCGW et contrôles sont déjà représentés');
+    return;
+  }
+
+  // Position de départ : centre approximatif du canvas
+  var baseX = 200;
+  var baseY = 280;
+  var col = 0;
+
+  wcgwsToImport.forEach(function(w){
+    var def = _FC_DEFAULTS.wcgw;
+    var node = {
+      id: 'n_' + Date.now() + '_' + Math.floor(Math.random()*100000),
+      type: 'wcgw',
+      x: baseX + col * 130,
+      y: baseY,
+      w: def.w,
+      h: def.h,
+      text: w.code || 'WCGW',
+      wcgwId: w.id,
+    };
+    fc.nodes.push(node);
+    col++;
+  });
+  ctrlsToImport.forEach(function(c){
+    var type = (c.design === 'target') ? 'ctrl_target' : 'ctrl_existing';
+    var def = _FC_DEFAULTS[type];
+    var node = {
+      id: 'n_' + Date.now() + '_' + Math.floor(Math.random()*100000),
+      type: type,
+      x: baseX + col * 90,
+      y: baseY + 100,
+      w: def.w,
+      h: def.h,
+      text: c.code || 'CTRL',
+      controlId: c.id,
+    };
+    fc.nodes.push(node);
+    col++;
+  });
+
+  // Optionnel : créer aussi les edges WCGW→Ctrl pour les contrôles déjà liés à un WCGW
+  if (!Array.isArray(fc.edges)) fc.edges = [];
+  ctrlsToImport.forEach(function(c){
+    if (!c.wcgwId) return;
+    var ctrlNode = fc.nodes.find(function(n){return n.controlId === c.id;});
+    var wcgwNode = fc.nodes.find(function(n){return n.wcgwId === c.wcgwId;});
+    if (ctrlNode && wcgwNode) {
+      // Vérifier si edge n'existe pas déjà
+      var existing = fc.edges.find(function(e){return (e.from===wcgwNode.id && e.to===ctrlNode.id) || (e.from===ctrlNode.id && e.to===wcgwNode.id);});
+      if (!existing) {
+        fc.edges.push({
+          id: 'e_' + Date.now() + '_' + Math.floor(Math.random()*100000),
+          from: wcgwNode.id,
+          to: ctrlNode.id,
+          label: '',
+          style: 'orthogonal',
+        });
+      }
+    }
+  });
+
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+  toast('✓ '+wcgwsToImport.length+' WCGW + '+ctrlsToImport.length+' contrôle(s) importés');
+}
+
 async function addFlowchartNode(type) {
   var fc = _fcGetCurrent();
   if (!fc) return;
@@ -8682,6 +8927,53 @@ async function addFlowchartNode(type) {
     h: def.h,
     text: def.label,
   };
+
+  // v68 : si WCGW → créer aussi un WCGW dans d.wcgw[4] et lier via wcgwId
+  if (type === 'wcgw') {
+    var d = getAudData(CA);
+    if (!d.wcgw) d.wcgw = {};
+    if (!Array.isArray(d.wcgw[4])) d.wcgw[4] = [];
+    var wcgwCount = d.wcgw[4].length;
+    var newWcgw = {
+      id: 'w_' + Date.now() + '_' + Math.floor(Math.random()*100000),
+      code: 'WCGW-' + (wcgwCount + 1),
+      title: 'WCGW à décrire',
+      description: '',
+      subProcessId: fc.subProcessId || null,
+      riskIds: [],
+    };
+    d.wcgw[4].push(newWcgw);
+    node.wcgwId = newWcgw.id;
+    node.text = newWcgw.code; // label du losange = code
+  }
+
+  // v68 : si Contrôle (existing/target) → créer aussi un contrôle dans d.controls[4]
+  if (type === 'ctrl_existing' || type === 'ctrl_target') {
+    var d2 = getAudData(CA);
+    if (!d2.controls) d2.controls = {};
+    if (!Array.isArray(d2.controls[4])) d2.controls[4] = [];
+    var ctrlCount = d2.controls[4].length;
+    var prefix = (type === 'ctrl_existing') ? 'CTRL-' : 'CT-';
+    // Calcul du prochain numéro selon le préfixe pour éviter doublons
+    var existingNumbers = d2.controls[4]
+      .filter(function(c){return c.code && c.code.startsWith(prefix);})
+      .map(function(c){return parseInt(c.code.substring(prefix.length), 10);})
+      .filter(function(n){return !isNaN(n);});
+    var nextNum = existingNumbers.length ? Math.max.apply(Math, existingNumbers) + 1 : 1;
+    var ctrlCode = prefix + nextNum;
+    var newCtrl = {
+      id: 'c_' + Date.now() + '_' + Math.floor(Math.random()*100000),
+      code: ctrlCode,
+      name: 'Contrôle à décrire',
+      description: '',
+      design: (type === 'ctrl_existing') ? 'existing' : 'target',
+      // wcgwId à définir manuellement par l'auditeur via les liens du flowchart
+    };
+    d2.controls[4].push(newCtrl);
+    node.controlId = newCtrl.id;
+    node.text = ctrlCode;
+  }
+
   fc.nodes.push(node);
   _flowchartEditor.selectedNodeId = node.id;
   await saveAuditData(CA);
@@ -8745,6 +9037,26 @@ function selectNode(nodeId) {
         label: '',
         style: _flowchartEditor.edgeStyle || 'orthogonal',
       });
+
+      // v68 : si lien entre WCGW et Contrôle → sync wcgwId du contrôle
+      var nodeFrom = fc.nodes.find(function(x){return x.id===fromId;});
+      var nodeTo = fc.nodes.find(function(x){return x.id===nodeId;});
+      if (nodeFrom && nodeTo) {
+        var wcgwNode = null, ctrlNode = null;
+        if (nodeFrom.type === 'wcgw' && (nodeTo.type === 'ctrl_existing' || nodeTo.type === 'ctrl_target')) {
+          wcgwNode = nodeFrom; ctrlNode = nodeTo;
+        } else if ((nodeFrom.type === 'ctrl_existing' || nodeFrom.type === 'ctrl_target') && nodeTo.type === 'wcgw') {
+          wcgwNode = nodeTo; ctrlNode = nodeFrom;
+        }
+        if (wcgwNode && ctrlNode && wcgwNode.wcgwId && ctrlNode.controlId) {
+          var d = getAudData(CA);
+          var ctrl = (d.controls && d.controls[4] || []).find(function(c){return c.id === ctrlNode.controlId;});
+          if (ctrl && ctrl.wcgwId !== wcgwNode.wcgwId) {
+            ctrl.wcgwId = wcgwNode.wcgwId;
+          }
+        }
+      }
+
       _flowchartEditor.edgeMode = false;
       _flowchartEditor.edgeFromId = null;
       saveAuditData(CA);
@@ -8780,8 +9092,48 @@ async function deleteSelectedNode() {
   var fc = _fcGetCurrent();
   if (!fc) return;
   var nodeId = _flowchartEditor.selectedNodeId;
+  var node = fc.nodes.find(function(n){return n.id === nodeId;});
+  if (!node) return;
+
+  // v68 : Si nœud lié à un contrôle déjà testé/finalisé/avec finding → refus
+  if ((node.type === 'ctrl_existing' || node.type === 'ctrl_target') && node.controlId) {
+    var d = getAudData(CA);
+    var ctrl = (d.controls && d.controls[4] || []).find(function(c){return c.id === node.controlId;});
+    if (ctrl) {
+      var hasTestData = !!(ctrl.testNature || ctrl.testStatus || ctrl.finalized || (ctrl.anomalies && ctrl.anomalies.count));
+      var findings = d.findings || [];
+      var linkedFinding = findings.find(function(f){return Array.isArray(f.controlIds) && f.controlIds.indexOf(ctrl.id) >= 0;});
+      if (hasTestData || linkedFinding) {
+        var msg = 'Impossible de supprimer ce contrôle (' + (ctrl.code||'') + ') :\n';
+        if (hasTestData) msg += '— il a des données de test (statut, nature, anomalies, ou finalisé)\n';
+        if (linkedFinding) msg += '— il est lié à un finding existant\n';
+        msg += '\nNettoie d\'abord les tests/findings dans les étapes 5/6 avant de retirer ce contrôle du flowchart.';
+        alert(msg);
+        return;
+      }
+      // Sinon : supprimer aussi du modèle controls
+      d.controls[4] = d.controls[4].filter(function(c){return c.id !== ctrl.id;});
+    }
+  }
+
+  // v68 : Si nœud WCGW → supprimer aussi le WCGW du modèle (sauf s'il y a des contrôles liés via wcgwId)
+  if (node.type === 'wcgw' && node.wcgwId) {
+    var d2 = getAudData(CA);
+    var wcgw = (d2.wcgw && d2.wcgw[4] || []).find(function(w){return w.id === node.wcgwId;});
+    if (wcgw) {
+      var ctrlsUsingWcgw = (d2.controls && d2.controls[4] || []).filter(function(c){return c.wcgwId === wcgw.id;});
+      if (ctrlsUsingWcgw.length > 0) {
+        if (!confirm('Ce WCGW (' + (wcgw.code||'') + ') est associé à ' + ctrlsUsingWcgw.length + ' contrôle(s) (champ wcgwId). Supprimer le losange seulement (les contrôles seront orphelins) ?')) return;
+        // On ne supprime que le losange du flowchart, on garde le WCGW dans le modèle
+      } else {
+        // Pas de contrôle qui le référence : on peut le supprimer aussi
+        d2.wcgw[4] = d2.wcgw[4].filter(function(w){return w.id !== wcgw.id;});
+      }
+    }
+  }
+
   fc.nodes = fc.nodes.filter(function(n){return n.id !== nodeId;});
-  // Retirer aussi les edges qui pointent vers ce nœud (préparation v60)
+  // Retirer aussi les edges qui pointent vers ce nœud
   fc.edges = (fc.edges || []).filter(function(e){return e.from !== nodeId && e.to !== nodeId;});
   _flowchartEditor.selectedNodeId = null;
   await saveAuditData(CA);
@@ -8886,10 +9238,11 @@ function _fcRefreshSvg() {
   if (!fc) return;
   var d = getAudData(CA);
   var allCtrls = (d.controls && d.controls[4]) || [];
+  var fcValidation = _fcAnalyzeWcgwCoverage(fc);
   var inner = '<defs><marker id="fc-arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#374151"/></marker></defs>';
   // Edges en premier (sous les nœuds)
   (fc.edges||[]).forEach(function(e){ inner += _fcRenderEdge(e, fc.nodes); });
-  fc.nodes.forEach(function(n){ inner += _fcRenderNode(n, allCtrls); });
+  fc.nodes.forEach(function(n){ inner += _fcRenderNode(n, allCtrls, fcValidation); });
   svg.innerHTML = inner;
 }
 
