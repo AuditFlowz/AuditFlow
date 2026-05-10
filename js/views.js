@@ -8329,8 +8329,37 @@ function toggleFcMaximized() {
   _flowchartMaximized = !_flowchartMaximized;
   if (_flowchartMaximized) {
     document.body.classList.add('fc-maximized');
+    // v72.1 : forcer en JS pour ne pas dépendre du CSS externe (au cas où l'utilisateur n'aurait pas déployé app.css)
+    var sidebar = document.querySelector('.sidebar');
+    var topbar = document.querySelector('.topbar');
+    var auditHdr = document.getElementById('audit-header-compact');
+    var docsPanel = document.getElementById('docs-panel');
+    if (sidebar) { sidebar.dataset.fcSavedDisplay = sidebar.style.display || ''; sidebar.style.display = 'none'; }
+    if (topbar) { topbar.dataset.fcSavedDisplay = topbar.style.display || ''; topbar.style.display = 'none'; }
+    if (auditHdr) { auditHdr.dataset.fcSavedDisplay = auditHdr.style.display || ''; auditHdr.style.display = 'none'; }
+    if (docsPanel) { docsPanel.dataset.fcSavedDisplay = docsPanel.style.display || ''; docsPanel.style.display = 'none'; }
+    // Le content padding aussi
+    var content = document.querySelector('.content');
+    if (content) {
+      content.dataset.fcSavedPadding = content.style.padding || '';
+      content.style.padding = '0';
+    }
   } else {
     document.body.classList.remove('fc-maximized');
+    // Restaurer
+    ['.sidebar', '.topbar'].forEach(function(sel){
+      var el = document.querySelector(sel);
+      if (el && 'fcSavedDisplay' in el.dataset) { el.style.display = el.dataset.fcSavedDisplay; delete el.dataset.fcSavedDisplay; }
+    });
+    ['audit-header-compact', 'docs-panel'].forEach(function(id){
+      var el = document.getElementById(id);
+      if (el && 'fcSavedDisplay' in el.dataset) { el.style.display = el.dataset.fcSavedDisplay; delete el.dataset.fcSavedDisplay; }
+    });
+    var content2 = document.querySelector('.content');
+    if (content2 && 'fcSavedPadding' in content2.dataset) {
+      content2.style.padding = content2.dataset.fcSavedPadding;
+      delete content2.dataset.fcSavedPadding;
+    }
   }
   // Re-render seulement le contenu central (sinon perd les listeners du flowchart)
   document.getElementById('det-content').innerHTML = renderDetContent();
@@ -13306,59 +13335,84 @@ function showInterviewModal(idx, isEdit) {
 }
 
 async function saveInterview(idx) {
-  var nameEl = document.getElementById('itv-name');
-  var roleEl = document.getElementById('itv-role');
-  var dateEl = document.getElementById('itv-date');
-  var scriptEl = document.getElementById('itv-script');
-  if (!nameEl || !scriptEl) return;
-  var name = (nameEl.value || '').trim();
-  var role = (roleEl ? roleEl.value : '' || '').trim();
-  var date = (dateEl ? dateEl.value : '' || '').trim();
-  var script = (scriptEl.value || '').trim();
-  var spIds = [];
-  document.querySelectorAll('.itv-sp:checked').forEach(function(cb){
-    spIds.push(cb.getAttribute('data-sp-id'));
-  });
+  try {
+    var nameEl = document.getElementById('itv-name');
+    var roleEl = document.getElementById('itv-role');
+    var dateEl = document.getElementById('itv-date');
+    var scriptEl = document.getElementById('itv-script');
+    if (!nameEl || !scriptEl) {
+      toast('Erreur : formulaire introuvable');
+      return;
+    }
+    var name = (nameEl.value || '').trim();
+    var role = roleEl ? (roleEl.value || '').trim() : '';
+    var date = dateEl ? (dateEl.value || '').trim() : '';
+    var script = (scriptEl.value || '').trim();
+    var spIds = [];
+    document.querySelectorAll('.itv-sp:checked').forEach(function(cb){
+      spIds.push(cb.getAttribute('data-sp-id'));
+    });
 
-  // Validation
-  if (!name) { toast('Indique le nom de la personne'); throw new Error('Nom requis'); }
-  if (!script) { toast('Le script de l\'entretien ne peut pas être vide'); throw new Error('Script requis'); }
+    // Validation : on toast et on return SANS throw (pour ne pas casser le flow)
+    // Mais alors la modale va se fermer... il faut bloquer la fermeture autrement.
+    // Solution : on ne throw pas ; on toast + return false ; mais openModal ferme quand même.
+    // Donc il faut throw, mais l'erreur sera silencée par le try/catch dans openModal? Non, ça
+    // remontera et ça loggera dans la console.
+    if (!name) {
+      toast('Indique le nom de la personne');
+      // Empêcher fermeture de la modale en throw
+      throw new Error('Validation : nom requis');
+    }
+    if (!script) {
+      toast('Le script de l\'entretien ne peut pas être vide');
+      throw new Error('Validation : script requis');
+    }
 
-  var d = getAudData(CA);
-  if (!Array.isArray(d.interviews)) d.interviews = [];
+    var d = getAudData(CA);
+    if (!Array.isArray(d.interviews)) d.interviews = [];
 
-  if (idx !== undefined && idx !== null && idx >= 0 && d.interviews[idx]) {
-    // Édition
-    var itv = d.interviews[idx];
-    itv.intervieweName = name;
-    itv.intervieweRole = role;
-    itv.interviewDate = date;
-    itv.script = script;
-    itv.relatedSubProcessIds = spIds;
-    addHist('edit', 'Entretien modifié — ' + name);
-  } else {
-    // Création
-    var newItv = {
-      id: 'itv_' + Date.now() + '_' + Math.floor(Math.random()*100000),
-      intervieweName: name,
-      intervieweRole: role,
-      interviewDate: date,
-      script: script,
-      relatedSubProcessIds: spIds,
-      createdAt: new Date().toISOString(),
-      analyzedAt: null,
-    };
-    d.interviews.push(newItv);
-    addHist('create', 'Entretien ajouté — ' + name);
+    if (idx !== undefined && idx !== null && idx >= 0 && d.interviews[idx]) {
+      // Édition
+      var itv = d.interviews[idx];
+      itv.intervieweName = name;
+      itv.intervieweRole = role;
+      itv.interviewDate = date;
+      itv.script = script;
+      itv.relatedSubProcessIds = spIds;
+      addHist('edit', 'Entretien modifié — ' + name);
+    } else {
+      // Création
+      var newItv = {
+        id: 'itv_' + Date.now() + '_' + Math.floor(Math.random()*100000),
+        intervieweName: name,
+        intervieweRole: role,
+        interviewDate: date,
+        script: script,
+        relatedSubProcessIds: spIds,
+        createdAt: new Date().toISOString(),
+        analyzedAt: null,
+      };
+      d.interviews.push(newItv);
+      addHist('create', 'Entretien ajouté — ' + name);
+    }
+
+    await saveAuditData(CA);
+    // Re-render le contenu pour mettre à jour le compteur dans la top bar
+    var vc = document.getElementById('vc');
+    if (vc) vc.innerHTML = V['audit-detail']();
+    toast('✓ Entretien sauvegardé');
+    // openModal va fermer la modale automatiquement après ce return (closeModal appelé après onOk)
+    // Réouvrir la liste après un court délai
+    setTimeout(function() { showInterviewsLibrary(); }, 150);
+  } catch (e) {
+    // Ne pas re-throw pour les erreurs de validation (déjà toast)
+    if (e && e.message && e.message.indexOf('Validation') === 0) {
+      throw e; // empêche fermeture de la modale
+    }
+    console.error('[saveInterview] Erreur:', e);
+    toast('✗ Erreur sauvegarde : ' + (e.message || e));
+    throw e; // empêcher la fermeture de la modale aussi en cas d'erreur réelle
   }
-
-  await saveAuditData(CA);
-  // Re-render le contenu pour mettre à jour le compteur dans la top bar
-  document.getElementById('vc').innerHTML = V['audit-detail']();
-  toast('✓ Entretien sauvegardé');
-  // openModal va fermer la modale automatiquement après ce return
-  // Réouvrir la liste après un court délai
-  setTimeout(function() { showInterviewsLibrary(); }, 100);
 }
 
 async function deleteInterview(idx) {

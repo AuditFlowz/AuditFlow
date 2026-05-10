@@ -816,6 +816,14 @@ async function saveAuditData(auditId) {
     if (!d.attachments) d.attachments = {};
     d.attachments.interviews = d.interviews;
   }
+  var attachmentsJson = JSON.stringify(d.attachments||{});
+  // v72.1 : log si la taille est conséquente (limite SharePoint ~63 KB par défaut sur multiline text)
+  if (attachmentsJson.length > 50000) {
+    console.warn('[saveAuditData] attachments_json size:', Math.round(attachmentsJson.length/1024), 'KB - approaching SharePoint limit');
+  }
+  if (attachmentsJson.length > 250000) {
+    console.error('[saveAuditData] attachments_json TOO LARGE:', Math.round(attachmentsJson.length/1024), 'KB - SharePoint may reject');
+  }
   await spUpsert('AF_AuditData', auditId, {
     tasks_json:JSON.stringify(d.tasks), controls_json:JSON.stringify(d.controls),
     findings_json:JSON.stringify(d.findings), mgt_resp_json:JSON.stringify(d.mgtResp),
@@ -830,7 +838,7 @@ async function saveAuditData(auditId) {
     work_program_bu_json:JSON.stringify(d.workProgramBU||{}),
     issues_json:JSON.stringify(d.issues||[]),
     exec_summary_header:d.execSummaryHeader||'',
-    attachments_json:JSON.stringify(d.attachments||{}),
+    attachments_json:attachmentsJson,
     Title:auditId,
   });
 }
