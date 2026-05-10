@@ -7541,6 +7541,8 @@ function _fcEnsureState() {
       edgeFromId: null,
       edgeStyle: 'orthogonal', // style par défaut des nouveaux connecteurs
       sidePanelTab: 'narrative',
+      sidePanelOpen: true, // Narratif ouvert par défaut
+      highlightedControlId: null, // Contrôle highlight (cliqué dans flowchart ou bottom)
       zoom: 1.0,
     };
   } else {
@@ -7736,6 +7738,10 @@ function renderFlowchartEditor() {
   html += '</div>';
 
   html += '<div style="display:flex;gap:6px;flex-shrink:0">';
+  // Bouton toggle panneau Narratif (v66)
+  var sideOpen = !!_flowchartEditor.sidePanelOpen;
+  var sideLabel = sideOpen ? '📑 Narratif ▶' : '📑 Narratif ◀';
+  html += '<button onclick="toggleFcSidePanel()" title="'+(sideOpen?'Fermer':'Ouvrir')+' le panneau Narratif" style="font-size:11px;padding:5px 10px;background:'+(sideOpen?'rgba(255,255,255,.2)':'transparent')+';color:#fff;border:.5px solid rgba(255,255,255,.4);border-radius:3px;cursor:pointer">'+sideLabel+'</button>';
   html += '<button onclick="deleteFlowchart(\''+_escJsArg(fc.id)+'\')" title="Supprimer ce flowchart" style="font-size:11px;padding:5px 10px;background:transparent;color:rgba(255,255,255,.85);border:.5px solid rgba(255,255,255,.4);border-radius:3px;cursor:pointer">🗑 Supprimer</button>';
   html += '</div>';
   html += '</div>';
@@ -7824,51 +7830,154 @@ function renderFlowchartEditor() {
   }
   html += '</div>';
 
-  // SIDE PANEL DROITE — onglets Narratif / WCGW & Contrôles
-  html += '<div style="width:300px;background:#fafafa;border-left:.5px solid var(--border);display:flex;flex-direction:column;flex-shrink:0">';
-  // Onglets
-  var tab = _flowchartEditor.sidePanelTab || 'narrative';
-  var nbWcgwForSP = 0, nbCtrlsForSP = 0;
-  if (fc.subProcessId) {
-    var wcgwList = (d.wcgw && d.wcgw[4]) || [];
-    var wcgwsForSP = wcgwList.filter(function(w){return w.subProcessId === fc.subProcessId;});
-    nbWcgwForSP = wcgwsForSP.length;
-    wcgwsForSP.forEach(function(w){
-      nbCtrlsForSP += allCtrls.filter(function(c){return c.wcgwId === w.id;}).length;
-    });
+  // SIDE PANEL DROITE — Narratif (fermable) ───────────────────────
+  // En v66 : panneau dédié au narratif uniquement, fermable via le bouton ×.
+  // Les contrôles sont maintenant en bas (renderControlsBottomBar).
+  // Les propriétés du nœud sélectionné s'affichent ici quand un nœud est sélectionné.
+  if (_flowchartEditor.sidePanelOpen) {
+    html += '<div style="width:300px;background:#fafafa;border-left:.5px solid var(--border);display:flex;flex-direction:column;flex-shrink:0">';
+    // Header avec bouton fermer
+    var headerLabel, headerIcon;
+    if (_flowchartEditor.selectedNodeId) {
+      headerLabel = 'Propriétés du nœud';
+      headerIcon = '⚙';
+    } else {
+      headerLabel = 'Narratif';
+      headerIcon = '📝';
+    }
+    html += '<div style="padding:8px 12px;background:#fff;border-bottom:.5px solid var(--border);display:flex;justify-content:space-between;align-items:center">';
+    html += '<div style="font-size:11px;font-weight:500;color:#3C3489;display:flex;align-items:center;gap:5px">'+headerIcon+' '+headerLabel+'</div>';
+    html += '<button onclick="toggleFcSidePanel()" title="Fermer le panneau" style="background:transparent;border:.5px solid var(--border);color:var(--text-2);width:22px;height:22px;border-radius:3px;cursor:pointer;font-size:11px;line-height:1;padding:0">×</button>';
+    html += '</div>';
+    // Contenu : si nœud sélectionné → propriétés ; sinon → narratif
+    html += '<div style="flex:1;overflow-y:auto;padding:10px 12px">';
+    if (_flowchartEditor.selectedNodeId) {
+      var sel = _fcGetSelectedNode();
+      if (sel) html += _fcRenderProperties(sel, allCtrls);
+      else html += '<div style="font-size:11px;color:var(--text-3);font-style:italic">Aucun nœud sélectionné.</div>';
+    } else {
+      html += _fcRenderNarrativeSidePanel(fc);
+    }
+    html += '</div>';
+    html += '</div>';
   }
-  html += '<div style="display:flex;gap:0;background:#fff;border-bottom:.5px solid var(--border)">';
-  html += '<div onclick="setFcSidePanelTab(\'narrative\')" style="flex:1;padding:9px 10px;font-size:11px;text-align:center;cursor:pointer;color:'+(tab==='narrative'?'#3C3489':'var(--text-2)')+';border-bottom:2px solid '+(tab==='narrative'?'#3C3489':'transparent')+';background:'+(tab==='narrative'?'#fafafa':'#fff')+';font-weight:'+(tab==='narrative'?'500':'400')+'">Narratif</div>';
-  html += '<div onclick="setFcSidePanelTab(\'wcgw\')" style="flex:1;padding:9px 10px;font-size:11px;text-align:center;cursor:pointer;color:'+(tab==='wcgw'?'#3C3489':'var(--text-2)')+';border-bottom:2px solid '+(tab==='wcgw'?'#3C3489':'transparent')+';background:'+(tab==='wcgw'?'#fafafa':'#fff')+';font-weight:'+(tab==='wcgw'?'500':'400')+'">WCGW & Contrôles';
-  if (nbWcgwForSP > 0) html += ' <span style="display:inline-block;background:#EEEDFE;color:#3C3489;font-size:9px;padding:1px 6px;border-radius:8px;margin-left:3px">'+nbWcgwForSP+'</span>';
-  html += '</div>';
-  // 3e onglet : propriétés du nœud sélectionné
-  if (_flowchartEditor.selectedNodeId) {
-    html += '<div onclick="setFcSidePanelTab(\'props\')" style="flex:1;padding:9px 10px;font-size:11px;text-align:center;cursor:pointer;color:'+(tab==='props'?'#3C3489':'var(--text-2)')+';border-bottom:2px solid '+(tab==='props'?'#3C3489':'transparent')+';background:'+(tab==='props'?'#fafafa':'#fff')+';font-weight:'+(tab==='props'?'500':'400')+'">Propriétés</div>';
-  }
-  html += '</div>';
-  // Contenu
-  html += '<div style="flex:1;overflow-y:auto;padding:10px">';
-  // Auto-bascule sur l'onglet props si sélection (UX)
-  if (_flowchartEditor.selectedNodeId && tab !== 'props' && tab !== 'wcgw' && tab !== 'narrative') {
-    tab = 'props';
-  }
-  if (tab === 'props') {
-    var sel = _fcGetSelectedNode();
-    if (sel) html += _fcRenderProperties(sel, allCtrls);
-    else html += '<div style="font-size:11px;color:var(--text-3);font-style:italic">Aucun nœud sélectionné. Clique un nœud sur le canvas.</div>';
-  } else if (tab === 'wcgw') {
-    html += _fcRenderWcgwSidePanel(fc, d, allCtrls);
-  } else {
-    html += _fcRenderNarrativeSidePanel(fc);
-  }
-  html += '</div>';
-  html += '</div>';
 
   html += '</div>'; // end 3 columns
+
+  // ─── BOTTOM : Contrôles du flowchart courant (v66) ─────────────
+  html += renderFlowchartBottomControls(fc, d, allCtrls);
+
   html += '</div>'; // end editor
 
   return html;
+}
+
+// ─── Section Contrôles en bas du flowchart (v66) ──────────────────
+// Liste les contrôles du sous-processus courant. Highlight bidirectionnel
+// avec les cercles CTRL du flowchart : cliquer une card highlight le cercle,
+// cliquer un cercle highlight la card.
+function renderFlowchartBottomControls(fc, d, allCtrls) {
+  if (!fc.subProcessId) {
+    return '<div style="border-top:1.5px solid #CECBF6;background:#fff;padding:10px 14px;font-size:11px;color:var(--text-3);font-style:italic">Aucun sous-processus rattaché à ce flowchart : pas de contrôles à afficher.</div>';
+  }
+  // Récupérer le sous-processus
+  var sps = (d.kickoffPrep && Array.isArray(d.kickoffPrep.subProcesses)) ? d.kickoffPrep.subProcesses : [];
+  var sp = sps.find(function(x){return x.id===fc.subProcessId;});
+  var spName = sp ? (sp.name || '(sans nom)') : '';
+
+  // Récupérer les WCGW du SP, puis les contrôles
+  var wcgwList = (d.wcgw && d.wcgw[4]) || [];
+  var wcgwsForSP = wcgwList.filter(function(w){return w.subProcessId === fc.subProcessId;});
+  var wcgwIdsForSP = wcgwsForSP.map(function(w){return w.id;});
+  var wcgwById = {};
+  wcgwsForSP.forEach(function(w){ wcgwById[w.id] = w; });
+  var ctrlsForSP = allCtrls.filter(function(c){return wcgwIdsForSP.indexOf(c.wcgwId) >= 0;});
+
+  // Compteurs
+  var nbE = ctrlsForSP.filter(function(c){return c.design==='existing';}).length;
+  var nbT = ctrlsForSP.filter(function(c){return c.design==='target';}).length;
+
+  // IDs des contrôles liés à un cercle du flowchart (pour le badge "🔗 lié")
+  var ctrlIdsLinkedToFlowchart = {};
+  (fc.nodes||[]).forEach(function(n){
+    if ((n.type === 'ctrl_existing' || n.type === 'ctrl_target') && n.controlId) {
+      ctrlIdsLinkedToFlowchart[n.controlId] = true;
+    }
+  });
+
+  var highlightedId = _flowchartEditor && _flowchartEditor.highlightedControlId;
+  var hasHighlight = !!highlightedId;
+
+  var h = '';
+  h += '<div style="border-top:1.5px solid #CECBF6;background:#fff;padding:12px 14px">';
+
+  // Header
+  h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">';
+  h += '<div style="display:flex;align-items:center;gap:8px">';
+  h += '<div style="font-size:12px;font-weight:600;color:#3C3489;display:flex;align-items:center;gap:6px">🛡 Contrôles · '+spName.replace(/</g,'&lt;')+'</div>';
+  h += '<span style="font-size:10px;color:var(--text-3);font-style:italic"><strong style="color:#085041;font-weight:500">'+nbE+' Existant'+(nbE>1?'s':'')+'</strong> · <strong style="color:#854F0B;font-weight:500">'+nbT+' Target</strong></span>';
+  h += '</div>';
+  h += '<div style="display:flex;gap:6px">';
+  if (hasHighlight) {
+    h += '<button onclick="setHighlightedControl(null)" style="font-size:10px;padding:4px 9px;background:#fff;color:var(--text-2);border:.5px solid var(--border);border-radius:3px;cursor:pointer" title="Tout réafficher">× Désélectionner</button>';
+  }
+  h += '<button onclick="showAddControlForSP(\''+_escJsArg(fc.subProcessId)+'\',\'existing\')" style="font-size:10px;padding:4px 9px;background:#F5FBF8;color:#085041;border:.5px solid #A6E2CD;border-radius:3px;cursor:pointer;font-weight:500">+ Existant</button>';
+  h += '<button onclick="showAddControlForSP(\''+_escJsArg(fc.subProcessId)+'\',\'target\')" style="font-size:10px;padding:4px 9px;background:#FFFAF0;color:#854F0B;border:.5px solid #FAC775;border-radius:3px;cursor:pointer;font-weight:500">+ Target</button>';
+  h += '</div>';
+  h += '</div>';
+
+  if (!ctrlsForSP.length) {
+    h += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:14px;text-align:center;border:1px dashed var(--border);border-radius:4px">Aucun contrôle pour ce sous-processus. Clique « + Existant » ou « + Target » pour en ajouter.</div>';
+    h += '</div>';
+    return h;
+  }
+
+  // Liste : cards mélangées Existants + Target
+  h += '<div style="display:flex;flex-direction:column;gap:5px">';
+  ctrlsForSP.forEach(function(c){
+    var globalIdx = allCtrls.indexOf(c);
+    var isExisting = c.design === 'existing';
+    var bg = isExisting ? '#F5FBF8' : '#FFFAF0';
+    var border = isExisting ? '#A6E2CD' : '#FAC775';
+    var codeColor = isExisting ? '#5DCAA5' : '#F59E0B';
+    var code = (c.code || ('CTRL-'+(globalIdx+1))).replace(/</g,'&lt;');
+    var name = (c.name || c.label || '(sans nom)').replace(/</g,'&lt;');
+    var wcgw = c.wcgwId ? wcgwById[c.wcgwId] : null;
+    var isHighlighted = (highlightedId === c.id);
+    var isDimmed = hasHighlight && !isHighlighted;
+    var linkedToFlowchart = !!ctrlIdsLinkedToFlowchart[c.id];
+
+    var cardStyle = 'background:'+bg+';border:.5px solid '+border+';border-radius:4px;padding:8px 10px;display:flex;align-items:flex-start;gap:8px;font-size:11px;cursor:pointer;transition:all .2s';
+    if (isHighlighted) cardStyle += ';box-shadow:0 0 0 2px #3C3489;transform:translateX(2px)';
+    if (isDimmed) cardStyle += ';opacity:.35';
+
+    h += '<div onclick="setHighlightedControl(\''+_escJsArg(c.id)+'\')" style="'+cardStyle+'">';
+    h += '<span style="font-weight:600;font-size:10px;flex-shrink:0;padding:2px 7px;border-radius:3px;background:'+codeColor+';color:#fff">'+code+'</span>';
+    h += '<div style="flex:1;min-width:0;line-height:1.5">';
+    h += '<div style="color:var(--text-1);font-weight:500">'+name;
+    if (linkedToFlowchart) {
+      h += ' <span style="font-size:9px;color:#3C3489;background:#EEEDFE;border:.5px solid #CECBF6;padding:1px 5px;border-radius:2px;margin-left:5px;font-weight:500">🔗 lié au flowchart</span>';
+    } else {
+      h += ' <span style="font-size:9px;color:var(--text-3);font-style:italic;margin-left:5px">non lié</span>';
+    }
+    h += '</div>';
+    if (wcgw && wcgw.title) {
+      h += '<div style="font-size:9px;color:#3C3489;font-style:italic;margin-top:2px;background:#EEEDFE;padding:1px 5px;border-radius:2px;display:inline-block">WCGW : '+(''+wcgw.title).replace(/</g,'&lt;')+'</div>';
+    }
+    if (c.description) {
+      h += '<div style="font-size:9px;color:var(--text-3);margin-top:2px">'+(''+c.description).replace(/</g,'&lt;')+'</div>';
+    }
+    h += '</div>';
+    h += '<div style="display:flex;gap:3px;flex-shrink:0">';
+    h += '<button onclick="event.stopPropagation();showEditControlModal('+globalIdx+')" title="Éditer" style="background:transparent;border:.5px solid transparent;color:var(--text-3);font-size:11px;padding:1px 5px;cursor:pointer;border-radius:2px">✎</button>';
+    h += '<button onclick="event.stopPropagation();removeControl('+globalIdx+')" title="Supprimer" style="background:transparent;border:.5px solid transparent;color:var(--text-3);font-size:11px;padding:1px 5px;cursor:pointer;border-radius:2px">×</button>';
+    h += '</div>';
+    h += '</div>';
+  });
+  h += '</div>';
+
+  h += '</div>';
+  return h;
 }
 
 // ─── Side panel : Narratif ──────────────────────────────────────
@@ -7987,6 +8096,26 @@ function _fcRenderWcgwSidePanel(fc, d, allCtrls) {
 function setFcSidePanelTab(tab) {
   if (!_flowchartEditor) return;
   _flowchartEditor.sidePanelTab = tab;
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+// v66 : toggle ouvrir/fermer le panneau Narratif
+function toggleFcSidePanel() {
+  if (!_flowchartEditor) return;
+  _flowchartEditor.sidePanelOpen = !_flowchartEditor.sidePanelOpen;
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+// v66 : highlight bidirectionnel entre cercle CTRL du flowchart et card en bas
+// - Si le contrôle cliqué est déjà highlighté → désélectionne
+// - Si null passé → désélectionne
+function setHighlightedControl(controlId) {
+  if (!_flowchartEditor) return;
+  if (controlId && _flowchartEditor.highlightedControlId === controlId) {
+    _flowchartEditor.highlightedControlId = null;
+  } else {
+    _flowchartEditor.highlightedControlId = controlId;
+  }
   document.getElementById('det-content').innerHTML = renderDetContent();
 }
 
@@ -8163,6 +8292,7 @@ function _fcOnCanvasClick() {
     _flowchartEditor.edgeFromId = null;
   } else {
     _flowchartEditor.selectedNodeId = null;
+    _flowchartEditor.highlightedControlId = null; // v66 : annule aussi highlight
     if (_flowchartEditor.sidePanelTab === 'props') _flowchartEditor.sidePanelTab = 'narrative';
   }
   document.getElementById('det-content').innerHTML = renderDetContent();
@@ -8193,8 +8323,21 @@ function _fcRenderNode(node, allCtrls) {
     if (c) label = (c.code || c.name || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
 
+  // v66 : highlight bidirectionnel — si un contrôle est highlight, dimme tout sauf
+  // les nœuds CTRL dont controlId correspond
+  var highlightedCtrlId = _flowchartEditor && _flowchartEditor.highlightedControlId;
+  var nodeOpacity = '';
+  var isHighlighted = false;
+  if (highlightedCtrlId) {
+    if ((node.type === 'ctrl_existing' || node.type === 'ctrl_target') && node.controlId === highlightedCtrlId) {
+      isHighlighted = true;
+    } else {
+      nodeOpacity = ' opacity="0.35"';
+    }
+  }
+
   var dataAttrs = 'data-node-id="'+node.id+'" onmousedown="startDragNode(event,\''+node.id+'\')" ondblclick="event.stopPropagation();startEditNodeText(\''+node.id+'\')" style="cursor:move"';
-  var s = '<g '+dataAttrs+'>';
+  var s = '<g '+dataAttrs+nodeOpacity+'>';
 
   switch (node.type) {
     case 'start':
@@ -8264,6 +8407,12 @@ function _fcRenderNode(node, allCtrls) {
     default:
       s += '<rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" fill="#fff" stroke="#999" stroke-width="1"/>';
       s += '<text x="'+(x+w/2)+'" y="'+(y+h/2+4)+'" text-anchor="middle" font-size="11" fill="#374151" font-family="sans-serif">'+label+'</text>';
+  }
+
+  // v66 : halo violet sur cercle CTRL highlighté (en plus, sans handles de resize)
+  if (isHighlighted && !sel) {
+    var hcx = x + w/2, hcy = y + h/2, hr = Math.min(w,h)/2 + 6;
+    s += '<circle cx="'+hcx+'" cy="'+hcy+'" r="'+hr+'" fill="none" stroke="#3C3489" stroke-width="3" pointer-events="none"/>';
   }
 
   // Surbrillance si sélectionné + 8 poignées de redimensionnement
@@ -8476,6 +8625,14 @@ function selectNode(nodeId) {
   _flowchartEditor.selectedNodeId = nodeId;
   // Auto-bascule sur l'onglet propriétés
   _flowchartEditor.sidePanelTab = 'props';
+  // v66 : si c'est un cercle CTRL lié à un contrôle, highlight bidirectionnel
+  var fcCur = _fcGetCurrent();
+  if (fcCur) {
+    var nClicked = fcCur.nodes.find(function(x){return x.id===nodeId;});
+    if (nClicked && (nClicked.type === 'ctrl_existing' || nClicked.type === 'ctrl_target') && nClicked.controlId) {
+      _flowchartEditor.highlightedControlId = nClicked.controlId;
+    }
+  }
   document.getElementById('det-content').innerHTML = renderDetContent();
 }
 
