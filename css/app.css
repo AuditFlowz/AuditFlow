@@ -528,3 +528,16 @@ tbody tr:hover td{background:#FAFAFE;}
 /* Sidebar scrollbar blanche */
 .sidebar::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15);}
 .sidebar::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.25);}
+
+/* ── v67 : Mode maximisé flowchart (cache header AuditFlow + sidebar) ─── */
+body.fc-maximized .sidebar { display: none !important; }
+body.fc-maximized .topbar  { display: none !important; }
+body.fc-maximized .main    { padding: 0 !important; }
+/* On veut aussi cacher le header de l'audit (titre, breadcrumb, boutons étape)
+   pour vraiment maximiser. Le contenu dans #det-content reste visible. */
+body.fc-maximized .det-header,
+body.fc-maximized #audit-header-compact { display: none !important; }
+body.fc-maximized .content { padding: 0 !important; }
+body.fc-maximized #det-layout { gap: 0 !important; }
+/* Le panneau Documents global (sticky droite) doit aussi disparaître */
+body.fc-maximized #docs-panel { display: none !important; }
