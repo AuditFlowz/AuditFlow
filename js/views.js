@@ -10752,27 +10752,43 @@ function _itwMarkNarrativeDirty() {
   }
 }
 
+// v76 : marker dirty pour BU
+function _buMarkNarrativeDirty() {
+  var s = document.getElementById('bu-narrative-status');
+  if (s) {
+    s.textContent = 'Modifications non sauvegardées…';
+    s.style.color = '#854F0B';
+  }
+}
+
 async function saveConsolidatedNarrative(value) {
   var d = getAudData(CA);
   d.consolidatedNarrative = value || '';
   await saveAuditData(CA);
-  var s = document.getElementById('itw-narrative-status');
-  if (s) {
-    s.textContent = (value ? value.length+' caractères · sauvegardé' : 'Vide');
-    s.style.color = 'var(--text-3)';
+  // Mise à jour des indicateurs (l'un ou l'autre selon contexte)
+  var sItw = document.getElementById('itw-narrative-status');
+  if (sItw) {
+    sItw.textContent = (value ? value.length+' caractères · sauvegardé' : 'Vide');
+    sItw.style.color = 'var(--text-3)';
+  }
+  var sBu = document.getElementById('bu-narrative-status');
+  if (sBu) {
+    sBu.textContent = (value ? value.length+' caractères · sauvegardé' : 'Vide');
+    sBu.style.color = 'var(--text-3)';
   }
   // Re-render side panel pour mettre à jour les sections détectées
   var detContent = document.getElementById('det-content');
   if (detContent && CS === 3) {
     // On ne re-render que si on est toujours sur l'étape 3, et on garde le focus sur la textarea
-    var ta = document.getElementById('itw-narrative-textarea');
+    var ta = document.getElementById('itw-narrative-textarea') || document.getElementById('bu-narrative-textarea');
+    var taId = ta ? ta.id : null;
     var savedSelStart = ta ? ta.selectionStart : null;
     var savedSelEnd = ta ? ta.selectionEnd : null;
     var savedScrollTop = ta ? ta.scrollTop : null;
     detContent.innerHTML = renderDetContent();
     // Restaurer le focus + position curseur
     setTimeout(function() {
-      var newTa = document.getElementById('itw-narrative-textarea');
+      var newTa = taId ? document.getElementById(taId) : null;
       if (newTa) {
         newTa.focus();
         if (savedSelStart !== null) newTa.setSelectionRange(savedSelStart, savedSelEnd);
@@ -10795,7 +10811,45 @@ function renderDesignIssuesSection() {
 
   var designIssues = d.issues.filter(function(i){return i.source==='design';});
 
+  // v76 : initialiser le narratif consolidé BU si absent
+  if (typeof d.consolidatedNarrative !== 'string') d.consolidatedNarrative = '';
+  var nbInterviews = (d.interviews || []).length;
+
   var html = '';
+
+  // v76 : Header IA (bouton Analyser entretiens) + narratif consolidé BU
+  // ─── HEADER avec actions principales ────────────
+  html += '<div style="background:linear-gradient(135deg,#3C3489 0%,#534AB7 100%);color:#fff;padding:14px 18px;border-radius:6px;margin-bottom:14px">';
+  html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">';
+  html += '<div style="flex:1;min-width:240px">';
+  html += '<div style="font-size:11px;text-transform:uppercase;letter-spacing:.6px;opacity:.85;font-weight:500;margin-bottom:3px">Étape 4 · Réalisation</div>';
+  html += '<div style="font-size:17px;font-weight:600;margin-bottom:4px">📝 Interview · Narratif & Design Issues</div>';
+  html += '<div style="font-size:11px;opacity:.9;line-height:1.5">Construis le narratif consolidé de la BU à partir des entretiens. Les Design Issues seront extraites automatiquement et viendront enrichir le rapport.</div>';
+  html += '</div>';
+  html += '<div style="display:flex;gap:8px;flex-shrink:0">';
+  // Bouton Bibliothèque
+  html += '<button onclick="showInterviewsLibrary()" style="font-size:11px;padding:7px 12px;background:rgba(255,255,255,.18);color:#fff;border:.5px solid rgba(255,255,255,.4);border-radius:3px;cursor:pointer;font-weight:500" title="Gérer la bibliothèque d\'entretiens">📋 Entretiens ('+nbInterviews+')</button>';
+  // Bouton Analyser
+  if (nbInterviews > 0) {
+    html += '<button onclick="showAnalyzeInterviewsModalForBu()" style="font-size:11px;padding:7px 14px;background:#fff;color:#3C3489;border:none;border-radius:3px;cursor:pointer;font-weight:600">🤖 Analyser entretiens</button>';
+  } else {
+    html += '<button disabled style="font-size:11px;padding:7px 14px;background:rgba(255,255,255,.3);color:rgba(255,255,255,.6);border:none;border-radius:3px;cursor:not-allowed;font-weight:500" title="Bibliothèque vide">🤖 Analyser entretiens</button>';
+  }
+  html += '</div>';
+  html += '</div>';
+  html += '</div>';
+
+  // ── NARRATIF CONSOLIDÉ BU (collapsible si vide pour ne pas alourdir) ────────
+  var hasNarrative = !!(d.consolidatedNarrative && d.consolidatedNarrative.trim());
+  html += '<div style="background:#fff;border:.5px solid var(--border);border-radius:6px;overflow:hidden;margin-bottom:16px">';
+  html += '<div style="padding:10px 14px;background:#fafafa;border-bottom:.5px solid var(--border);display:flex;justify-content:space-between;align-items:center">';
+  html += '<div style="font-size:11px;font-weight:600;color:var(--text-1)">Narratif consolidé de la BU <span style="font-size:10px;color:var(--text-3);font-weight:400;font-style:italic">— structuré par Process couvert</span></div>';
+  html += '<div id="bu-narrative-status" style="font-size:10px;color:var(--text-3);font-style:italic">'+(hasNarrative ? d.consolidatedNarrative.length+' caractères · sauvegardé' : 'Vide')+'</div>';
+  html += '</div>';
+  html += '<textarea id="bu-narrative-textarea" oninput="_buMarkNarrativeDirty()" onblur="saveConsolidatedNarrative(this.value)" placeholder="Le narratif sera généré automatiquement à partir des entretiens via « 🤖 Analyser entretiens ».\n\nFormat structuré par Process couvert :\n\n## Cash Management\n[narratif…]\n\n## Tax\n[narratif…]" style="width:100%;min-height:'+(hasNarrative?'320px':'160px')+';font-size:12px;padding:14px 16px;border:none;box-sizing:border-box;resize:vertical;font-family:inherit;line-height:1.7;background:#fff;overflow-wrap:anywhere;word-break:break-word">'+(d.consolidatedNarrative||'').replace(/</g,'&lt;')+'</textarea>';
+  html += '</div>';
+
+  // ── LISTE DES DESIGN ISSUES (existant) ────────────────
   html += '<div class="cd" style="margin-bottom:1rem">';
   html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">';
   html += '<span style="font-size:13px;font-weight:500">Issues Design <span style="color:var(--text-3);font-weight:400">('+designIssues.length+')</span></span>';
@@ -14163,26 +14217,76 @@ function showAnalyzeInterviewsModalForAudit() {
   }
 }
 
+// v76 : variante BU — analyse les entretiens pour produire narratif structuré par Process
+// + Design Issues rattachées aux Process couverts par la BU
+function showAnalyzeInterviewsModalForBu() {
+  try {
+    var d = getAudData(CA);
+    var allItvs = d.interviews || [];
+    if (!allItvs.length) {
+      toast('Bibliothèque d\'entretiens vide. Ajoute d\'abord un entretien.');
+      return;
+    }
+    var wp = (d.workProgramBU && Array.isArray(d.workProgramBU.processes)) ? d.workProgramBU.processes : [];
+    if (!wp.length) {
+      toast('Aucun Process couvert dans cet audit BU. Va d\'abord à l\'étape Work Program.');
+      return;
+    }
+
+    var preSelectedIds = {};
+    allItvs.forEach(function(itv){
+      if (!itv.analyzedAt) preSelectedIds[itv.id] = true;
+    });
+    if (Object.keys(preSelectedIds).length === 0) {
+      allItvs.forEach(function(itv){ preSelectedIds[itv.id] = true; });
+    }
+
+    var hasNarrative = !!(d.consolidatedNarrative && d.consolidatedNarrative.trim());
+
+    _analyzeState = {
+      target: 'bu',
+      selectedIds: preSelectedIds,
+      mode: hasNarrative ? 'enrich' : 'replace',
+      fcId: null,
+    };
+
+    _renderAnalyzeStep1();
+  } catch (e) {
+    console.error('[v76] ERREUR dans showAnalyzeInterviewsModalForBu:', e);
+    toast('Erreur : '+(e.message||e));
+  }
+}
+
 // ─── ÉTAPE 1 : sélection entretiens + mode + copy prompt ────────
 function _renderAnalyzeStep1() {
   try {
     var d = getAudData(CA);
-    var isAuditTarget = _analyzeState && _analyzeState.target === 'audit';
-    var fc = isAuditTarget ? null : _fcGetCurrent();
-    if (!isAuditTarget && !fc) {
-      console.warn('[v75] Pas de cible (audit ou flowchart), abandon');
+    var target = (_analyzeState && _analyzeState.target) || 'flowchart';
+    var isAuditTarget = target === 'audit';
+    var isBuTarget = target === 'bu';
+    var isStaticTarget = isAuditTarget || isBuTarget; // pas de flowchart courant
+    var fc = isStaticTarget ? null : _fcGetCurrent();
+    if (!isStaticTarget && !fc) {
+      console.warn('[v75] Pas de cible (audit/bu ou flowchart), abandon');
       return;
     }
   var allItvs = d.interviews || [];
   var sps = (d.kickoffPrep && Array.isArray(d.kickoffPrep.subProcesses)) ? d.kickoffPrep.subProcesses : [];
   var spById = {};
   sps.forEach(function(sp){ spById[sp.id] = sp; });
-  var spForFc = (!isAuditTarget && fc && fc.subProcessId) ? spById[fc.subProcessId] : null;
+  var spForFc = (!isStaticTarget && fc && fc.subProcessId) ? spById[fc.subProcessId] : null;
+
+  // Process couverts (BU) — pour affichage contexte
+  var wp = (d.workProgramBU && Array.isArray(d.workProgramBU.processes)) ? d.workProgramBU.processes : [];
+  var wpProcNames = wp.map(function(wpp){
+    var p = (typeof PROCESSES !== 'undefined') ? PROCESSES.find(function(x){return x.id===wpp.auditProcessId;}) : null;
+    return p ? p.proc : null;
+  }).filter(Boolean);
 
   // Trier : SP-related en haut (uniquement en mode flowchart), puis non-analysés, puis analysés
   var related = [], unrelatedUnanalyzed = [], unrelatedAnalyzed = [];
   allItvs.forEach(function(itv){
-    var isRelated = !isAuditTarget && fc && fc.subProcessId && (itv.relatedSubProcessIds || []).indexOf(fc.subProcessId) >= 0;
+    var isRelated = !isStaticTarget && fc && fc.subProcessId && (itv.relatedSubProcessIds || []).indexOf(fc.subProcessId) >= 0;
     if (isRelated) related.push(itv);
     else if (!itv.analyzedAt) unrelatedUnanalyzed.push(itv);
     else unrelatedAnalyzed.push(itv);
@@ -14190,7 +14294,7 @@ function _renderAnalyzeStep1() {
   var sortedItvs = related.concat(unrelatedUnanalyzed).concat(unrelatedAnalyzed);
 
   var nbSelected = Object.keys(_analyzeState.selectedIds).filter(function(id){return _analyzeState.selectedIds[id];}).length;
-  var hasNarrative = isAuditTarget
+  var hasNarrative = isStaticTarget
     ? !!(d.consolidatedNarrative && d.consolidatedNarrative.trim())
     : !!(fc && fc.narrative && fc.narrative.trim());
 
@@ -14198,6 +14302,7 @@ function _renderAnalyzeStep1() {
 
   // Wrapper avec max-height et scroll, padding propre
   body += '<div style="max-height:65vh;overflow-y:auto;padding:0 2px">';
+
 
   // Section 1 : sélection entretiens
   body += '<div style="margin-bottom:16px">';
@@ -14281,10 +14386,19 @@ function _renderAnalyzeStep1() {
   body += '<div>• Audit · <strong style="font-weight:500">'+(auditObj?(auditObj.titre||auditObj.id):CA).replace(/</g,'&lt;')+'</strong></div>';
   if (isAuditTarget) {
     body += '<div>• Cible : <strong style="font-weight:500">narratif consolidé de l\'audit</strong> (toutes sections SP)</div>';
+  } else if (isBuTarget) {
+    body += '<div>• Cible : <strong style="font-weight:500">narratif consolidé de la BU</strong> (structuré par Process couvert) + Design Issues</div>';
   } else if (spForFc) {
     body += '<div>• Sous-processus focus : <strong style="font-weight:500">'+spForFc.name.replace(/</g,'&lt;')+'</strong></div>';
   }
-  if (sps.length) {
+  if (isBuTarget) {
+    // Pour BU : afficher Process couverts au lieu de SP
+    if (wpProcNames.length) {
+      var procNamesShort = wpProcNames.join(', ');
+      if (procNamesShort.length > 80) procNamesShort = procNamesShort.substring(0, 78) + '…';
+      body += '<div style="word-break:break-word">• '+wpProcNames.length+' Process couvert(s) : '+procNamesShort.replace(/</g,'&lt;')+'</div>';
+    }
+  } else if (sps.length) {
     var spNamesShort = sps.map(function(sp){return sp.name;}).join(', ');
     if (spNamesShort.length > 80) spNamesShort = spNamesShort.substring(0, 78) + '…';
     body += '<div style="word-break:break-word">• '+sps.length+' SP existants : '+spNamesShort.replace(/</g,'&lt;')+'</div>';
@@ -14292,7 +14406,7 @@ function _renderAnalyzeStep1() {
   var auditRisks = d.auditRisks || [];
   if (auditRisks.length) body += '<div>• '+auditRisks.length+' risque(s) URD attaché(s)</div>';
   if (hasNarrative) {
-    var narLen = isAuditTarget ? d.consolidatedNarrative.length : fc.narrative.length;
+    var narLen = isStaticTarget ? d.consolidatedNarrative.length : fc.narrative.length;
     body += '<div>• Narratif actuel ('+narLen+' caractères)</div>';
   }
   body += '<div style="margin-top:4px"><strong style="font-weight:600">→ '+nbSelected+' entretien(s) sélectionné(s)</strong></div>';
@@ -14314,9 +14428,10 @@ function _renderAnalyzeStep1() {
   body += '</div>';
   body += '</div>';
 
-  var modalTitle = isAuditTarget
-    ? '🤖 Analyser entretiens · Narratif consolidé'
-    : '🤖 Analyser entretiens · '+(spForFc?spForFc.name:fc.label||'Flowchart');
+  var modalTitle;
+  if (isAuditTarget) modalTitle = '🤖 Analyser entretiens · Narratif consolidé';
+  else if (isBuTarget) modalTitle = '🤖 Analyser entretiens · BU (Narratif + Design Issues)';
+  else modalTitle = '🤖 Analyser entretiens · '+(spForFc?spForFc.name:fc.label||'Flowchart');
   openModal(modalTitle, body, null, {hideOk:true, cancelLabel:'', wide:true});
   // Cacher le footer par défaut (on a notre propre footer custom)
   setTimeout(function() {
@@ -14354,11 +14469,21 @@ function _setAnalyzeMode(mode) {
 // ─── Construction du prompt complet ─────────────────────────────
 function _buildAnalyzePrompt() {
   var d = getAudData(CA);
-  var isAuditTarget = _analyzeState && _analyzeState.target === 'audit';
-  var fc = isAuditTarget ? null : _fcGetCurrent();
+  var target = (_analyzeState && _analyzeState.target) || 'flowchart';
+  var isAuditTarget = target === 'audit';
+  var isBuTarget = target === 'bu';
+  var isStaticTarget = isAuditTarget || isBuTarget;
+  var fc = isStaticTarget ? null : _fcGetCurrent();
   var auditObj = AUDIT_PLAN.find(function(x){return x.id===CA;});
   var sps = (d.kickoffPrep && Array.isArray(d.kickoffPrep.subProcesses)) ? d.kickoffPrep.subProcesses : [];
-  var spForFc = (!isAuditTarget && fc && fc.subProcessId) ? sps.find(function(x){return x.id===fc.subProcessId;}) : null;
+  var spForFc = (!isStaticTarget && fc && fc.subProcessId) ? sps.find(function(x){return x.id===fc.subProcessId;}) : null;
+
+  // Process couverts (BU)
+  var wp = (d.workProgramBU && Array.isArray(d.workProgramBU.processes)) ? d.workProgramBU.processes : [];
+  var wpProcs = wp.map(function(wpp){
+    var p = (typeof PROCESSES !== 'undefined') ? PROCESSES.find(function(x){return x.id===wpp.auditProcessId;}) : null;
+    return p ? {id: wpp.id, name: p.proc, description: p.description||''} : null;
+  }).filter(Boolean);
 
   // Entretiens sélectionnés
   var selectedItvs = (d.interviews || []).filter(function(itv){return _analyzeState.selectedIds[itv.id];});
@@ -14366,9 +14491,13 @@ function _buildAnalyzePrompt() {
   // Risques URD
   var auditRisks = d.auditRisks || [];
 
+  // Le mot "structure" qu'on utilise dans le prompt (Process pour BU, Sous-processus pour Audit/Flowchart)
+  var structLabel = isBuTarget ? 'Process couvert' : 'sous-processus';
+  var structKey = isBuTarget ? 'matchedProcessId' : 'matchedExistingId';
+
   var p = '';
   p += '# AUDIT INTERNE — ANALYSE D\'ENTRETIENS\n\n';
-  p += 'Tu es un assistant d\'audit interne. Analyse les transcriptions d\'entretiens ci-dessous et produis un narratif structuré du processus, en JSON.\n\n';
+  p += 'Tu es un assistant d\'audit interne. Analyse les transcriptions d\'entretiens ci-dessous et produis un narratif structuré, en JSON.\n\n';
 
   // Contexte audit
   p += '## CONTEXTE DE L\'AUDIT\n\n';
@@ -14376,15 +14505,30 @@ function _buildAnalyzePrompt() {
   p += '- **Type d\'audit** : '+(auditObj?(auditObj.type||'Process'):'Process')+'\n';
   if (isAuditTarget) {
     p += '- **Cible** : narratif consolidé de l\'audit (toutes sections sous-processus combinées)\n';
+  } else if (isBuTarget) {
+    p += '- **Cible** : narratif consolidé de la BU (structuré par Process couvert) + Design Issues rattachées aux Process\n';
   } else if (spForFc) {
     p += '- **Sous-processus focus** : '+spForFc.name+' (id: '+spForFc.id+')\n';
     if (spForFc.description) p += '  - Description : '+spForFc.description+'\n';
   }
-  if (sps.length > 0) {
-    p += '- **Sous-processus déjà définis dans cet audit** (essaie de matcher en priorité avec ceux-ci) :\n';
-    sps.forEach(function(sp){
-      p += '  - `'+sp.id+'` : '+sp.name+(sp.description?' — '+sp.description:'')+'\n';
-    });
+
+  // Liste des "structures" (SP pour Audit/Flowchart, Process pour BU)
+  if (isBuTarget) {
+    if (wpProcs.length > 0) {
+      p += '- **Process couverts par cette BU** (essaie de matcher chaque section narrative et chaque Design Issue avec un Process ci-dessous, utilise leur `id`) :\n';
+      wpProcs.forEach(function(wpp){
+        p += '  - `'+wpp.id+'` : '+wpp.name+(wpp.description?' — '+wpp.description:'')+'\n';
+      });
+    } else {
+      p += '- **Process couverts** : aucun défini\n';
+    }
+  } else {
+    if (sps.length > 0) {
+      p += '- **Sous-processus déjà définis dans cet audit** (essaie de matcher en priorité avec ceux-ci) :\n';
+      sps.forEach(function(sp){
+        p += '  - `'+sp.id+'` : '+sp.name+(sp.description?' — '+sp.description:'')+'\n';
+      });
+    }
   }
   if (auditRisks.length > 0) {
     p += '- **Risques URD attachés à l\'audit** :\n';
@@ -14395,7 +14539,7 @@ function _buildAnalyzePrompt() {
 
   // Narratif existant si mode enrich
   if (_analyzeState.mode === 'enrich') {
-    var currentNar = isAuditTarget ? (d.consolidatedNarrative || '') : (fc ? (fc.narrative || '') : '');
+    var currentNar = isStaticTarget ? (d.consolidatedNarrative || '') : (fc ? (fc.narrative || '') : '');
     if (currentNar.trim()) {
       p += '\n## NARRATIF ACTUEL (à enrichir)\n\n';
       p += '```\n'+currentNar+'\n```\n';
@@ -14405,8 +14549,12 @@ function _buildAnalyzePrompt() {
 
   // Instructions
   p += '\n## INSTRUCTIONS\n\n';
-  p += '1. Identifie quel(s) sous-processus est/sont décrit(s) dans les entretiens. Essaie de matcher avec les SP existants ci-dessus (utilise leur `id`). Si un sous-processus mentionné ne correspond à aucun existant, propose-le comme nouveau (matchedExistingId = null).\n';
-  p += '2. Pour chaque sous-processus, écris un narratif **chronologique et fluide** (paragraphes, pas listes à puces) qui décrit :\n';
+  if (isBuTarget) {
+    p += '1. Identifie quel(s) Process couvert(s) est/sont décrit(s) dans les entretiens. Pour chaque Process abordé, écris une section. Match avec les Process couverts ci-dessus en utilisant leur `id`. Si un sujet abordé ne correspond à aucun Process couvert, mentionne-le mais marque `'+structKey+'` à `null`.\n';
+  } else {
+    p += '1. Identifie quel(s) sous-processus est/sont décrit(s) dans les entretiens. Essaie de matcher avec les SP existants ci-dessus (utilise leur `id`). Si un sous-processus mentionné ne correspond à aucun existant, propose-le comme nouveau ('+structKey+' = null).\n';
+  }
+  p += '2. Pour chaque '+structLabel+', écris un narratif **chronologique et fluide** (paragraphes, pas listes à puces) qui décrit :\n';
   p += '   - Les étapes du processus (qui fait quoi, quand, sur quel système)\n';
   p += '   - Les décisions et critères (seuils, validations)\n';
   p += '   - Les **WCGW** potentiels repérés. Format : `⚠ WCGW : [scénario à risque]`\n';
@@ -14448,24 +14596,45 @@ function _buildAnalyzePrompt() {
   p += 'Réponds UNIQUEMENT avec un objet JSON valide, sans texte avant ni après. Format :\n\n';
   p += '```json\n';
   p += '{\n';
-  p += '  "subProcesses": [\n';
-  p += '    {\n';
-  p += '      "name": "Nom du sous-processus",\n';
-  p += '      "matchedExistingId": "sp_xxx" ou null,\n';
-  p += '      "narrative": "Texte narratif chronologique avec ⚠ WCGW, ✓ CTRL Existant, ⚑ CTRL Cible, ⚠ DESIGN ISSUE — CTRL Manquant, ⚠ DESIGN ISSUE — CTRL Insuffisant, et ⚠️ DIVERGENCE inline."\n';
-  p += '    }\n';
-  p += '  ],\n';
-  p += '  "designIssues": [\n';
-  p += '    {\n';
-  p += '      "subtype": "missing" ou "weak",\n';
-  p += '      "title": "Titre court (5-10 mots) de la défaillance",\n';
-  p += '      "description": "Description détaillée : quel est le gap/la faiblesse de design, quel risque ça expose, pourquoi c\'est un problème (1-3 phrases)",\n';
-  p += '      "controlName": "Nom du contrôle concerné (vide si manquant et qu\'on ne peut pas nommer)",\n';
-  p += '      "relatedSpId": "sp_xxx" du sous-processus concerné, ou null si nouveau SP,\n';
-  p += '      "rootCauseCategory": "awareness | process | resources | oversight | tooling | sod | policy | culture | external | tbd",\n';
-  p += '      "rootCauseExplanation": "Justification factuelle de la catégorisation (1-3 phrases qui citent des éléments concrets des entretiens)"\n';
-  p += '    }\n';
-  p += '  ]\n';
+  if (isBuTarget) {
+    p += '  "subProcesses": [\n';
+    p += '    {\n';
+    p += '      "name": "Nom du Process couvert (réutilise le nom exact ci-dessus si match)",\n';
+    p += '      "matchedProcessId": "wpp_xxx" ou null si Process non couvert,\n';
+    p += '      "narrative": "Texte narratif chronologique avec ⚠ WCGW, ✓ CTRL Existant, ⚑ CTRL Cible, ⚠ DESIGN ISSUE — CTRL Manquant, ⚠ DESIGN ISSUE — CTRL Insuffisant, et ⚠️ DIVERGENCE inline."\n';
+    p += '    }\n';
+    p += '  ],\n';
+    p += '  "designIssues": [\n';
+    p += '    {\n';
+    p += '      "subtype": "missing" ou "weak",\n';
+    p += '      "title": "Titre court (5-10 mots) de la défaillance",\n';
+    p += '      "description": "Description détaillée : quel est le gap/la faiblesse de design, quel risque ça expose, pourquoi c\'est un problème (1-3 phrases)",\n';
+    p += '      "controlName": "Nom du contrôle concerné (vide si manquant et qu\'on ne peut pas nommer)",\n';
+    p += '      "relatedProcessId": "wpp_xxx" du Process concerné parmi les Process couverts, ou null si transverse,\n';
+    p += '      "rootCauseCategory": "awareness | process | resources | oversight | tooling | sod | policy | culture | external | tbd",\n';
+    p += '      "rootCauseExplanation": "Justification factuelle de la catégorisation (1-3 phrases qui citent des éléments concrets des entretiens)"\n';
+    p += '    }\n';
+    p += '  ]\n';
+  } else {
+    p += '  "subProcesses": [\n';
+    p += '    {\n';
+    p += '      "name": "Nom du sous-processus",\n';
+    p += '      "matchedExistingId": "sp_xxx" ou null,\n';
+    p += '      "narrative": "Texte narratif chronologique avec ⚠ WCGW, ✓ CTRL Existant, ⚑ CTRL Cible, ⚠ DESIGN ISSUE — CTRL Manquant, ⚠ DESIGN ISSUE — CTRL Insuffisant, et ⚠️ DIVERGENCE inline."\n';
+    p += '    }\n';
+    p += '  ],\n';
+    p += '  "designIssues": [\n';
+    p += '    {\n';
+    p += '      "subtype": "missing" ou "weak",\n';
+    p += '      "title": "Titre court (5-10 mots) de la défaillance",\n';
+    p += '      "description": "Description détaillée : quel est le gap/la faiblesse de design, quel risque ça expose, pourquoi c\'est un problème (1-3 phrases)",\n';
+    p += '      "controlName": "Nom du contrôle concerné (vide si manquant et qu\'on ne peut pas nommer)",\n';
+    p += '      "relatedSpId": "sp_xxx" du sous-processus concerné, ou null si nouveau SP,\n';
+    p += '      "rootCauseCategory": "awareness | process | resources | oversight | tooling | sod | policy | culture | external | tbd",\n';
+    p += '      "rootCauseExplanation": "Justification factuelle de la catégorisation (1-3 phrases qui citent des éléments concrets des entretiens)"\n';
+    p += '    }\n';
+    p += '  ]\n';
+  }
   p += '}\n';
   p += '```\n';
   p += '\nNote : Le tableau `designIssues` peut être vide `[]` si aucune défaillance de design n\'est repérée. Chaque DESIGN ISSUE inline dans le narratif DOIT avoir une entrée structurée correspondante dans `designIssues`. **Chaque entrée DOIT avoir une `rootCauseCategory` et une `rootCauseExplanation`** (utilise `tbd` si vraiment indéterminable).\n';
@@ -14608,19 +14777,30 @@ function _validateAndPreviewJson() {
 function _renderAnalyzePreview() {
   try {
     if (!_analyzeState || !_analyzeState.parsedResult) {
-      console.warn('[v75] _renderAnalyzePreview : pas de _analyzeState ou parsedResult');
+      console.warn('[v76] _renderAnalyzePreview : pas de _analyzeState ou parsedResult');
       return;
     }
-    var isAuditTarget = _analyzeState.target === 'audit';
-    var fc = isAuditTarget ? null : _fcGetCurrent();
-    if (!isAuditTarget && !fc) {
-      console.warn('[v75] _renderAnalyzePreview : pas de flowchart en mode flowchart');
+    var target = _analyzeState.target || 'flowchart';
+    var isAuditTarget = target === 'audit';
+    var isBuTarget = target === 'bu';
+    var isStaticTarget = isAuditTarget || isBuTarget;
+    var fc = isStaticTarget ? null : _fcGetCurrent();
+    if (!isStaticTarget && !fc) {
+      console.warn('[v76] _renderAnalyzePreview : pas de flowchart en mode flowchart');
       return;
     }
   var d = getAudData(CA);
   var sps = (d.kickoffPrep && Array.isArray(d.kickoffPrep.subProcesses)) ? d.kickoffPrep.subProcesses : [];
   var spById = {};
   sps.forEach(function(sp){ spById[sp.id] = sp; });
+
+  // v76 : Process couverts par la BU (pour matching wpp.id → nom)
+  var wp = (d.workProgramBU && Array.isArray(d.workProgramBU.processes)) ? d.workProgramBU.processes : [];
+  var wppById = {};
+  wp.forEach(function(wpp){
+    var p = (typeof PROCESSES !== 'undefined') ? PROCESSES.find(function(x){return x.id===wpp.auditProcessId;}) : null;
+    wppById[wpp.id] = {id: wpp.id, name: p ? p.proc : '(Process inconnu)', wpp: wpp};
+  });
 
   var result = _analyzeState.parsedResult;
   var spForFc = (fc && fc.subProcessId) ? spById[fc.subProcessId] : null;
@@ -14635,6 +14815,8 @@ function _renderAnalyzePreview() {
   body += '<div style="font-weight:600;margin-bottom:3px">✓ Aperçu du résultat IA</div>';
   if (isAuditTarget) {
     body += '<div>Vérifie le contenu avant de l\'importer dans le narratif consolidé de l\'audit. Toutes les sections SP seront fusionnées dans un seul narratif structuré par <code style="background:#fff;padding:1px 4px;border-radius:2px">## [Nom du SP]</code>.</div>';
+  } else if (isBuTarget) {
+    body += '<div>Vérifie le contenu avant de l\'importer dans le narratif consolidé de la BU. Les sections seront fusionnées par <code style="background:#fff;padding:1px 4px;border-radius:2px">## [Nom du Process]</code>, et les Design Issues seront rattachées aux Process couverts.</div>';
   } else {
     body += '<div>Vérifie le contenu avant de l\'importer dans le narratif du flowchart.</div>';
   }
@@ -14650,22 +14832,33 @@ function _renderAnalyzePreview() {
   }
 
   result.subProcesses.forEach(function(spr, i){
-    var matchedSp = spr.matchedExistingId ? spById[spr.matchedExistingId] : null;
-    var isCurrentSp = matchedSp && currentFcSpId && matchedSp.id === currentFcSpId;
-    var isUnmatched = !matchedSp;
+    var matched, isCurrent, isUnmatched;
+    if (isBuTarget) {
+      // BU : match sur wpp.id
+      matched = spr.matchedProcessId ? wppById[spr.matchedProcessId] : null;
+      isCurrent = false; // pas de notion de "courant" en BU
+      isUnmatched = !matched;
+    } else {
+      // Audit / Flowchart : match sur sp.id
+      matched = spr.matchedExistingId ? spById[spr.matchedExistingId] : null;
+      isCurrent = matched && currentFcSpId && matched.id === currentFcSpId;
+      isUnmatched = !matched;
+    }
 
-    var headerColor = isCurrentSp ? '#3C3489' : (isUnmatched ? '#FAC775' : 'var(--border)');
+    var headerColor = isCurrent ? '#3C3489' : (isUnmatched ? '#FAC775' : 'var(--border)');
     body += '<div style="background:#fff;border:1px solid '+headerColor+';border-radius:4px;padding:12px 14px;margin-bottom:10px">';
     // Header avec nom + badge
     body += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:8px;flex-wrap:wrap">';
     body += '<div style="flex:1;min-width:0">';
     body += '<div style="font-size:12px;font-weight:600;color:var(--text-1);margin-bottom:4px">'+(spr.name||'(sans nom)').replace(/</g,'&lt;')+'</div>';
-    if (isCurrentSp) {
+    if (isCurrent) {
       body += '<div style="font-size:10px;color:#3C3489;background:#EEEDFE;border:.5px solid #CECBF6;padding:2px 8px;border-radius:3px;display:inline-block;font-weight:500">↻ SP du flowchart courant</div>';
-    } else if (matchedSp) {
-      body += '<div style="font-size:10px;color:var(--text-2);background:#fafafa;border:.5px solid var(--border);padding:2px 8px;border-radius:3px;display:inline-block">↻ '+matchedSp.name.replace(/</g,'&lt;')+(isAuditTarget?'':' (autre SP de l\'audit)')+'</div>';
+    } else if (matched) {
+      var matchLabel = isBuTarget ? '↻ '+matched.name : '↻ '+matched.name+(isAuditTarget?'':' (autre SP de l\'audit)');
+      body += '<div style="font-size:10px;color:var(--text-2);background:#fafafa;border:.5px solid var(--border);padding:2px 8px;border-radius:3px;display:inline-block">'+matchLabel.replace(/</g,'&lt;')+'</div>';
     } else {
-      body += '<div style="font-size:10px;color:#854F0B;background:#FAEEDA;border:.5px solid #FAC775;padding:2px 8px;border-radius:3px;display:inline-block;font-weight:500">+ Nouveau SP (validation requise)</div>';
+      var unmatchLabel = isBuTarget ? '⚠ Process non couvert' : '+ Nouveau SP (validation requise)';
+      body += '<div style="font-size:10px;color:#854F0B;background:#FAEEDA;border:.5px solid #FAC775;padding:2px 8px;border-radius:3px;display:inline-block;font-weight:500">'+unmatchLabel+'</div>';
     }
     body += '</div>';
     body += '</div>';
@@ -14678,7 +14871,15 @@ function _renderAnalyzePreview() {
 
   // Footer fixe
   body += '<div style="display:flex;gap:8px;justify-content:space-between;align-items:center;padding-top:12px;margin-top:6px;border-top:.5px solid var(--border)">';
-  body += '<div style="font-size:10px;color:var(--text-3);font-style:italic">'+result.subProcesses.length+' sous-processus à importer · seul le SP courant sera appliqué au narratif</div>';
+  var footerLabel;
+  if (isBuTarget) {
+    footerLabel = result.subProcesses.length+' section(s) Process · narratif consolidé BU';
+  } else if (isAuditTarget) {
+    footerLabel = result.subProcesses.length+' sous-processus à importer · narratif consolidé';
+  } else {
+    footerLabel = result.subProcesses.length+' sous-processus à importer · seul le SP courant sera appliqué au narratif';
+  }
+  body += '<div style="font-size:10px;color:var(--text-3);font-style:italic">'+footerLabel+'</div>';
   body += '<div style="display:flex;gap:6px;flex-shrink:0">';
   body += '<button class="bs" onclick="_renderAnalyzeStep2()">← Retour</button>';
   body += '<button class="bs" onclick="closeModal()">Annuler</button>';
@@ -14692,7 +14893,7 @@ function _renderAnalyzePreview() {
     if (footer) footer.style.display = 'none';
   }, 50);
   } catch (e) {
-    console.error('[v75] ERREUR dans _renderAnalyzePreview:', e);
+    console.error('[v76] ERREUR dans _renderAnalyzePreview:', e);
     toast('Erreur affichage aperçu : '+(e.message||e));
   }
 }
@@ -14741,28 +14942,46 @@ async function _doImportAnalysis() {
   var spById = {};
   sps.forEach(function(sp){ spById[sp.id] = sp; });
 
-  var isAuditTarget = _analyzeState.target === 'audit';
-  var fc = isAuditTarget ? null : _fcGetCurrent();
-  if (!isAuditTarget && !fc) return;
+  // v76 : Process couverts par la BU
+  var wp = (d.workProgramBU && Array.isArray(d.workProgramBU.processes)) ? d.workProgramBU.processes : [];
+  var wppById = {};
+  wp.forEach(function(wpp){
+    var p = (typeof PROCESSES !== 'undefined') ? PROCESSES.find(function(x){return x.id===wpp.auditProcessId;}) : null;
+    wppById[wpp.id] = {id: wpp.id, name: p ? p.proc : '(Process inconnu)', wpp: wpp};
+  });
+
+  var target = _analyzeState.target || 'flowchart';
+  var isAuditTarget = target === 'audit';
+  var isBuTarget = target === 'bu';
+  var isStaticTarget = isAuditTarget || isBuTarget;
+  var fc = isStaticTarget ? null : _fcGetCurrent();
+  if (!isStaticTarget && !fc) return;
 
   var result = _analyzeState.parsedResult;
   var selectedItvIds = Object.keys(_analyzeState.selectedIds).filter(function(id){return _analyzeState.selectedIds[id];});
 
-  if (isAuditTarget) {
-    // ─── Cible : narratif consolidé de l'audit ───
-    // Confirmation si narratif existe et mode = replace
+  if (isStaticTarget) {
+    // ─── Cible : narratif consolidé (Audit Process OU BU) ───
     if (_analyzeState.mode === 'replace' && d.consolidatedNarrative && d.consolidatedNarrative.trim()) {
       if (!confirm('Le narratif consolidé actuel sera entièrement remplacé. Continuer ?')) return;
     }
 
-    // Construire le narratif consolidé : sections `## [Nom du SP]` pour chaque SP du résultat
+    // Construire le narratif consolidé
+    // - Audit : sections `## [Nom du SP]` (match sur sp.id via matchedExistingId)
+    // - BU    : sections `## [Nom du Process]` (match sur wpp.id via matchedProcessId)
     var newNarrative = '';
     result.subProcesses.forEach(function(spr){
-      // Privilégier le nom du SP existant matché, sinon le nom proposé
-      var spName = spr.matchedExistingId && spById[spr.matchedExistingId]
-        ? spById[spr.matchedExistingId].name
-        : (spr.name || '(sans nom)');
-      newNarrative += '## ' + spName + '\n\n';
+      var sectionName;
+      if (isBuTarget) {
+        sectionName = spr.matchedProcessId && wppById[spr.matchedProcessId]
+          ? wppById[spr.matchedProcessId].name
+          : (spr.name || '(sans nom)');
+      } else {
+        sectionName = spr.matchedExistingId && spById[spr.matchedExistingId]
+          ? spById[spr.matchedExistingId].name
+          : (spr.name || '(sans nom)');
+      }
+      newNarrative += '## ' + sectionName + '\n\n';
       // v75.6 : strip des URLs IA polluantes
       newNarrative += _stripUrlsFromIa((spr.narrative || '').trim()) + '\n\n';
     });
@@ -14780,33 +14999,43 @@ async function _doImportAnalysis() {
         var subtype = (di.subtype === 'missing' || di.subtype === 'weak') ? di.subtype : 'weak';
         var title = (di.title || '').trim() || (subtype === 'missing' ? 'Contrôle manquant' : 'Contrôle insuffisant');
         var description = _stripUrlsFromIa((di.description || '').trim());
-        // Résoudre l'ID du SP si fourni (et qu'il existe)
-        var spId = di.relatedSpId && spById[di.relatedSpId] ? di.relatedSpId : null;
 
-        // v75 : root cause IA (validée par l'auditeur ensuite)
+        // v75 : root cause IA
         var rcCat = di.rootCauseCategory && _getRootCauseCategory(di.rootCauseCategory) ? di.rootCauseCategory : 'tbd';
         var rcExpl = _stripUrlsFromIa((di.rootCauseExplanation || '').trim());
 
-        d.issues.push({
+        var issueObj = {
           id: 'iss_' + Date.now() + '_' + Math.floor(Math.random()*100000) + '_' + nbDesignIssuesCreated,
           source: 'design',
-          subtype: subtype, // 'missing' ou 'weak'
+          subtype: subtype,
           title: _stripUrlsFromIa(title),
           description: description,
           controlName: _stripUrlsFromIa((di.controlName || '').trim()),
-          relatedSpId: spId,
           // v75 : root cause
           rootCauseCategory: rcCat,
           rootCauseExplanation: rcExpl,
           aiGenerated: true,
-          validationStatus: 'pending', // 'pending' (IA, à valider) ou 'validated' (validée par l'auditeur)
+          validationStatus: 'pending',
           createdAt: new Date().toISOString(),
-        });
+        };
+
+        if (isBuTarget) {
+          // BU : rattachement à un Process couvert (wpp.id) — utilise le champ processId standard du modèle issues
+          var procId = di.relatedProcessId && wppById[di.relatedProcessId] ? di.relatedProcessId : null;
+          issueObj.processId = procId;
+          issueObj.relatedSpId = null;
+        } else {
+          // Audit Process : rattachement à un SP
+          var spId = di.relatedSpId && spById[di.relatedSpId] ? di.relatedSpId : null;
+          issueObj.relatedSpId = spId;
+        }
+
+        d.issues.push(issueObj);
         nbDesignIssuesCreated++;
       });
     }
 
-    // Historique au niveau de l'audit (dans attachments.narrativeHistory)
+    // Historique (dans attachments.narrativeHistory)
     if (!d.attachments) d.attachments = {};
     if (!Array.isArray(d.attachments.narrativeHistory)) d.attachments.narrativeHistory = [];
     d.attachments.narrativeHistory.push({
@@ -14817,11 +15046,10 @@ async function _doImportAnalysis() {
       nbInterviews: selectedItvIds.length,
       nbSubProcesses: result.subProcesses.length,
       nbDesignIssues: nbDesignIssuesCreated,
-      target: 'audit',
+      target: target,
     });
   } else {
     // ─── Cible : flowchart (mode legacy, conservé pour compatibilité) ───
-    // Trouver le SP "courant" dans le résultat
     var currentSpResult = null;
     if (fc.subProcessId) {
       currentSpResult = result.subProcesses.find(function(spr){ return spr.matchedExistingId === fc.subProcessId; });
@@ -14851,14 +15079,18 @@ async function _doImportAnalysis() {
     });
   }
 
-  // Marquer les entretiens comme analysés (commun aux deux cibles)
+  // Marquer les entretiens comme analysés (commun à toutes les cibles)
   selectedItvIds.forEach(function(itvId){
     var itv = (d.interviews || []).find(function(i){return i.id === itvId;});
     if (itv) itv.analyzedAt = new Date().toISOString();
   });
 
-  // Identifier les SPs non matchés à proposer en création
-  var unmatched = result.subProcesses.filter(function(spr){return !spr.matchedExistingId;});
+  // Identifier les SPs non matchés à proposer en création (seulement pour Audit Process, pas BU)
+  var unmatched = [];
+  if (isAuditTarget) {
+    unmatched = result.subProcesses.filter(function(spr){return !spr.matchedExistingId;});
+  }
+  // En mode BU, on ne crée pas auto les Process car ils sont fixes (Work Program)
 
   await saveAuditData(CA);
 
@@ -14866,8 +15098,8 @@ async function _doImportAnalysis() {
   document.getElementById('det-content').innerHTML = renderDetContent();
   // v74 : toast avec count des Design Issues
   var nbDIs = (result && Array.isArray(result.designIssues)) ? result.designIssues.length : 0;
-  if (isAuditTarget) {
-    var msg = '✓ Narratif consolidé importé';
+  if (isStaticTarget) {
+    var msg = isBuTarget ? '✓ Narratif BU importé' : '✓ Narratif consolidé importé';
     if (nbDIs > 0) msg += ' · ' + nbDIs + ' Design Issue' + (nbDIs > 1 ? 's' : '') + ' créée' + (nbDIs > 1 ? 's' : '') + ' (à valider)';
     toast(msg);
   } else {
