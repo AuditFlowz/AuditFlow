@@ -4615,12 +4615,12 @@ function renderDetContent(){
     // Pour les audits Process : aucune section spécifique (juste les docs + notes en bas)
   } else if (CS === 4) {
     // Étape 4 (index 4) : Vue plein écran Flowcharts (Process uniquement)
-    // - Si pas de flowchart : splash avec bouton "Créer le 1er flowchart" + accès aux WCGW
+    // - Si pas de flowchart : splash avec bouton "Créer le 1er flowchart" + accès aux contrôles
     // - Sinon : éditeur flowchart en grand, avec WCGW dans panneau latéral
     html += renderRiskSection();
     if (a.type === 'BU') {
-      // BU : pas de flowchart, on garde la vue WCGW classique
-      html += renderWCGWSection();
+      // BU : pas de flowchart, vue simplifiée Contrôles par sous-processus (v65)
+      html += renderControlsBySpSection();
     } else {
       // Process : vue flowchart prioritaire
       _fcEnsureState();
@@ -4664,7 +4664,10 @@ function renderDetContent(){
   var auditForDocs = AUDIT_PLAN.find(function(x){return x.id===CA;});
   var isBuForDocs = auditForDocs && auditForDocs.type === 'BU';
   var hideDocsForBu = isBuForDocs && (CS === 2 || CS === 6 || CS === 8);
-  if (!hideDocsForBu) {
+  // Demande utilisateur : cacher Documents sur étapes 2 (Work Program, CS=1), 3 (Kick Off, CS=2), 4 (WCGW, CS=4)
+  // (les uploads se font via les UI dédiées : Work Program, génération Kick-off, flowchart narrative…)
+  var hideDocsForSimplifiedSteps = (CS === 1 || CS === 2 || CS === 4);
+  if (!hideDocsForBu && !hideDocsForSimplifiedSteps) {
     html += renderDocumentsSection();
   }
 
@@ -5161,10 +5164,10 @@ function renderKickoffPrepSection() {
 
   var html = '';
 
-  // ── SECTION 1 : Périmètre & Scope (sous-processus) ─────────
+  // ── SECTION 1 : Processus Couverts (sous-processus) ─────────
   html += '<div class="card" style="margin-bottom:.75rem">';
   html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">';
-  html += '<span style="font-size:12px;font-weight:600;color:var(--text-2)">Périmètre & Scope <span style="font-size:10px;font-weight:400;color:var(--text-3)">('+p.subProcesses.length+' sous-processus)</span></span>';
+  html += '<span style="font-size:12px;font-weight:600;color:var(--text-2)">Processus Couverts <span style="font-size:10px;font-weight:400;color:var(--text-3)">('+p.subProcesses.length+' sous-processus)</span></span>';
   html += '<button class="bs" style="font-size:11px;padding:3px 9px" onclick="addSubProcess()">+ Ajouter un sous-processus</button>';
   html += '</div>';
   html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:10px;font-style:italic">Découpage du processus audité en sous-processus avec leur description et owners. Apparaîtra en slide « Audit Scope » du Kick Off.</div>';
@@ -5199,48 +5202,7 @@ function renderKickoffPrepSection() {
 
   html += '</div>';
 
-  // ── SECTION 2 : Interviews planifiées (inchangée) ──────────
-  html += '<div class="card" style="margin-bottom:.75rem">';
-  html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">';
-  html += '<span style="font-size:12px;font-weight:600;color:var(--text-2)">Interviews planifiées <span style="font-size:10px;font-weight:400;color:var(--text-3)">('+p.interviews.length+')</span></span>';
-  html += '<button class="bs" style="font-size:11px;padding:3px 9px" onclick="addKickoffInterview()">+ Ajouter une interview</button>';
-  html += '</div>';
-  html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:10px;font-style:italic">Liste des entretiens prévus pendant l\'audit. Apparaîtra en slide « Interviews » du Kick Off.</div>';
-
-  if (!p.interviews.length) {
-    html += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:.5rem;text-align:center;border:1px dashed var(--border);border-radius:4px">Aucune interview planifiée. Cliquez sur « + Ajouter une interview ».</div>';
-  } else {
-    html += '<div style="display:grid;grid-template-columns:1fr 1.2fr 1.4fr 1.4fr 30px;gap:6px;font-size:10px;color:var(--text-3);font-weight:500;padding:4px 0;border-bottom:.5px solid var(--border)">';
-    html += '<span>Département</span><span>Main contact</span><span>Email</span><span>Timeslot</span><span></span>';
-    html += '</div>';
-    p.interviews.forEach(function(itw, idx){
-      // Détecter le mode courant : si timeslot vaut '__tbd__' ou commence par 'TBD' → mode "Slot not defined yet"
-      var ts = itw.timeslot || '';
-      var isTbd = (ts === '__tbd__' || ts === 'Slot not defined yet');
-      var dateValue = isTbd ? '' : ts;
-      // Vérifier si la valeur actuelle ressemble à une date YYYY-MM-DD ; sinon afficher en texte libre
-      var isDate = /^\d{4}-\d{2}-\d{2}$/.test(dateValue);
-      html += '<div style="display:grid;grid-template-columns:1fr 1.2fr 1.4fr 1.4fr 30px;gap:6px;padding:4px 0;border-bottom:.5px solid var(--border)">';
-      html += '<input value="'+(itw.dept||'').replace(/"/g,'&quot;')+'" placeholder="ex : Finance" onchange="setKickoffInterview('+idx+',\'dept\',this.value)" style="font-size:11px;padding:4px 6px;border:1px solid var(--border);border-radius:3px"/>';
-      html += '<input value="'+(itw.contact||'').replace(/"/g,'&quot;')+'" placeholder="ex : J. Smith — CFO" onchange="setKickoffInterview('+idx+',\'contact\',this.value)" style="font-size:11px;padding:4px 6px;border:1px solid var(--border);border-radius:3px"/>';
-      html += '<input value="'+(itw.email||'').replace(/"/g,'&quot;')+'" type="email" placeholder="j.smith@..." onchange="setKickoffInterview('+idx+',\'email\',this.value)" style="font-size:11px;padding:4px 6px;border:1px solid var(--border);border-radius:3px"/>';
-      // Cell "Timeslot" — checkbox TBD + date input
-      html += '<div style="display:flex;flex-direction:column;gap:3px">';
-      html += '<label style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--text-3);cursor:pointer">';
-      html += '<input type="checkbox" '+(isTbd?'checked':'')+' onchange="setKickoffInterviewTbd('+idx+',this.checked)" style="margin:0"/>';
-      html += '<span>Slot not defined yet</span>';
-      html += '</label>';
-      if (!isTbd) {
-        html += '<input type="date" value="'+(isDate?dateValue:'')+'" onchange="setKickoffInterview('+idx+',\'timeslot\',this.value)" style="font-size:11px;padding:4px 6px;border:1px solid var(--border);border-radius:3px"/>';
-      }
-      html += '</div>';
-      html += '<button class="bd" style="font-size:11px;padding:3px 6px;align-self:start" onclick="removeKickoffInterview('+idx+')" title="Supprimer">×</button>';
-      html += '</div>';
-    });
-  }
-  html += '</div>';
-
-  // ── SECTION 3 : Planning - Dates clés (inchangée) ──────────
+  // ── SECTION 2 : Planning - Dates clés (inchangée) ──────────
   html += '<div class="card" style="margin-bottom:.75rem">';
   html += '<div style="font-size:12px;font-weight:600;color:var(--text-2);margin-bottom:4px">Planning — Dates clés</div>';
   html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:10px;font-style:italic">Apparaîtra en slide « Key Deadlines » du Kick Off (transformé en « Week of [date] »).</div>';
@@ -5264,7 +5226,7 @@ function renderKickoffPrepSection() {
   return html;
 }
 
-// ─── Sous-section "Risques de l'audit" (dans Périmètre & Scope) ──────
+// ─── Sous-section "Risques de l'audit" (dans Processus Couverts) ──────
 // Affiche les risques URD du processus + risques ad hoc, avec possibilité
 // d'ajouter/supprimer des risques ad hoc. Utilisée dans l'étape Work Program.
 function renderAuditRisksSubsection() {
@@ -7092,6 +7054,180 @@ function toggleWCGWSubProcess(spId) {
   document.getElementById('det-content').innerHTML = renderDetContent();
 }
 
+// ════════════════════════════════════════════════════════════════════
+//  Vue simplifiée Étape 4 — Contrôles par sous-processus (v65)
+//  Remplace l'accordéon WCGW : on liste directement les contrôles
+//  Existants/Target par sous-processus, avec WCGW en pill discret.
+// ════════════════════════════════════════════════════════════════════
+function renderControlsBySpSection() {
+  var d = getAudData(CA);
+  if (!d.wcgw) d.wcgw = {};
+  var wcgwList = d.wcgw[CS] || [];
+  var ctrls = (d.controls && d.controls[CS]) || [];
+
+  // Migration auto : ids stables sur les sous-processus
+  if (typeof _ensureSubProcessIds === 'function' && _ensureSubProcessIds(d)) {
+    saveAuditData(CA);
+  }
+  var subProcs = (d.kickoffPrep && Array.isArray(d.kickoffPrep.subProcesses))
+    ? d.kickoffPrep.subProcesses : [];
+
+  // Mapping wcgwId → wcgw (pour récupérer le label en pill)
+  var wcgwById = {};
+  wcgwList.forEach(function(w){ wcgwById[w.id] = w; });
+
+  // Compteurs globaux
+  var nbExisting = ctrls.filter(function(c){return c.design==='existing';}).length;
+  var nbTarget = ctrls.filter(function(c){return c.design==='target';}).length;
+
+  var html = '';
+
+  // ── Bandeau récap ──
+  html += '<div class="card" style="margin-bottom:.75rem;background:linear-gradient(135deg,#EEEDFE 0%,#F5F4FE 100%);border:.5px solid #CECBF6">';
+  html += '<div style="display:flex;justify-content:space-between;align-items:center">';
+  html += '<div>';
+  html += '<div style="font-size:13px;font-weight:600;color:#3C3489">🛡 Contrôles par sous-processus</div>';
+  html += '<div style="font-size:10px;color:#534AB7;margin-top:2px">'+subProcs.length+' sous-processus · <strong style="color:#085041">'+nbExisting+' Existants</strong> · <strong style="color:#854F0B">'+nbTarget+' Target</strong></div>';
+  html += '</div>';
+  html += '<div style="font-size:10px;color:#534AB7;font-style:italic">Documente les contrôles existants et ceux à mettre en place (Target).</div>';
+  html += '</div>';
+  html += '</div>';
+
+  // Si pas de sous-processus définis → message
+  if (!subProcs.length) {
+    html += '<div class="card" style="margin-bottom:.75rem">';
+    html += '<div style="font-size:11px;color:#854F0B;background:#FAEEDA;border:.5px solid #FAC775;padding:10px 14px;border-radius:4px;text-align:center">';
+    html += '⚠ Aucun sous-processus défini. Définis-les d\'abord en étape 2 (Work Program → Processus Couverts).';
+    html += '</div>';
+    html += '</div>';
+    return html;
+  }
+
+  // ── Liste des sous-processus avec leurs contrôles ──
+  subProcs.forEach(function(sp, spIdx){
+    // Récupérer les contrôles pour ce SP : on passe par les wcgw du SP
+    var wcgwsForSP = wcgwList.filter(function(w){return w.subProcessId === sp.id;});
+    var wcgwIdsForSP = wcgwsForSP.map(function(w){return w.id;});
+    var ctrlsForSP = ctrls.filter(function(c){return wcgwIdsForSP.indexOf(c.wcgwId) >= 0;});
+    var existingForSP = ctrlsForSP.filter(function(c){return c.design==='existing';});
+    var targetForSP = ctrlsForSP.filter(function(c){return c.design==='target';});
+
+    var expanded = _wcgwExpandedSPs[sp.id] !== false; // par défaut ouvert
+
+    html += '<div class="card" style="margin-bottom:8px;padding:0;overflow:hidden">';
+
+    // En-tête cliquable
+    html += '<div style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:#fafafa;'+(expanded?'border-bottom:.5px solid var(--border);':'')+'cursor:pointer" onclick="toggleWCGWSubProcess(\''+_escJsArg(sp.id)+'\')">';
+    html += '<span style="font-size:11px;color:var(--text-3);width:14px;text-align:center">'+(expanded?'▼':'▶')+'</span>';
+    html += '<div style="flex:1;min-width:0">';
+    html += '<div style="font-size:13px;font-weight:500;color:var(--text-1)">'+(spIdx+1)+'. '+(sp.name||'(sans nom)').replace(/</g,'&lt;')+'</div>';
+    if (sp.description) html += '<div style="font-size:10px;color:var(--text-3);margin-top:1px">'+(''+sp.description).replace(/</g,'&lt;')+'</div>';
+    html += '</div>';
+    html += '<span style="font-size:10px;color:var(--text-3);background:#fff;border:.5px solid var(--border);border-radius:3px;padding:2px 6px">'+existingForSP.length+' E · '+targetForSP.length+' T</span>';
+    html += '<button class="bs" style="font-size:10px;padding:3px 8px;background:#F5FBF8;color:#085041;border-color:#A6E2CD" onclick="event.stopPropagation();showAddControlForSP(\''+_escJsArg(sp.id)+'\',\'existing\')">+ Existant</button>';
+    html += '<button class="bs" style="font-size:10px;padding:3px 8px;background:#FFFAF0;color:#854F0B;border-color:#FAC775" onclick="event.stopPropagation();showAddControlForSP(\''+_escJsArg(sp.id)+'\',\'target\')">+ Target</button>';
+    html += '</div>';
+
+    // Contenu (2 colonnes)
+    if (expanded) {
+      html += '<div style="padding:10px 12px;display:grid;grid-template-columns:1fr 1fr;gap:8px">';
+
+      // ── Colonne EXISTANTS ──
+      html += '<div>';
+      html += '<div style="font-size:9px;color:#085041;text-transform:uppercase;letter-spacing:.4px;font-weight:500;margin-bottom:5px;display:flex;align-items:center;gap:4px">✓ EXISTANTS ('+existingForSP.length+')</div>';
+      if (!existingForSP.length) {
+        html += '<div style="font-size:10px;color:var(--text-3);font-style:italic;padding:8px;border:.5px dashed var(--border);border-radius:3px;text-align:center">Aucun contrôle existant.</div>';
+      } else {
+        existingForSP.forEach(function(c, ci){
+          html += renderControlMiniCard(c, ctrls.indexOf(c), wcgwById);
+        });
+      }
+      html += '</div>';
+
+      // ── Colonne TARGET ──
+      html += '<div>';
+      html += '<div style="font-size:9px;color:#854F0B;text-transform:uppercase;letter-spacing:.4px;font-weight:500;margin-bottom:5px;display:flex;align-items:center;gap:4px">⚑ TARGET ('+targetForSP.length+')</div>';
+      if (!targetForSP.length) {
+        html += '<div style="font-size:10px;color:var(--text-3);font-style:italic;padding:8px;border:.5px dashed var(--border);border-radius:3px;text-align:center">Aucun contrôle target.</div>';
+      } else {
+        targetForSP.forEach(function(c, ci){
+          html += renderControlMiniCard(c, ctrls.indexOf(c), wcgwById);
+        });
+      }
+      html += '</div>';
+
+      html += '</div>'; // end grid
+    }
+
+    html += '</div>'; // end card
+  });
+
+  return html;
+}
+
+// Mini-carte d'un contrôle pour la vue simplifiée
+function renderControlMiniCard(c, globalIdx, wcgwById) {
+  var isExisting = c.design === 'existing';
+  var bg = isExisting ? '#F5FBF8' : '#FFFAF0';
+  var border = isExisting ? '#A6E2CD' : '#FAC775';
+  var codeColor = isExisting ? '#5DCAA5' : '#F59E0B';
+  var code = c.code || ('CTRL-'+(globalIdx+1));
+  var name = (c.name || c.label || '(sans nom)').replace(/</g,'&lt;');
+  var wcgw = c.wcgwId ? wcgwById[c.wcgwId] : null;
+
+  var h = '<div style="background:'+bg+';border:.5px solid '+border+';border-radius:3px;padding:6px 8px;margin-bottom:4px;display:flex;align-items:flex-start;gap:5px;font-size:10px">';
+  h += '<span style="font-weight:600;font-size:9px;flex-shrink:0;padding:1px 6px;border-radius:2px;background:'+codeColor+';color:#fff">'+code.replace(/</g,'&lt;')+'</span>';
+  h += '<div style="flex:1;min-width:0;line-height:1.4">';
+  h += '<div style="color:var(--text-1);font-weight:500">'+name+'</div>';
+  if (wcgw && wcgw.title) {
+    h += '<div style="font-size:9px;color:#3C3489;font-style:italic;margin-top:2px;background:#EEEDFE;padding:1px 5px;border-radius:2px;display:inline-block">WCGW : '+(''+wcgw.title).replace(/</g,'&lt;')+'</div>';
+  }
+  if (c.description) {
+    h += '<div style="font-size:9px;color:var(--text-3);margin-top:2px">'+(''+c.description).replace(/</g,'&lt;')+'</div>';
+  }
+  h += '</div>';
+  h += '<div style="display:flex;gap:3px;flex-shrink:0">';
+  h += '<button class="bs" style="font-size:10px;padding:1px 5px" onclick="showEditControlModal('+globalIdx+')" title="Éditer">✎</button>';
+  h += '<button class="bd" style="font-size:10px;padding:1px 5px" onclick="removeControl('+globalIdx+')" title="Supprimer">×</button>';
+  h += '</div>';
+  h += '</div>';
+  return h;
+}
+
+// Ouvrir la modale d'ajout de contrôle pour un SP donné
+// On crée un WCGW "implicite" par SP au besoin (1 par SP) — invisible pour l'utilisateur
+async function showAddControlForSP(spId, designMode) {
+  var d = getAudData(CA);
+  if (!d.wcgw) d.wcgw = {};
+  if (!Array.isArray(d.wcgw[CS])) d.wcgw[CS] = [];
+  // Chercher un WCGW existant pour ce SP, sinon en créer un implicite
+  var wcgwsForSP = d.wcgw[CS].filter(function(w){return w.subProcessId === spId;});
+  var wcgwId;
+  if (wcgwsForSP.length > 0) {
+    wcgwId = wcgwsForSP[0].id;
+  } else {
+    var sp = (d.kickoffPrep && Array.isArray(d.kickoffPrep.subProcesses))
+      ? d.kickoffPrep.subProcesses.find(function(x){return x.id===spId;}) : null;
+    var spName = sp ? (sp.name||'sous-processus') : 'sous-processus';
+    var newWcgw = {
+      id: 'w_' + Date.now() + '_' + Math.floor(Math.random()*100000),
+      code: 'WCGW-' + (d.wcgw[CS].length+1),
+      title: 'Contrôles pour ' + spName,
+      description: '',
+      subProcessId: spId,
+      riskIds: [],
+    };
+    d.wcgw[CS].push(newWcgw);
+    wcgwId = newWcgw.id;
+    await saveAuditData(CA);
+  }
+  // Ouvrir la modale standard avec preset
+  showControlModal({
+    ctrl: {wcgwId: wcgwId, design: designMode || 'existing'},
+    isPreset: true
+  });
+}
+
 function renderWCGWSection() {
   var d = getAudData(CA);
   if (!d.wcgw) d.wcgw = {};
@@ -7368,12 +7504,12 @@ function renderFlowchartSplash() {
   html += '</div>';
   html += '</div>';
 
-  // Section WCGW classique en complément (l'utilisateur peut quand même y accéder)
+  // Section Contrôles classique en complément (l'utilisateur peut quand même y accéder)
   html += '<div style="margin-top:14px">';
   html += '<details style="background:#fff;border:.5px solid var(--border);border-radius:6px">';
-  html += '<summary style="padding:10px 14px;cursor:pointer;font-size:12px;font-weight:500;color:var(--text-2)">📋 Définir les WCGW & Contrôles directement (vue classique) <span style="font-size:10px;font-weight:400;color:var(--text-3)">— '+wcgwList.length+' WCGW · '+ctrls.length+' contrôles</span></summary>';
+  html += '<summary style="padding:10px 14px;cursor:pointer;font-size:12px;font-weight:500;color:var(--text-2)">🛡 Définir les Contrôles directement (vue simplifiée) <span style="font-size:10px;font-weight:400;color:var(--text-3)">— '+ctrls.length+' contrôles</span></summary>';
   html += '<div style="padding:10px;border-top:.5px solid var(--border)">';
-  html += renderWCGWSection();
+  html += renderControlsBySpSection();
   html += '</div>';
   html += '</details>';
   html += '</div>';
