@@ -4585,6 +4585,15 @@ function renderDetContent(){
   var isAdmin = CU && CU.role === 'admin';
   var isPreparer = (a.assignedTo||a.auditeurs||[]).indexOf(CU&&CU.id)>=0 || isAdmin;
 
+  // v67 : sortir du mode maximisé si on n'est plus en CS=4 ou si l'éditeur n'est plus actif
+  if (typeof _flowchartEditor !== 'undefined' && document.body) {
+    if (CS !== 4 || !_flowchartEditor || a.type === 'BU' || !_flowchartEditor.maximized) {
+      document.body.classList.remove('fc-maximized');
+    } else {
+      document.body.classList.add('fc-maximized');
+    }
+  }
+
   var html = '';
 
   // L'en-tête (étape + statut + workflow + cases revue) est désormais dans renderAuditHeaderCompact
@@ -4664,9 +4673,10 @@ function renderDetContent(){
   var auditForDocs = AUDIT_PLAN.find(function(x){return x.id===CA;});
   var isBuForDocs = auditForDocs && auditForDocs.type === 'BU';
   var hideDocsForBu = isBuForDocs && (CS === 2 || CS === 6 || CS === 8);
-  // Demande utilisateur : cacher Documents sur étapes 2 (Work Program, CS=1), 3 (Kick Off, CS=2), 4 (WCGW, CS=4)
-  // (les uploads se font via les UI dédiées : Work Program, génération Kick-off, flowchart narrative…)
-  var hideDocsForSimplifiedSteps = (CS === 1 || CS === 2 || CS === 4);
+  // Demande utilisateur : cacher Documents sur étapes 2 (Work Program, CS=1), 3 (Kick Off, CS=2),
+  // 4 (WCGW, CS=4) et 6 (Findings & Rapport, CS=6)
+  // (les uploads se font via les UI dédiées : Work Program, génération Kick-off, flowchart narrative, génération Rapport…)
+  var hideDocsForSimplifiedSteps = (CS === 1 || CS === 2 || CS === 4 || CS === 6);
   if (!hideDocsForBu && !hideDocsForSimplifiedSteps) {
     html += renderDocumentsSection();
   }
@@ -6770,12 +6780,18 @@ function renderKickoffBookingSection() {
     }
     html += '</div>';
 
-    // Bouton de création
+    // Boutons de création (v67 : 2 modes — Outlook deep link OU création directe via Graph)
     var totalParticipants = participants.to.length + participants.cc.length;
-    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;gap:8px;flex-wrap:wrap">';
     html += '<div style="font-size:11px;color:#3C3489;font-weight:500">'+manualSlots.length+' réunion(s) · '+totalParticipants+' participants chacune</div>';
-    html += '<button class="bp" style="font-size:12px;padding:8px 16px;background:#3C3489;color:#fff;font-weight:500" onclick="createKickoffMeetings()" '+(_kickoffBooking.busy?'disabled':'')+'>📅 '+(_kickoffBooking.busy?'Création en cours...':'Créer '+manualSlots.length+' réunion(s) + envoyer')+'</button>';
+    html += '<div style="display:flex;gap:8px">';
+    // Bouton 1 : ouvrir dans Outlook (deep link)
+    html += '<button class="bs" style="font-size:11px;padding:8px 14px;background:#fff;color:#0078D4;border:1px solid #0078D4;border-radius:3px;cursor:pointer;font-weight:500" onclick="openMeetingsInOutlook()" title="Ouvrir Outlook avec sujet/invités/heure pré-remplis pour vérifier les dispos avant d\'envoyer">↗ Ouvrir dans Outlook</button>';
+    // Bouton 2 : création directe via Graph
+    html += '<button class="bp" style="font-size:12px;padding:8px 16px;background:#3C3489;color:#fff;font-weight:500" onclick="createKickoffMeetings()" '+(_kickoffBooking.busy?'disabled':'')+'>📅 '+(_kickoffBooking.busy?'Création en cours...':'Créer & envoyer ('+manualSlots.length+')')+'</button>';
     html += '</div>';
+    html += '</div>';
+    html += '<div style="font-size:10px;color:var(--text-3);font-style:italic;margin-top:6px;text-align:right">↗ Outlook : voir les dispos avant d\'envoyer · 📅 Créer & envoyer : crée et envoie directement les invitations</div>';
   }
 
   html += '</div>';
@@ -6872,6 +6888,101 @@ function removeAdHocContact(idx) {
   }
 
   document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+
+// v67 : Deep link Outlook pour ouvrir l'écran de planification de réunion avec
+// les infos pré-remplies. Permet à l'utilisateur de voir les disponibilités dans
+// Outlook (Scheduling Assistant) avant d'envoyer les invitations.
+// Doc : https://learn.microsoft.com/en-us/exchange/clients/outlook-on-the-web/url-commands
+function openMeetingsInOutlook() {
+  if (!_kickoffBooking) return;
+  var manualSlots = _kickoffBooking.manualSlots || [];
+  if (!manualSlots.length) { toast('Ajoute au moins un créneau'); return; }
+
+  var audit = (AUDIT_PLAN || []).find(function(a) { return a.id === CA; });
+  if (!audit) { toast('Audit introuvable'); return; }
+  var d = getAudData(CA);
+
+  var participants = _kbGetParticipants();
+  if (!participants.to.length && !participants.cc.length) {
+    toast('Aucun participant — ajoute au moins un contact (auto ou ad hoc)');
+    return;
+  }
+
+  // Lien SharePoint du Kick-off final
+  var kickoffLink = null;
+  var kickoffName = null;
+  if (_kickoffBooking.options.attachKickoff) {
+    var finalKO = d.attachments && d.attachments.kickoff && d.attachments.kickoff.final;
+    if (finalKO && finalKO.webUrl) {
+      kickoffLink = finalKO.webUrl;
+      kickoffName = finalKO.fileName || 'KickOff_final.pptx';
+    }
+  }
+
+  var auditTitle = audit.titre || '';
+  var organizerName = (typeof CU !== 'undefined' && CU && CU.name) ? CU.name : '';
+
+  // Body bilingue (texte simple, pas HTML — Outlook deep link prend du plain text dans body)
+  var body = '';
+  body += 'Hello,\n\n';
+  body += 'I invite you to the kick-off meeting of the audit "' + auditTitle + '".\n';
+  body += 'The purpose of this meeting is to present the scope, objectives, and timeline of the audit assignment.\n\n';
+  if (kickoffLink) body += 'Presentation deck: ' + kickoffLink + '\n\n';
+  body += 'Kind regards,\n' + organizerName + ' — Director of Internal Audit\n\n';
+  body += '====================================================\n\n';
+  body += 'Bonjour,\n\n';
+  body += 'Je vous invite à la réunion de Kick-off de l\'audit « ' + auditTitle + ' ».\n';
+  body += 'Cette réunion vise à présenter le périmètre, les objectifs et le planning de la mission.\n\n';
+  if (kickoffLink) body += 'Support de présentation : ' + kickoffLink + '\n\n';
+  body += 'Cordialement,\n' + organizerName + '\nDirecteur de l\'Audit Interne\n';
+
+  // Construire la liste des destinataires (TO + CC séparés)
+  var toList = participants.to.map(function(p){return p.email;}).join(';');
+  var ccList = participants.cc.map(function(p){return p.email;}).join(';');
+
+  // Pour chaque créneau, ouvrir un onglet Outlook (limité à 1 par clic pour éviter
+  // les pop-up blockers — si plusieurs slots, on prend le 1er + indication)
+  var slot = manualSlots[0];
+  var subject = 'Kick-off audit — ' + auditTitle + (manualSlots.length > 1 ? ' (à dupliquer pour les autres créneaux)' : '');
+
+  // Format de date attendu par Outlook : ISO 8601 avec décalage UTC ou date format YYYY-MM-DDTHH:mm
+  // L'API URL Outlook accepte format "YYYY-MM-DDTHH:mm:ss"
+  var startDate = new Date(slot.startISO);
+  var endDate = new Date(slot.endISO);
+  function pad2(n) { return n < 10 ? '0' + n : '' + n; }
+  function fmtLocal(d) {
+    return d.getFullYear() + '-' + pad2(d.getMonth()+1) + '-' + pad2(d.getDate())
+      + 'T' + pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':00';
+  }
+  var startStr = fmtLocal(startDate);
+  var endStr = fmtLocal(endDate);
+
+  // URL Outlook deep link
+  // Note : online=true tente d'utiliser Outlook Web ; allowonline=true permet la création
+  var url = 'https://outlook.office.com/calendar/0/deeplink/compose'
+    + '?path=/calendar/action/compose'
+    + '&rru=addevent'
+    + '&subject=' + encodeURIComponent(subject)
+    + '&body=' + encodeURIComponent(body)
+    + '&startdt=' + encodeURIComponent(startStr)
+    + '&enddt=' + encodeURIComponent(endStr)
+    + '&to=' + encodeURIComponent(toList)
+    + (ccList ? '&cc=' + encodeURIComponent(ccList) : '')
+    + (_kickoffBooking.options.includeTeams ? '&online=true&allowonline=true' : '');
+
+  // Ouvrir dans un nouvel onglet
+  var win = window.open(url, '_blank', 'noopener,noreferrer');
+  if (!win) {
+    toast('⚠ Pop-up bloqué. Autorise les pop-ups pour outlook.office.com et réessaie.');
+    return;
+  }
+  if (manualSlots.length > 1) {
+    toast('↗ Outlook ouvert pour le 1er créneau · Duplique manuellement pour les autres');
+  } else {
+    toast('↗ Outlook ouvert · Vérifie les dispos et envoie depuis Outlook');
+  }
 }
 
 
@@ -7543,6 +7654,7 @@ function _fcEnsureState() {
       sidePanelTab: 'narrative',
       sidePanelOpen: true, // Narratif ouvert par défaut
       highlightedControlId: null, // Contrôle highlight (cliqué dans flowchart ou bottom)
+      maximized: false, // v67 : mode maximisé (cache header/sidebar AuditFlow)
       zoom: 1.0,
     };
   } else {
@@ -7742,6 +7854,11 @@ function renderFlowchartEditor() {
   var sideOpen = !!_flowchartEditor.sidePanelOpen;
   var sideLabel = sideOpen ? '📑 Narratif ▶' : '📑 Narratif ◀';
   html += '<button onclick="toggleFcSidePanel()" title="'+(sideOpen?'Fermer':'Ouvrir')+' le panneau Narratif" style="font-size:11px;padding:5px 10px;background:'+(sideOpen?'rgba(255,255,255,.2)':'transparent')+';color:#fff;border:.5px solid rgba(255,255,255,.4);border-radius:3px;cursor:pointer">'+sideLabel+'</button>';
+  // Bouton toggle Maximiser (v67)
+  var maximized = !!_flowchartEditor.maximized;
+  var maxIcon = maximized ? '↙' : '⛶';
+  var maxLabel = maximized ? 'Restaurer' : 'Maximiser';
+  html += '<button onclick="toggleFcMaximized()" title="'+(maximized?'Restaurer':'Maximiser le flowchart (cache la sidebar AuditFlow)')+'" style="font-size:11px;padding:5px 10px;background:'+(maximized?'rgba(255,255,255,.2)':'transparent')+';color:#fff;border:.5px solid rgba(255,255,255,.4);border-radius:3px;cursor:pointer">'+maxIcon+' '+maxLabel+'</button>';
   html += '<button onclick="deleteFlowchart(\''+_escJsArg(fc.id)+'\')" title="Supprimer ce flowchart" style="font-size:11px;padding:5px 10px;background:transparent;color:rgba(255,255,255,.85);border:.5px solid rgba(255,255,255,.4);border-radius:3px;cursor:pointer">🗑 Supprimer</button>';
   html += '</div>';
   html += '</div>';
@@ -8103,6 +8220,19 @@ function setFcSidePanelTab(tab) {
 function toggleFcSidePanel() {
   if (!_flowchartEditor) return;
   _flowchartEditor.sidePanelOpen = !_flowchartEditor.sidePanelOpen;
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+// v67 : toggle mode maximisé (cache header AuditFlow + sidebar étapes)
+function toggleFcMaximized() {
+  if (!_flowchartEditor) return;
+  _flowchartEditor.maximized = !_flowchartEditor.maximized;
+  // Appliquer/retirer une classe sur <body> qui sera ciblée en CSS
+  if (_flowchartEditor.maximized) {
+    document.body.classList.add('fc-maximized');
+  } else {
+    document.body.classList.remove('fc-maximized');
+  }
   document.getElementById('det-content').innerHTML = renderDetContent();
 }
 
@@ -10510,7 +10640,7 @@ function renderFindingsSection() {
   if (!d.findings) d.findings = [];
   var step5c = d.controls[4]||[];
   // Contrôles "à traiter" = fail (test finalisé fail) ou target
-  var failedCtrls = step5c.filter(function(c){return c.clef && c.design==='existing' && c.finalized && c.result==='fail';});
+  var failedCtrls = step5c.filter(_isCtrlFailedExisting);
   var targetCtrls = step5c.filter(function(c){return c.design==='target';});
   var problematicCtrls = failedCtrls.concat(targetCtrls);
 
@@ -11555,11 +11685,26 @@ function showEditFindingModal(idx) {
   if (!f) return;
   showFindingModal({idx: idx, finding: f});
 }
+
+// Helper : un contrôle est "problématique" pour un finding si :
+// - design === 'existing' ET finalized ET (anomalies > 0 OU result === 'fail') (ancien modèle ou nouveau)
+// On enlève la condition clef parce que l'utilisateur peut vouloir documenter
+// un finding sur un contrôle Non-Key aussi (et plusieurs audits récents oublient
+// de marquer Key sur les contrôles).
+function _isCtrlFailedExisting(c) {
+  if (!c || c.design !== 'existing' || !c.finalized) return false;
+  // Nouveau modèle : on regarde le compteur d'anomalies du test
+  if (c.anomalies && c.anomalies.count !== '' && Number(c.anomalies.count) > 0) return true;
+  // Ancien modèle : c.result === 'fail'
+  if (c.result === 'fail') return true;
+  return false;
+}
+
 function showFindingModal(existing) {
   var d = getAudData(CA);
   var step5c = d.controls[4]||[];
   // Liste des contrôles "à traiter" : fail (test finalisé) + target
-  var failedCtrls = step5c.filter(function(c){return c.clef && c.design==='existing' && c.finalized && c.result==='fail';});
+  var failedCtrls = step5c.filter(_isCtrlFailedExisting);
   var targetCtrls = step5c.filter(function(c){return c.design==='target';});
   var problematicCtrls = failedCtrls.concat(targetCtrls);
 
