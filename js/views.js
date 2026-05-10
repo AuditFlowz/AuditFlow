@@ -7578,6 +7578,9 @@ function showAddControlForWCGW(wcgwId, designMode) {
 // Initialisé automatiquement par _fcEnsureState() à l'ouverture de l'étape 4.
 var _flowchartEditor = null;
 
+// v67 : mode maximisé pour l'éditeur flowchart (cache header + sidebar AuditFlow)
+var _flowchartMaximized = false;
+
 // Largeurs/tailles par défaut des formes
 var _FC_DEFAULTS = {
   start:    {w: 110, h: 36, label: 'Début'},
@@ -7855,10 +7858,10 @@ function renderFlowchartEditor() {
   var sideLabel = sideOpen ? '📑 Narratif ▶' : '📑 Narratif ◀';
   html += '<button onclick="toggleFcSidePanel()" title="'+(sideOpen?'Fermer':'Ouvrir')+' le panneau Narratif" style="font-size:11px;padding:5px 10px;background:'+(sideOpen?'rgba(255,255,255,.2)':'transparent')+';color:#fff;border:.5px solid rgba(255,255,255,.4);border-radius:3px;cursor:pointer">'+sideLabel+'</button>';
   // Bouton toggle Maximiser (v67)
-  var maximized = !!_flowchartEditor.maximized;
+  var maximized = (typeof _flowchartMaximized !== 'undefined' && _flowchartMaximized);
   var maxIcon = maximized ? '↙' : '⛶';
   var maxLabel = maximized ? 'Restaurer' : 'Maximiser';
-  html += '<button onclick="toggleFcMaximized()" title="'+(maximized?'Restaurer':'Maximiser le flowchart (cache la sidebar AuditFlow)')+'" style="font-size:11px;padding:5px 10px;background:'+(maximized?'rgba(255,255,255,.2)':'transparent')+';color:#fff;border:.5px solid rgba(255,255,255,.4);border-radius:3px;cursor:pointer">'+maxIcon+' '+maxLabel+'</button>';
+  html += '<button onclick="toggleFcMaximized()" title="'+(maximized?'Restaurer la vue normale (avec sidebar AuditFlow)':'Maximiser le flowchart (cache la sidebar AuditFlow)')+'" style="font-size:11px;padding:5px 10px;background:'+(maximized?'rgba(255,255,255,.2)':'transparent')+';color:#fff;border:.5px solid rgba(255,255,255,.4);border-radius:3px;cursor:pointer">'+maxIcon+' '+maxLabel+'</button>';
   html += '<button onclick="deleteFlowchart(\''+_escJsArg(fc.id)+'\')" title="Supprimer ce flowchart" style="font-size:11px;padding:5px 10px;background:transparent;color:rgba(255,255,255,.85);border:.5px solid rgba(255,255,255,.4);border-radius:3px;cursor:pointer">🗑 Supprimer</button>';
   html += '</div>';
   html += '</div>';
@@ -8225,14 +8228,13 @@ function toggleFcSidePanel() {
 
 // v67 : toggle mode maximisé (cache header AuditFlow + sidebar étapes)
 function toggleFcMaximized() {
-  if (!_flowchartEditor) return;
-  _flowchartEditor.maximized = !_flowchartEditor.maximized;
-  // Appliquer/retirer une classe sur <body> qui sera ciblée en CSS
-  if (_flowchartEditor.maximized) {
+  _flowchartMaximized = !_flowchartMaximized;
+  if (_flowchartMaximized) {
     document.body.classList.add('fc-maximized');
   } else {
     document.body.classList.remove('fc-maximized');
   }
+  // Re-render seulement le contenu central (sinon perd les listeners du flowchart)
   document.getElementById('det-content').innerHTML = renderDetContent();
 }
 
@@ -11420,6 +11422,11 @@ function downloadDoc(docId) {
 }
 
 function goStep(i){
+  // v67 : sortir du mode maximisé flowchart si on quitte l'étape 4
+  if (i !== 4) {
+    document.body.classList.remove('fc-maximized');
+    if (typeof _flowchartMaximized !== 'undefined') _flowchartMaximized = false;
+  }
   CS=i;
   var auditObj = AUDIT_PLAN.find(function(x){return x.id===CA;});
   var isBu = auditObj && auditObj.type === 'BU';

@@ -289,6 +289,9 @@ function doLogout() {
 // ── Navigation ───────────────────────────────────────────────
 async function nav(view) {
   CV = view;
+  // v67 : sortir du mode maximisé flowchart si on quitte l'écran d'audit
+  document.body.classList.remove('fc-maximized');
+  if (typeof _flowchartMaximized !== 'undefined') _flowchartMaximized = false;
   document.querySelectorAll('.nav[data-view]').forEach(function(n){
     n.classList.remove('active');
   });
