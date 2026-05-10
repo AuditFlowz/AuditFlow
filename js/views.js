@@ -14581,15 +14581,25 @@ function _validateAndPreviewJson() {
 
 // ─── ÉTAPE 3 : preview avant import ─────────────────────────────
 function _renderAnalyzePreview() {
-  var fc = _fcGetCurrent();
-  if (!fc || !_analyzeState || !_analyzeState.parsedResult) return;
+  try {
+    if (!_analyzeState || !_analyzeState.parsedResult) {
+      console.warn('[v75] _renderAnalyzePreview : pas de _analyzeState ou parsedResult');
+      return;
+    }
+    var isAuditTarget = _analyzeState.target === 'audit';
+    var fc = isAuditTarget ? null : _fcGetCurrent();
+    if (!isAuditTarget && !fc) {
+      console.warn('[v75] _renderAnalyzePreview : pas de flowchart en mode flowchart');
+      return;
+    }
   var d = getAudData(CA);
   var sps = (d.kickoffPrep && Array.isArray(d.kickoffPrep.subProcesses)) ? d.kickoffPrep.subProcesses : [];
   var spById = {};
   sps.forEach(function(sp){ spById[sp.id] = sp; });
 
   var result = _analyzeState.parsedResult;
-  var spForFc = fc.subProcessId ? spById[fc.subProcessId] : null;
+  var spForFc = (fc && fc.subProcessId) ? spById[fc.subProcessId] : null;
+  var currentFcSpId = fc && fc.subProcessId ? fc.subProcessId : null;
 
   var body = '';
 
@@ -14598,12 +14608,25 @@ function _renderAnalyzePreview() {
 
   body += '<div style="background:#E1F5EE;border:.5px solid #A6E2CD;color:#085041;padding:10px 12px;border-radius:4px;margin-bottom:14px;font-size:11px;line-height:1.5">';
   body += '<div style="font-weight:600;margin-bottom:3px">✓ Aperçu du résultat IA</div>';
-  body += '<div>Vérifie le contenu avant de l\'importer dans le narratif du flowchart.</div>';
+  if (isAuditTarget) {
+    body += '<div>Vérifie le contenu avant de l\'importer dans le narratif consolidé de l\'audit. Toutes les sections SP seront fusionnées dans un seul narratif structuré par <code style="background:#fff;padding:1px 4px;border-radius:2px">## [Nom du SP]</code>.</div>';
+  } else {
+    body += '<div>Vérifie le contenu avant de l\'importer dans le narratif du flowchart.</div>';
+  }
   body += '</div>';
+
+  // Compteur Design Issues détectées
+  var nbDi = (result && Array.isArray(result.designIssues)) ? result.designIssues.length : 0;
+  if (nbDi > 0) {
+    body += '<div style="background:#FEF2F2;border:.5px solid #FCA5A5;color:#7F1D1D;padding:10px 12px;border-radius:4px;margin-bottom:14px;font-size:11px;line-height:1.5">';
+    body += '<div style="font-weight:600">⚠ '+nbDi+' Design Issue'+(nbDi>1?'s':'')+' détectée'+(nbDi>1?'s':'')+'</div>';
+    body += '<div style="margin-top:3px">Sera créée'+(nbDi>1?'s':'')+' automatiquement en statut « à valider » à l\'import. Tu pourras les valider une par une après revue.</div>';
+    body += '</div>';
+  }
 
   result.subProcesses.forEach(function(spr, i){
     var matchedSp = spr.matchedExistingId ? spById[spr.matchedExistingId] : null;
-    var isCurrentSp = matchedSp && matchedSp.id === fc.subProcessId;
+    var isCurrentSp = matchedSp && currentFcSpId && matchedSp.id === currentFcSpId;
     var isUnmatched = !matchedSp;
 
     var headerColor = isCurrentSp ? '#3C3489' : (isUnmatched ? '#FAC775' : 'var(--border)');
@@ -14615,7 +14638,7 @@ function _renderAnalyzePreview() {
     if (isCurrentSp) {
       body += '<div style="font-size:10px;color:#3C3489;background:#EEEDFE;border:.5px solid #CECBF6;padding:2px 8px;border-radius:3px;display:inline-block;font-weight:500">↻ SP du flowchart courant</div>';
     } else if (matchedSp) {
-      body += '<div style="font-size:10px;color:var(--text-2);background:#fafafa;border:.5px solid var(--border);padding:2px 8px;border-radius:3px;display:inline-block">↻ '+matchedSp.name.replace(/</g,'&lt;')+' (autre SP de l\'audit)</div>';
+      body += '<div style="font-size:10px;color:var(--text-2);background:#fafafa;border:.5px solid var(--border);padding:2px 8px;border-radius:3px;display:inline-block">↻ '+matchedSp.name.replace(/</g,'&lt;')+(isAuditTarget?'':' (autre SP de l\'audit)')+'</div>';
     } else {
       body += '<div style="font-size:10px;color:#854F0B;background:#FAEEDA;border:.5px solid #FAC775;padding:2px 8px;border-radius:3px;display:inline-block;font-weight:500">+ Nouveau SP (validation requise)</div>';
     }
@@ -14643,6 +14666,10 @@ function _renderAnalyzePreview() {
     var footer = document.querySelector('#modal .mf');
     if (footer) footer.style.display = 'none';
   }, 50);
+  } catch (e) {
+    console.error('[v75] ERREUR dans _renderAnalyzePreview:', e);
+    toast('Erreur affichage aperçu : '+(e.message||e));
+  }
 }
 
 // Highlight des marqueurs WCGW/CTRL/DIVERGENCE pour la preview
