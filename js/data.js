@@ -10,6 +10,29 @@ const STEPS=[
 const KEY_STEPS = [2, 4, 5, 6, 8]; // Kick Off, Test Strategy, Testings, Report, Mgt Responses
 
 // ══════════════════════════════════════════════════════════════
+//  v75 : ROOT CAUSE CATEGORIES (référentiel IIA / COSO)
+//  Utilisé pour catégoriser les root causes des Design Issues.
+//  La catégorie aide à formuler des recommandations adaptées.
+// ══════════════════════════════════════════════════════════════
+const ROOT_CAUSE_CATEGORIES = [
+  {id: 'awareness',     label: 'Lack of awareness / Training',         shortLabel: 'Awareness/Training',  color: '#3C3489'},
+  {id: 'process',       label: 'Inadequate process design',            shortLabel: 'Process design',      color: '#7C3AED'},
+  {id: 'resources',     label: 'Insufficient resources',               shortLabel: 'Resources',           color: '#0E7490'},
+  {id: 'oversight',     label: 'Inadequate supervision / Oversight',   shortLabel: 'Oversight',           color: '#854F0B'},
+  {id: 'tooling',       label: 'Inadequate IT systems / Tooling',      shortLabel: 'IT/Tooling',          color: '#1E40AF'},
+  {id: 'sod',           label: 'Lack of segregation of duties',        shortLabel: 'Segregation of duties', color: '#9A3412'},
+  {id: 'policy',        label: 'Inadequate policies / Standards',      shortLabel: 'Policies',            color: '#085041'},
+  {id: 'culture',       label: 'Cultural / Behavioral',                shortLabel: 'Culture/Behavior',    color: '#BE185D'},
+  {id: 'external',      label: 'External constraints',                 shortLabel: 'External',            color: '#1F2937'},
+  {id: 'tbd',           label: 'À déterminer',                          shortLabel: 'À déterminer',         color: '#6B7280'},
+];
+
+function _getRootCauseCategory(id) {
+  if (!id) return null;
+  return ROOT_CAUSE_CATEGORIES.find(function(c){return c.id === id;}) || null;
+}
+
+// ══════════════════════════════════════════════════════════════
 //  DOCUMENTS ATTENDUS PAR ÉTAPE (référentiel global - en dur)
 //  CS = step index (0-based)
 // ══════════════════════════════════════════════════════════════

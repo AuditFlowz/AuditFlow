@@ -10410,6 +10410,21 @@ function renderDesignIssuesInItwSection() {
       if (iss.description) {
         h += '<div style="font-size:11px;color:var(--text-2);line-height:1.5;white-space:pre-wrap">'+iss.description.replace(/</g,'&lt;')+'</div>';
       }
+      // v75 : Root cause
+      var rcCat = _getRootCauseCategory(iss.rootCauseCategory);
+      if (rcCat || iss.rootCauseExplanation) {
+        h += '<div style="margin-top:8px;padding:7px 9px;background:#fff;border:.5px solid var(--border);border-left:3px solid '+(rcCat?rcCat.color:'#6B7280')+';border-radius:3px">';
+        h += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;flex-wrap:wrap">';
+        h += '<span style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500">🎯 Root cause</span>';
+        if (rcCat) {
+          h += '<span style="font-size:10px;font-weight:500;color:'+rcCat.color+';background:'+rcCat.color+'15;border:.5px solid '+rcCat.color+'40;padding:1px 7px;border-radius:2px">'+rcCat.shortLabel+'</span>';
+        }
+        h += '</div>';
+        if (iss.rootCauseExplanation) {
+          h += '<div style="font-size:10px;color:var(--text-2);line-height:1.5;font-style:italic">'+iss.rootCauseExplanation.replace(/</g,'&lt;')+'</div>';
+        }
+        h += '</div>';
+      }
       h += '</div>';
       // Actions
       h += '<div style="display:flex;flex-direction:column;gap:3px;flex-shrink:0">';
@@ -10487,6 +10502,9 @@ function showDesignIssueAiModal(idx) {
   var description = existing ? (existing.description || '') : '';
   var controlName = existing ? (existing.controlName || '') : '';
   var spId = existing ? (existing.relatedSpId || '') : '';
+  // v75 : root cause
+  var rcCat = existing ? (existing.rootCauseCategory || 'tbd') : 'tbd';
+  var rcExpl = existing ? (existing.rootCauseExplanation || '') : '';
 
   var body = '';
   // Subtype radios
@@ -10545,6 +10563,25 @@ function showDesignIssueAiModal(idx) {
   body += '<textarea id="di-description" placeholder="Décris la défaillance : quel est le gap ou la faiblesse de design, quel risque ça expose, pourquoi c\'est un problème (1-3 phrases)" style="width:100%;min-height:90px;font-size:11px;padding:8px 10px;border:.5px solid var(--border);border-radius:3px;box-sizing:border-box;resize:vertical;font-family:inherit;line-height:1.5">'+description.replace(/</g,'&lt;')+'</textarea>';
   body += '</div>';
 
+  // v75 : Root cause section
+  body += '<div style="margin-bottom:10px;padding:10px;background:#fafafa;border:.5px solid var(--border);border-radius:4px">';
+  body += '<div style="font-size:11px;font-weight:600;color:var(--text-1);margin-bottom:8px;display:flex;align-items:center;gap:6px">🎯 Root cause <span style="font-size:9px;color:var(--text-3);font-weight:400;font-style:italic">— catégorie standard IIA / COSO</span></div>';
+  // Catégorie
+  body += '<div style="margin-bottom:8px">';
+  body += '<label style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;display:block;margin-bottom:3px">Catégorie</label>';
+  body += '<select id="di-rc-cat" style="width:100%;font-size:11px;padding:6px 9px;border:.5px solid var(--border);border-radius:3px;box-sizing:border-box;background:#fff">';
+  ROOT_CAUSE_CATEGORIES.forEach(function(c){
+    body += '<option value="'+c.id+'"'+(rcCat===c.id?' selected':'')+'>'+c.label.replace(/</g,'&lt;')+'</option>';
+  });
+  body += '</select>';
+  body += '</div>';
+  // Explication
+  body += '<div>';
+  body += '<label style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;display:block;margin-bottom:3px">Explication factuelle</label>';
+  body += '<textarea id="di-rc-expl" placeholder="Justifie la catégorisation à partir d\'éléments concrets des entretiens (ex : « Le trésorier a indiqué qu\'il n\'a jamais reçu de formation sur la procédure de validation des paiements. »). 1-3 phrases." style="width:100%;min-height:60px;font-size:11px;padding:8px 10px;border:.5px solid var(--border);border-radius:3px;box-sizing:border-box;resize:vertical;font-family:inherit;line-height:1.5">'+rcExpl.replace(/</g,'&lt;')+'</textarea>';
+  body += '</div>';
+  body += '</div>';
+
   var idxAttr = (idx !== null && idx !== undefined) ? idx : -1;
   openModal(
     existing ? '✎ Éditer la Design Issue' : '+ Ajouter une Design Issue',
@@ -10566,11 +10603,16 @@ async function saveDesignIssueAi(idx) {
     var descEl = document.getElementById('di-description');
     var ctrlEl = document.getElementById('di-control');
     var spEl = document.getElementById('di-sp');
+    // v75 : root cause
+    var rcCatEl = document.getElementById('di-rc-cat');
+    var rcExplEl = document.getElementById('di-rc-expl');
 
     var title = (titleEl ? titleEl.value : '').trim();
     var description = (descEl ? descEl.value : '').trim();
     var controlName = (ctrlEl ? ctrlEl.value : '').trim();
     var spId = spEl ? spEl.value : '';
+    var rcCat = rcCatEl ? rcCatEl.value : 'tbd';
+    var rcExpl = (rcExplEl ? rcExplEl.value : '').trim();
 
     if (!title) { toast('Indique au moins un titre court'); throw new Error('Validation : titre requis'); }
 
@@ -10584,6 +10626,8 @@ async function saveDesignIssueAi(idx) {
       iss.description = description;
       iss.controlName = controlName;
       iss.relatedSpId = spId || null;
+      iss.rootCauseCategory = rcCat;
+      iss.rootCauseExplanation = rcExpl;
     } else {
       d.issues.push({
         id: 'iss_' + Date.now() + '_' + Math.floor(Math.random()*100000),
@@ -10593,6 +10637,8 @@ async function saveDesignIssueAi(idx) {
         description: description,
         controlName: controlName,
         relatedSpId: spId || null,
+        rootCauseCategory: rcCat,
+        rootCauseExplanation: rcExpl,
         aiGenerated: false,
         validationStatus: 'pending',
         createdAt: new Date().toISOString(),
@@ -11778,11 +11824,23 @@ function renderFindingsSection() {
       var typeLabel = subtype === 'missing'
         ? '<span class="badge" style="background:#FCE7E5;color:#7F1D1D;font-size:9px;border:.5px solid #F8B4B4">⚑ Manquant</span>'
         : '<span class="badge" style="background:#FFEDD5;color:#9A3412;font-size:9px;border:.5px solid #FDBA74">⚠ Insuffisant</span>';
-      html += '<div style="background:#fff;border:.5px solid var(--border);border-radius:4px;padding:5px 8px;margin-bottom:3px;display:flex;align-items:center;gap:8px">';
-      html += typeLabel;
+      html += '<div style="background:#fff;border:.5px solid var(--border);border-radius:4px;padding:7px 9px;margin-bottom:4px;display:flex;align-items:flex-start;gap:8px">';
+      html += '<div style="flex-shrink:0;padding-top:1px">'+typeLabel+'</div>';
       html += '<div style="flex:1;font-size:11px;min-width:0">';
       html += '<div style="font-weight:500;color:var(--text-1)">'+(iss.title||'(sans titre)').replace(/</g,'&lt;')+'</div>';
-      if (iss.controlName) html += '<div style="color:var(--text-3);font-size:9px;font-style:italic">Contrôle : '+iss.controlName.replace(/</g,'&lt;')+'</div>';
+      if (iss.controlName) html += '<div style="color:var(--text-3);font-size:9px;font-style:italic;margin-top:2px">Contrôle : '+iss.controlName.replace(/</g,'&lt;')+'</div>';
+      // v75 : root cause badge inline
+      var rcCat = _getRootCauseCategory(iss.rootCauseCategory);
+      if (rcCat) {
+        html += '<div style="margin-top:4px;display:flex;align-items:center;gap:4px;flex-wrap:wrap">';
+        html += '<span style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500">🎯 RC :</span>';
+        html += '<span style="font-size:9px;font-weight:500;color:'+rcCat.color+';background:'+rcCat.color+'15;border:.5px solid '+rcCat.color+'40;padding:1px 6px;border-radius:2px">'+rcCat.shortLabel+'</span>';
+        if (iss.rootCauseExplanation) {
+          var rcShort = iss.rootCauseExplanation.length > 110 ? iss.rootCauseExplanation.substring(0, 108) + '…' : iss.rootCauseExplanation;
+          html += '<span style="font-size:9px;color:var(--text-3);font-style:italic">'+rcShort.replace(/</g,'&lt;')+'</span>';
+        }
+        html += '</div>';
+      }
       html += '</div>';
       html += '</div>';
     });
@@ -14302,6 +14360,26 @@ function _buildAnalyzePrompt() {
   p += '4. Si plusieurs intervenants sont en désaccord sur un point factuel (ex : un seuil), signale avec `⚠️ DIVERGENCE : [Intervenant A] indique X, [Intervenant B] indique Y. À clarifier.`\n';
   p += '5. Le narratif doit être en **français professionnel d\'audit**, ton neutre, sans jugement.\n';
 
+  // ── v75 : ROOT CAUSE ──────────────────────────────────────
+  p += '\n## ROOT CAUSE DES DESIGN ISSUES\n\n';
+  p += 'Pour chaque Design Issue (manquant ou insuffisant) que tu identifies, infère **la cause profonde** (root cause) à partir des éléments des entretiens. Catégorise selon le référentiel suivant (utilise l\'`id` exact dans le JSON) :\n\n';
+  p += '| ID | Catégorie | Quand l\'utiliser |\n';
+  p += '|---|---|---|\n';
+  p += '| `awareness` | Lack of awareness / Training | Personnel pas formé, procédure pas connue, nouveaux arrivants, manque de sensibilisation |\n';
+  p += '| `process` | Inadequate process design | Process pas pensé pour ce cas, étapes manquantes, workflow incomplet |\n';
+  p += '| `resources` | Insufficient resources | Pas assez de personnel, pas de budget, pas d\'outil, charge trop élevée |\n';
+  p += '| `oversight` | Inadequate supervision / Oversight | Pas de revue managériale, contrôle de second niveau absent, pas de pilotage |\n';
+  p += '| `tooling` | Inadequate IT systems / Tooling | Système ne supporte pas le contrôle, pas d\'automatisation possible, outils inadaptés |\n';
+  p += '| `sod` | Lack of segregation of duties | Une seule personne fait toute la chaîne, pas de séparation des tâches |\n';
+  p += '| `policy` | Inadequate policies / Standards | Pas de politique écrite, standards flous, règles non documentées |\n';
+  p += '| `culture` | Cultural / Behavioral | Tolérance aux écarts, pression résultats, contournements habituels, "on a toujours fait comme ça" |\n';
+  p += '| `external` | External constraints | Réglementation, fournisseur, contrainte client, dépendance externe |\n';
+  p += '| `tbd` | À déterminer | À utiliser UNIQUEMENT si les éléments des entretiens ne permettent pas de conclure avec une confiance raisonnable |\n\n';
+  p += '**Pour chaque Design Issue, tu DOIS proposer :**\n';
+  p += '- une `rootCauseCategory` (l\'`id` parmi les 10 ci-dessus)\n';
+  p += '- une `rootCauseExplanation` : 1-3 phrases qui justifient cette catégorisation à partir des éléments concrets des entretiens (cite les éléments factuels)\n';
+  p += 'Si tu hésites entre 2 catégories, choisis celle qui a le plus de poids et explique-le. Utilise `tbd` UNIQUEMENT si les entretiens ne donnent vraiment aucun élément.\n';
+
   // Format de sortie
   p += '\n## FORMAT DE SORTIE (JSON STRICT)\n\n';
   p += 'Réponds UNIQUEMENT avec un objet JSON valide, sans texte avant ni après. Format :\n\n';
@@ -14320,12 +14398,14 @@ function _buildAnalyzePrompt() {
   p += '      "title": "Titre court (5-10 mots) de la défaillance",\n';
   p += '      "description": "Description détaillée : quel est le gap/la faiblesse de design, quel risque ça expose, pourquoi c\'est un problème (1-3 phrases)",\n';
   p += '      "controlName": "Nom du contrôle concerné (vide si manquant et qu\'on ne peut pas nommer)",\n';
-  p += '      "relatedSpId": "sp_xxx" du sous-processus concerné, ou null si nouveau SP\n';
+  p += '      "relatedSpId": "sp_xxx" du sous-processus concerné, ou null si nouveau SP,\n';
+  p += '      "rootCauseCategory": "awareness | process | resources | oversight | tooling | sod | policy | culture | external | tbd",\n';
+  p += '      "rootCauseExplanation": "Justification factuelle de la catégorisation (1-3 phrases qui citent des éléments concrets des entretiens)"\n';
   p += '    }\n';
   p += '  ]\n';
   p += '}\n';
   p += '```\n';
-  p += '\nNote : Le tableau `designIssues` peut être vide `[]` si aucune défaillance de design n\'est repérée. Chaque DESIGN ISSUE inline dans le narratif DOIT avoir une entrée structurée correspondante dans `designIssues`.\n';
+  p += '\nNote : Le tableau `designIssues` peut être vide `[]` si aucune défaillance de design n\'est repérée. Chaque DESIGN ISSUE inline dans le narratif DOIT avoir une entrée structurée correspondante dans `designIssues`. **Chaque entrée DOIT avoir une `rootCauseCategory` et une `rootCauseExplanation`** (utilise `tbd` si vraiment indéterminable).\n';
 
   // Scripts d'entretiens
   p += '\n## TRANSCRIPTIONS D\'ENTRETIENS À ANALYSER\n';
@@ -14590,6 +14670,10 @@ async function _doImportAnalysis() {
         // Résoudre l'ID du SP si fourni (et qu'il existe)
         var spId = di.relatedSpId && spById[di.relatedSpId] ? di.relatedSpId : null;
 
+        // v75 : root cause IA (validée par l'auditeur ensuite)
+        var rcCat = di.rootCauseCategory && _getRootCauseCategory(di.rootCauseCategory) ? di.rootCauseCategory : 'tbd';
+        var rcExpl = (di.rootCauseExplanation || '').trim();
+
         d.issues.push({
           id: 'iss_' + Date.now() + '_' + Math.floor(Math.random()*100000) + '_' + nbDesignIssuesCreated,
           source: 'design',
@@ -14598,6 +14682,9 @@ async function _doImportAnalysis() {
           description: description,
           controlName: (di.controlName || '').trim(),
           relatedSpId: spId,
+          // v75 : root cause
+          rootCauseCategory: rcCat,
+          rootCauseExplanation: rcExpl,
           aiGenerated: true,
           validationStatus: 'pending', // 'pending' (IA, à valider) ou 'validated' (validée par l'auditeur)
           createdAt: new Date().toISOString(),
