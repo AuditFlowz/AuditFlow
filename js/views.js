@@ -8725,8 +8725,8 @@ function _fcRenderNode(node, allCtrls, validation) {
     });
   }
 
-  // Affichage de l'acteur (qui exécute) sous la forme — pour tous types sauf start/end
-  if (node.actor && node.type !== 'start' && node.type !== 'end') {
+  // Affichage de l'acteur (qui exécute) sous la forme — pour tous types sauf start/end et wcgw
+  if (node.actor && node.type !== 'start' && node.type !== 'end' && node.type !== 'wcgw') {
     var actorTxt = (''+node.actor).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     if (actorTxt.length > 28) actorTxt = actorTxt.substring(0, 26) + '…';
     var actorY = y + h + 14; // 14px sous le bas de la forme
@@ -8736,6 +8736,21 @@ function _fcRenderNode(node, allCtrls, validation) {
     s += '<text x="'+(x + w/2)+'" y="'+(actorY + 1)+'" text-anchor="middle" font-size="9" fill="#6B7280" font-style="italic" font-family="sans-serif" pointer-events="none">👤 '+actorTxt+'</text>';
   }
 
+  // v69 : pour les WCGW, afficher le titre sous le losange (similaire pill mais rouge)
+  if (node.type === 'wcgw' && node.wcgwId && !hasError) {
+    var dForWcgw = getAudData(CA);
+    var wcgwListCanvas = (dForWcgw.wcgw && dForWcgw.wcgw[4]) || [];
+    var wcgwDefCanvas = wcgwListCanvas.find(function(w){return w.id === node.wcgwId;});
+    if (wcgwDefCanvas && wcgwDefCanvas.title && wcgwDefCanvas.title !== 'WCGW à décrire') {
+      var titleTxt = wcgwDefCanvas.title.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      if (titleTxt.length > 32) titleTxt = titleTxt.substring(0, 30) + '…';
+      var titleY = y + h + 14;
+      var titleW = Math.max(titleTxt.length * 5.5 + 12, 30);
+      s += '<rect x="'+(x + w/2 - titleW/2)+'" y="'+(titleY - 9)+'" width="'+titleW+'" height="13" fill="#FCEBEB" stroke="#F2C2C0" stroke-width=".5" rx="2" pointer-events="none"/>';
+      s += '<text x="'+(x + w/2)+'" y="'+(titleY + 1)+'" text-anchor="middle" font-size="9" fill="#993C1D" font-style="italic" font-family="sans-serif" pointer-events="none">'+titleTxt+'</text>';
+    }
+  }
+
   s += '</g>';
   return s;
 }
@@ -8743,8 +8758,114 @@ function _fcRenderNode(node, allCtrls, validation) {
 // Panneau de propriétés du nœud sélectionné
 function _fcRenderProperties(node, allCtrls) {
   var h = '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;margin-bottom:6px">Propriétés</div>';
-  var typeLabels = {start:'Début', end:'Fin', step:'Étape', decision:'Décision', meeting:'Réunion', document:'Document', database:'Système / BDD', ctrl_existing:'Contrôle Existant', ctrl_target:'Contrôle Target'};
+  var typeLabels = {start:'Début', end:'Fin', step:'Étape', decision:'Décision', meeting:'Réunion', document:'Document', database:'Système / BDD', wcgw:'WCGW (risque)', ctrl_existing:'Contrôle Existant', ctrl_target:'Contrôle Target'};
   h += '<div style="font-size:11px;color:#3C3489;font-weight:500;margin-bottom:10px">'+(typeLabels[node.type]||node.type)+'</div>';
+
+  // ── v69 : Champs spécifiques au WCGW ──────────────
+  if (node.type === 'wcgw') {
+    var d = getAudData(CA);
+    var wcgwList = (d.wcgw && d.wcgw[4]) || [];
+    var wcgwDef = node.wcgwId ? wcgwList.find(function(w){return w.id === node.wcgwId;}) : null;
+
+    if (!wcgwDef) {
+      // Cas anormal : losange WCGW sans wcgwId — on affiche juste le texte basique
+      h += '<div style="font-size:10px;color:#993C1D;background:#FCEBEB;padding:6px 8px;border-radius:3px;margin-bottom:10px">⚠ Ce losange n\'est pas lié à un WCGW dans le modèle. Supprime-le et recrée-le depuis la palette.</div>';
+    } else {
+      // Code (modifiable, mais avec validation)
+      h += '<div style="margin-bottom:10px">';
+      h += '<label style="font-size:10px;color:var(--text-2);display:block;margin-bottom:3px">Code</label>';
+      h += '<input type="text" value="'+(''+(wcgwDef.code||'')).replace(/"/g,'&quot;')+'" onchange="setWcgwField(\''+wcgwDef.id+'\',\'code\',this.value)" placeholder="ex : WCGW-1" style="width:100%;font-size:11px;padding:4px 7px;border:.5px solid var(--border);border-radius:3px;box-sizing:border-box;font-family:monospace;font-weight:500"/>';
+      h += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:3px">Le code apparaît sur le losange dans le canvas</div>';
+      h += '</div>';
+
+      // Titre
+      h += '<div style="margin-bottom:10px">';
+      h += '<label style="font-size:10px;color:var(--text-2);display:block;margin-bottom:3px">Titre</label>';
+      h += '<input type="text" value="'+(''+(wcgwDef.title||'')).replace(/"/g,'&quot;')+'" onchange="setWcgwField(\''+wcgwDef.id+'\',\'title\',this.value)" placeholder="ex : Engagement non autorisé > 50k€" style="width:100%;font-size:11px;padding:4px 7px;border:.5px solid var(--border);border-radius:3px;box-sizing:border-box"/>';
+      h += '</div>';
+
+      // Description (textarea)
+      h += '<div style="margin-bottom:10px">';
+      h += '<label style="font-size:10px;color:var(--text-2);display:block;margin-bottom:3px">Description du scénario à risque</label>';
+      h += '<textarea onchange="setWcgwField(\''+wcgwDef.id+'\',\'description\',this.value)" placeholder="Décris en détail le scénario : qui pourrait faire quoi, dans quelles circonstances, avec quelles conséquences…" style="width:100%;min-height:80px;font-size:11px;padding:6px 8px;border:.5px solid var(--border);border-radius:3px;box-sizing:border-box;resize:vertical;font-family:inherit;line-height:1.5">'+(''+(wcgwDef.description||'')).replace(/</g,'&lt;')+'</textarea>';
+      h += '</div>';
+
+      // Risques associés (multi-select depuis Risk Universe)
+      var auditObj = AUDIT_PLAN.find(function(x){return x.id===CA;});
+      var auditRiskRefs = (d.auditRisks || []).filter(function(r){return r.id;});
+      // Si l'audit n'a pas de risques URD attachés, on propose tous les risques URD globaux
+      var availRisks = auditRiskRefs.length ? auditRiskRefs : (typeof RISK_UNIVERSE !== 'undefined' ? RISK_UNIVERSE : []);
+      if (availRisks.length > 0) {
+        h += '<div style="margin-bottom:10px">';
+        h += '<label style="font-size:10px;color:var(--text-2);display:block;margin-bottom:3px">Risques URD associés</label>';
+        var riskIds = wcgwDef.riskIds || [];
+        h += '<div style="max-height:120px;overflow-y:auto;border:.5px solid var(--border);border-radius:3px;background:#fff;padding:4px 6px">';
+        availRisks.forEach(function(r){
+          var rid = r.id;
+          var rcode = r.code || rid;
+          var rname = r.name || r.title || rid;
+          var checked = riskIds.indexOf(rid) >= 0 ? 'checked' : '';
+          h += '<label style="display:flex;align-items:flex-start;gap:5px;padding:3px 0;font-size:10px;cursor:pointer">';
+          h += '<input type="checkbox" '+checked+' onchange="toggleWcgwRisk(\''+wcgwDef.id+'\',\''+rid+'\',this.checked)" style="margin-top:1px"/>';
+          h += '<span><strong style="font-weight:500;color:#3C3489;font-family:monospace">'+rcode.replace(/</g,'&lt;')+'</strong> · '+(''+rname).replace(/</g,'&lt;')+'</span>';
+          h += '</label>';
+        });
+        h += '</div>';
+        if (riskIds.length > 0) {
+          h += '<div style="font-size:9px;color:#3C3489;margin-top:4px">'+riskIds.length+' risque(s) URD associé(s)</div>';
+        }
+        h += '</div>';
+      }
+
+      // Sous-processus (lecture seule, dérivé du flowchart)
+      var sps = (d.kickoffPrep && Array.isArray(d.kickoffPrep.subProcesses)) ? d.kickoffPrep.subProcesses : [];
+      var fc = _fcGetCurrent();
+      var spForFc = fc && fc.subProcessId ? sps.find(function(x){return x.id===fc.subProcessId;}) : null;
+      if (spForFc) {
+        h += '<div style="margin-bottom:10px;padding:6px 8px;background:#fafafa;border-radius:3px;border:.5px solid var(--border)">';
+        h += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;margin-bottom:3px">Sous-processus rattaché</div>';
+        h += '<div style="font-size:11px;color:var(--text-1);font-weight:500">'+(''+spForFc.name).replace(/</g,'&lt;')+'</div>';
+        h += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:2px">Hérité du flowchart</div>';
+        h += '</div>';
+      }
+
+      // Compteur de contrôles backed (lecture seule)
+      var fcCur = _fcGetCurrent();
+      if (fcCur) {
+        var validation = _fcAnalyzeWcgwCoverage(fcCur);
+        var ctrlsBackedNodeIds = validation.mapWcgwToCtrls[node.id] || [];
+        var coverageColor = ctrlsBackedNodeIds.length > 0 ? '#085041' : '#993C1D';
+        var coverageBg = ctrlsBackedNodeIds.length > 0 ? '#E1F5EE' : '#FCEBEB';
+        var coverageBorder = ctrlsBackedNodeIds.length > 0 ? '#A6E2CD' : '#F2C2C0';
+        h += '<div style="margin-bottom:10px;padding:6px 8px;background:'+coverageBg+';border:.5px solid '+coverageBorder+';border-radius:3px">';
+        h += '<div style="font-size:9px;color:'+coverageColor+';text-transform:uppercase;letter-spacing:.4px;font-weight:500;margin-bottom:3px">'+(ctrlsBackedNodeIds.length > 0 ? '✓ Couvert' : '⚠ Non couvert')+'</div>';
+        h += '<div style="font-size:11px;color:'+coverageColor+';font-weight:500">'+ctrlsBackedNodeIds.length+' contrôle(s) lié(s)</div>';
+        if (ctrlsBackedNodeIds.length === 0) {
+          h += '<div style="font-size:9px;color:'+coverageColor+';font-style:italic;margin-top:3px">→ Ajoute un cercle Existant ou Target dans le flowchart, puis lie-le à ce WCGW (mode 🔗)</div>';
+        }
+        h += '</div>';
+      }
+    }
+
+    // Position et taille (toujours utiles)
+    h += '<div style="margin-bottom:10px">';
+    h += '<label style="font-size:10px;color:var(--text-2);display:block;margin-bottom:3px">Position (x, y)</label>';
+    h += '<div style="display:flex;gap:4px">';
+    h += '<input type="number" value="'+node.x+'" onchange="setFlowchartNodeProp(\''+node.id+'\',\'x\',parseInt(this.value))" style="width:50%;font-size:11px;padding:4px 7px;border:.5px solid var(--border);border-radius:3px;box-sizing:border-box"/>';
+    h += '<input type="number" value="'+node.y+'" onchange="setFlowchartNodeProp(\''+node.id+'\',\'y\',parseInt(this.value))" style="width:50%;font-size:11px;padding:4px 7px;border:.5px solid var(--border);border-radius:3px;box-sizing:border-box"/>';
+    h += '</div>';
+    h += '</div>';
+
+    h += '<div style="margin-bottom:10px">';
+    h += '<label style="font-size:10px;color:var(--text-2);display:block;margin-bottom:3px">Taille (largeur × hauteur)</label>';
+    h += '<div style="display:flex;gap:4px">';
+    h += '<input type="number" min="20" value="'+node.w+'" onchange="setFlowchartNodeProp(\''+node.id+'\',\'w\',parseInt(this.value))" style="width:50%;font-size:11px;padding:4px 7px;border:.5px solid var(--border);border-radius:3px;box-sizing:border-box"/>';
+    h += '<input type="number" min="20" value="'+node.h+'" onchange="setFlowchartNodeProp(\''+node.id+'\',\'h\',parseInt(this.value))" style="width:50%;font-size:11px;padding:4px 7px;border:.5px solid var(--border);border-radius:3px;box-sizing:border-box"/>';
+    h += '</div>';
+    h += '</div>';
+
+    return h; // on s'arrête ici pour les WCGW (pas de champ Texte/Acteur génériques)
+  }
 
   // Texte (sauf si lié à un contrôle)
   var hasControlLink = (node.type==='ctrl_existing' || node.type==='ctrl_target') && node.controlId;
@@ -8997,6 +9118,57 @@ async function setFlowchartNodeProp(nodeId, prop, val) {
   if (!n) return;
   n[prop] = val;
   await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+// v69 : modifier un champ d'un WCGW dans le modèle (code, title, description)
+// Si le champ est `code` ou `title`, on met aussi à jour le label du losange WCGW
+async function setWcgwField(wcgwId, field, val) {
+  var d = getAudData(CA);
+  var wcgwList = (d.wcgw && d.wcgw[4]) || [];
+  var w = wcgwList.find(function(x){return x.id === wcgwId;});
+  if (!w) { toast('WCGW introuvable'); return; }
+
+  // Validation unicité du code
+  if (field === 'code') {
+    var trimmed = (val || '').trim();
+    if (!trimmed) { toast('Le code ne peut pas être vide'); return; }
+    var dup = wcgwList.find(function(x){return x.id !== wcgwId && (x.code||'').trim() === trimmed;});
+    if (dup) { toast('Code déjà utilisé par un autre WCGW'); return; }
+    val = trimmed;
+  }
+
+  w[field] = val;
+
+  // Synchroniser le label du losange dans tous les flowcharts
+  if (field === 'code') {
+    (d.flowcharts || []).forEach(function(fc){
+      (fc.nodes || []).forEach(function(n){
+        if (n.type === 'wcgw' && n.wcgwId === wcgwId) {
+          n.text = val;
+        }
+      });
+    });
+  }
+
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+// v69 : ajouter/retirer un risque URD au WCGW
+async function toggleWcgwRisk(wcgwId, riskId, checked) {
+  var d = getAudData(CA);
+  var wcgwList = (d.wcgw && d.wcgw[4]) || [];
+  var w = wcgwList.find(function(x){return x.id === wcgwId;});
+  if (!w) return;
+  if (!Array.isArray(w.riskIds)) w.riskIds = [];
+  if (checked) {
+    if (w.riskIds.indexOf(riskId) < 0) w.riskIds.push(riskId);
+  } else {
+    w.riskIds = w.riskIds.filter(function(x){return x !== riskId;});
+  }
+  await saveAuditData(CA);
+  // Pas besoin de rerender complet (juste pour le compteur en bas)
   document.getElementById('det-content').innerHTML = renderDetContent();
 }
 
