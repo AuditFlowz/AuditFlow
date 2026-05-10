@@ -10314,8 +10314,302 @@ function renderItwNarrativeSection() {
   h += '</div>'; // end side panel
   h += '</div>'; // end grid
 
+  // ── v74 : Section Design Issues (sous le grid 2 cols) ────────────
+  h += renderDesignIssuesInItwSection();
+
   return h;
 }
+
+// v74 : section Design Issues affichée dans l'étape ITW/Narratif
+// Liste les issues source='design' avec filtre Pending/Validated et actions
+function renderDesignIssuesInItwSection() {
+  var d = getAudData(CA);
+  _ensureIssues(d);
+  var sps = (d.kickoffPrep && Array.isArray(d.kickoffPrep.subProcesses)) ? d.kickoffPrep.subProcesses : [];
+  var spById = {};
+  sps.forEach(function(sp){ spById[sp.id] = sp; });
+
+  var designIssues = d.issues.filter(function(i){return i.source === 'design';});
+  var pending = designIssues.filter(function(i){return (i.validationStatus || 'pending') === 'pending';});
+  var validated = designIssues.filter(function(i){return i.validationStatus === 'validated';});
+
+  // Filtre actuel (state global éphémère)
+  if (typeof window._diFilter === 'undefined') window._diFilter = 'pending';
+
+  var h = '';
+  h += '<div style="margin-top:18px">';
+
+  // Header
+  h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">';
+  h += '<div style="display:flex;align-items:baseline;gap:10px">';
+  h += '<span style="font-size:13px;font-weight:600;color:var(--text-1)">⚠ Design Issues</span>';
+  h += '<span style="font-size:10px;color:var(--text-3);font-style:italic">Défaillances de conception du dispositif de contrôle (manquant ou insuffisant)</span>';
+  h += '</div>';
+  // Bouton Ajouter manuellement
+  h += '<button onclick="showDesignIssueAiModal(null)" style="font-size:11px;padding:5px 10px;background:#fff;color:#3C3489;border:.5px solid #3C3489;border-radius:3px;cursor:pointer;font-weight:500">+ Ajouter manuellement</button>';
+  h += '</div>';
+
+  // Filtres
+  h += '<div style="display:flex;gap:6px;margin-bottom:10px">';
+  ['pending', 'validated', 'all'].forEach(function(f){
+    var isActive = window._diFilter === f;
+    var label = f === 'pending' ? '🕐 À valider ('+pending.length+')'
+              : f === 'validated' ? '✓ Validées ('+validated.length+')'
+              : '📋 Toutes ('+designIssues.length+')';
+    h += '<button onclick="_setDiFilter(\''+f+'\')" style="font-size:10px;padding:5px 12px;background:'+(isActive?'#3C3489':'#fff')+';color:'+(isActive?'#fff':'var(--text-2)')+';border:.5px solid '+(isActive?'#3C3489':'var(--border)')+';border-radius:3px;cursor:pointer;font-weight:'+(isActive?'500':'400')+'">'+label+'</button>';
+  });
+  h += '</div>';
+
+  // Liste filtrée
+  var displayList = window._diFilter === 'all' ? designIssues
+                  : window._diFilter === 'validated' ? validated
+                  : pending;
+
+  if (!displayList.length) {
+    var msg = window._diFilter === 'pending' ? 'Aucune Design Issue en attente de validation. Lance une analyse IA pour en générer, ou ajoute-en manuellement.'
+            : window._diFilter === 'validated' ? 'Aucune Design Issue validée pour l\'instant. Valide les Design Issues en attente pour qu\'elles deviennent des findings candidates dans le rapport.'
+            : 'Aucune Design Issue. Lance une analyse IA des entretiens pour en faire ressortir, ou ajoute-en manuellement.';
+    h += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:18px;text-align:center;border:1px dashed var(--border);border-radius:6px;background:#fafafa">'+msg+'</div>';
+  } else {
+    h += '<div style="display:grid;gap:6px">';
+    displayList.forEach(function(iss){
+      var idx = d.issues.indexOf(iss);
+      var subtype = iss.subtype || 'weak';
+      var isMissing = subtype === 'missing';
+      var isValidated = iss.validationStatus === 'validated';
+      var isAi = !!iss.aiGenerated;
+      var sp = iss.relatedSpId ? spById[iss.relatedSpId] : null;
+
+      // Couleurs : Manquant = rouge sombre, Insuffisant = orange
+      var borderColor = isMissing ? '#7F1D1D' : '#9A3412';
+      var bgColor = isMissing ? '#FEF2F2' : '#FFF7ED';
+      var icon = isMissing ? '⚑' : '⚠';
+      var typeLabel = isMissing ? 'CTRL Manquant' : 'CTRL Insuffisant';
+
+      h += '<div style="background:'+bgColor+';border:.5px solid '+borderColor+';border-left:3px solid '+borderColor+';border-radius:4px;padding:10px 12px">';
+      h += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">';
+      h += '<div style="flex:1;min-width:200px">';
+      // Header : type + status + AI
+      h += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px">';
+      h += '<span style="font-size:11px;font-weight:600;color:'+borderColor+'">'+icon+' '+typeLabel+'</span>';
+      if (isAi) h += '<span style="font-size:9px;background:#fff;color:#3C3489;padding:1px 6px;border-radius:2px;border:.5px solid #CECBF6;font-weight:500">🤖 IA</span>';
+      if (isValidated) {
+        h += '<span style="font-size:9px;background:#E1F5EE;color:#085041;padding:1px 6px;border-radius:2px;border:.5px solid #A6E2CD;font-weight:500">✓ Validée</span>';
+      } else {
+        h += '<span style="font-size:9px;background:#FFF4D9;color:#854F0B;padding:1px 6px;border-radius:2px;border:.5px solid #FAC775;font-weight:500">🕐 À valider</span>';
+      }
+      if (sp) h += '<span style="font-size:9px;background:#fff;color:var(--text-2);padding:1px 6px;border-radius:2px;border:.5px solid var(--border)">'+sp.name.replace(/</g,'&lt;')+'</span>';
+      h += '</div>';
+      // Title
+      h += '<div style="font-size:12px;font-weight:500;color:var(--text-1);margin-bottom:3px">'+(iss.title||'(sans titre)').replace(/</g,'&lt;')+'</div>';
+      // Control name
+      if (iss.controlName) {
+        h += '<div style="font-size:10px;color:var(--text-2);font-style:italic;margin-bottom:4px">Contrôle concerné : '+iss.controlName.replace(/</g,'&lt;')+'</div>';
+      }
+      // Description
+      if (iss.description) {
+        h += '<div style="font-size:11px;color:var(--text-2);line-height:1.5;white-space:pre-wrap">'+iss.description.replace(/</g,'&lt;')+'</div>';
+      }
+      h += '</div>';
+      // Actions
+      h += '<div style="display:flex;flex-direction:column;gap:3px;flex-shrink:0">';
+      if (!isValidated) {
+        h += '<button onclick="validateDesignIssue('+idx+')" title="Valider — passera en finding candidate dans le rapport" style="font-size:10px;padding:4px 10px;background:#085041;color:#fff;border:none;border-radius:3px;cursor:pointer;font-weight:500">✓ Valider</button>';
+      } else {
+        h += '<button onclick="unvalidateDesignIssue('+idx+')" title="Repasser en attente de validation" style="font-size:10px;padding:4px 10px;background:#fff;color:#854F0B;border:.5px solid #FAC775;border-radius:3px;cursor:pointer">↺ Dévalider</button>';
+      }
+      h += '<button onclick="showDesignIssueAiModal('+idx+')" title="Éditer" style="font-size:10px;padding:4px 10px;background:#fff;border:.5px solid var(--border);border-radius:3px;cursor:pointer">✎ Éditer</button>';
+      h += '<button onclick="deleteDesignIssueAi('+idx+')" title="Supprimer" style="font-size:10px;padding:4px 10px;background:#fff;color:#993C1D;border:.5px solid var(--border);border-radius:3px;cursor:pointer">🗑</button>';
+      h += '</div>';
+      h += '</div>';
+      h += '</div>';
+    });
+    h += '</div>';
+
+    // Footer : compteur + lien vers report
+    if (validated.length > 0) {
+      h += '<div style="margin-top:10px;padding:8px 12px;background:#E1F5EE;border:.5px solid #A6E2CD;border-radius:3px;font-size:11px;color:#085041;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">';
+      h += '<span><strong style="font-weight:500">'+validated.length+' Design Issue'+(validated.length>1?'s':'')+' validée'+(validated.length>1?'s':'')+'</strong> · disponible'+(validated.length>1?'s':'')+' comme finding'+(validated.length>1?'s':'')+' candidate'+(validated.length>1?'s':'')+' dans le rapport</span>';
+      h += '<button onclick="goStep(6)" style="font-size:10px;padding:4px 10px;background:#085041;color:#fff;border:none;border-radius:3px;cursor:pointer;font-weight:500">↗ Aller au Report</button>';
+      h += '</div>';
+    }
+  }
+
+  h += '</div>';
+  return h;
+}
+
+function _setDiFilter(f) {
+  window._diFilter = f;
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+async function validateDesignIssue(idx) {
+  var d = getAudData(CA);
+  if (!d.issues || !d.issues[idx]) return;
+  d.issues[idx].validationStatus = 'validated';
+  d.issues[idx].validatedAt = new Date().toISOString();
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+  toast('✓ Design Issue validée — disponible dans le Report');
+}
+
+async function unvalidateDesignIssue(idx) {
+  var d = getAudData(CA);
+  if (!d.issues || !d.issues[idx]) return;
+  d.issues[idx].validationStatus = 'pending';
+  delete d.issues[idx].validatedAt;
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+  toast('↺ Repassée en attente de validation');
+}
+
+async function deleteDesignIssueAi(idx) {
+  var d = getAudData(CA);
+  if (!d.issues || !d.issues[idx]) return;
+  var iss = d.issues[idx];
+  if (!confirm('Supprimer définitivement cette Design Issue : « '+(iss.title||'(sans titre)')+' » ?')) return;
+  d.issues.splice(idx, 1);
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+  toast('✓ Design Issue supprimée');
+}
+
+// Modale Ajouter/Éditer une Design Issue (variant pour structure v74)
+function showDesignIssueAiModal(idx) {
+  var d = getAudData(CA);
+  _ensureIssues(d);
+  var existing = (idx !== null && idx !== undefined) ? d.issues[idx] : null;
+  var sps = (d.kickoffPrep && Array.isArray(d.kickoffPrep.subProcesses)) ? d.kickoffPrep.subProcesses : [];
+
+  var subtype = existing ? (existing.subtype || 'weak') : 'weak';
+  var title = existing ? (existing.title || '') : '';
+  var description = existing ? (existing.description || '') : '';
+  var controlName = existing ? (existing.controlName || '') : '';
+  var spId = existing ? (existing.relatedSpId || '') : '';
+
+  var body = '';
+  // Subtype radios
+  body += '<div style="margin-bottom:12px">';
+  body += '<label style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;display:block;margin-bottom:6px">Type de défaillance *</label>';
+  body += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">';
+  // Missing
+  var mActive = subtype === 'missing';
+  body += '<label style="padding:9px 11px;border:1px solid '+(mActive?'#7F1D1D':'var(--border)')+';border-radius:4px;background:'+(mActive?'#FEF2F2':'#fff')+';cursor:pointer;display:flex;align-items:flex-start;gap:8px">';
+  body += '<input type="radio" name="di-subtype" value="missing" '+(mActive?'checked':'')+' style="margin:2px 0 0 0;flex-shrink:0"/>';
+  body += '<div style="flex:1;min-width:0">';
+  body += '<div style="font-size:11px;font-weight:600;color:'+(mActive?'#7F1D1D':'var(--text-2)')+'">⚑ CTRL Manquant</div>';
+  body += '<div style="font-size:10px;color:var(--text-3);margin-top:2px">Pas de contrôle là où il en faudrait</div>';
+  body += '</div>';
+  body += '</label>';
+  // Weak
+  var wActive = subtype === 'weak';
+  body += '<label style="padding:9px 11px;border:1px solid '+(wActive?'#9A3412':'var(--border)')+';border-radius:4px;background:'+(wActive?'#FFF7ED':'#fff')+';cursor:pointer;display:flex;align-items:flex-start;gap:8px">';
+  body += '<input type="radio" name="di-subtype" value="weak" '+(wActive?'checked':'')+' style="margin:2px 0 0 0;flex-shrink:0"/>';
+  body += '<div style="flex:1;min-width:0">';
+  body += '<div style="font-size:11px;font-weight:600;color:'+(wActive?'#9A3412':'var(--text-2)')+'">⚠ CTRL Insuffisant</div>';
+  body += '<div style="font-size:10px;color:var(--text-3);margin-top:2px">Existe mais limité par design</div>';
+  body += '</div>';
+  body += '</label>';
+  body += '</div>';
+  body += '</div>';
+
+  // Title
+  body += '<div style="margin-bottom:10px">';
+  body += '<label style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;display:block;margin-bottom:3px">Titre court *</label>';
+  body += '<input id="di-title" type="text" value="'+title.replace(/"/g,'&quot;')+'" placeholder="ex : Pas de séparation des tâches sur les paiements > 50k€" style="width:100%;font-size:11px;padding:6px 9px;border:.5px solid var(--border);border-radius:3px;box-sizing:border-box"/>';
+  body += '</div>';
+
+  // Control name (uniquement pour weak)
+  body += '<div style="margin-bottom:10px">';
+  body += '<label style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;display:block;margin-bottom:3px">Contrôle concerné (vide si manquant)</label>';
+  body += '<input id="di-control" type="text" value="'+controlName.replace(/"/g,'&quot;')+'" placeholder="ex : Validation manager des paiements > 50k€" style="width:100%;font-size:11px;padding:6px 9px;border:.5px solid var(--border);border-radius:3px;box-sizing:border-box"/>';
+  body += '</div>';
+
+  // SP
+  if (sps.length > 0) {
+    body += '<div style="margin-bottom:10px">';
+    body += '<label style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;display:block;margin-bottom:3px">Sous-processus concerné</label>';
+    body += '<select id="di-sp" style="width:100%;font-size:11px;padding:6px 9px;border:.5px solid var(--border);border-radius:3px;box-sizing:border-box;background:#fff">';
+    body += '<option value="">— Aucun / Transverse —</option>';
+    sps.forEach(function(sp){
+      body += '<option value="'+sp.id+'"'+(spId===sp.id?' selected':'')+'>'+sp.name.replace(/</g,'&lt;')+'</option>';
+    });
+    body += '</select>';
+    body += '</div>';
+  }
+
+  // Description
+  body += '<div style="margin-bottom:10px">';
+  body += '<label style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;display:block;margin-bottom:3px">Description détaillée</label>';
+  body += '<textarea id="di-description" placeholder="Décris la défaillance : quel est le gap ou la faiblesse de design, quel risque ça expose, pourquoi c\'est un problème (1-3 phrases)" style="width:100%;min-height:90px;font-size:11px;padding:8px 10px;border:.5px solid var(--border);border-radius:3px;box-sizing:border-box;resize:vertical;font-family:inherit;line-height:1.5">'+description.replace(/</g,'&lt;')+'</textarea>';
+  body += '</div>';
+
+  var idxAttr = (idx !== null && idx !== undefined) ? idx : -1;
+  openModal(
+    existing ? '✎ Éditer la Design Issue' : '+ Ajouter une Design Issue',
+    body,
+    function() { return saveDesignIssueAi(idxAttr); },
+    {wide: true, cancelLabel: 'Annuler'}
+  );
+  setTimeout(function() {
+    var okBtn = document.getElementById('mok');
+    if (okBtn) okBtn.textContent = existing ? 'Enregistrer' : 'Ajouter';
+  }, 50);
+}
+
+async function saveDesignIssueAi(idx) {
+  try {
+    var subtype = document.querySelector('input[name="di-subtype"]:checked');
+    subtype = subtype ? subtype.value : 'weak';
+    var titleEl = document.getElementById('di-title');
+    var descEl = document.getElementById('di-description');
+    var ctrlEl = document.getElementById('di-control');
+    var spEl = document.getElementById('di-sp');
+
+    var title = (titleEl ? titleEl.value : '').trim();
+    var description = (descEl ? descEl.value : '').trim();
+    var controlName = (ctrlEl ? ctrlEl.value : '').trim();
+    var spId = spEl ? spEl.value : '';
+
+    if (!title) { toast('Indique au moins un titre court'); throw new Error('Validation : titre requis'); }
+
+    var d = getAudData(CA);
+    _ensureIssues(d);
+
+    if (idx !== undefined && idx !== null && idx >= 0 && d.issues[idx]) {
+      var iss = d.issues[idx];
+      iss.subtype = subtype;
+      iss.title = title;
+      iss.description = description;
+      iss.controlName = controlName;
+      iss.relatedSpId = spId || null;
+    } else {
+      d.issues.push({
+        id: 'iss_' + Date.now() + '_' + Math.floor(Math.random()*100000),
+        source: 'design',
+        subtype: subtype,
+        title: title,
+        description: description,
+        controlName: controlName,
+        relatedSpId: spId || null,
+        aiGenerated: false,
+        validationStatus: 'pending',
+        createdAt: new Date().toISOString(),
+      });
+    }
+
+    await saveAuditData(CA);
+    document.getElementById('det-content').innerHTML = renderDetContent();
+    toast('✓ Design Issue sauvegardée');
+  } catch (e) {
+    if (e && e.message && e.message.indexOf('Validation') === 0) throw e;
+    console.error('[saveDesignIssueAi]', e);
+    toast('✗ Erreur : '+(e.message||e));
+    throw e;
+  }
+}
+
 
 // Détection des sections SP dans le narratif (recherche `## [Nom du SP]`)
 function _detectNarrativeSections(narrative, sps) {
@@ -11461,6 +11755,39 @@ function renderFindingsSection() {
   html += '<button class="bs" style="font-size:11px;padding:3px 9px" onclick="showAddFindingModal()">+ Ajouter un finding</button>';
   html += '</div>';
   html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:10px;font-style:italic">Chaque finding peut regrouper plusieurs déficiences (contrôles fail, contrôles target). Articulez votre constat puis liez les contrôles concernés.</div>';
+
+  // v74 : Section "Design Issues validées à traiter" (Process uniquement, depuis l'étape ITW)
+  // Les Design Issues validated qui n'ont pas encore de finding rattaché
+  _ensureIssues(d);
+  var validatedDesignIssues = d.issues.filter(function(i){
+    return i.source === 'design' && i.validationStatus === 'validated';
+  });
+  // Issues déjà rattachées à au moins un finding (via f.designIssueIds)
+  var linkedDiIds = new Set();
+  d.findings.forEach(function(f){
+    (f.designIssueIds || []).forEach(function(id){linkedDiIds.add(id);});
+  });
+  var unlinkedDi = validatedDesignIssues.filter(function(i){return !linkedDiIds.has(i.id);});
+
+  if (unlinkedDi.length) {
+    html += '<div style="background:#FEF2F2;border:.5px solid #FCA5A5;border-radius:6px;padding:10px;margin-bottom:12px">';
+    html += '<div style="font-size:11px;font-weight:600;color:#7F1D1D;margin-bottom:6px">⚠ Design Issues à traiter dans un finding ('+unlinkedDi.length+')</div>';
+    html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:6px;font-style:italic">Défaillances de design validées à l\'étape ITW/Narratif. Créez un finding pour les inclure.</div>';
+    unlinkedDi.forEach(function(iss){
+      var subtype = iss.subtype || 'weak';
+      var typeLabel = subtype === 'missing'
+        ? '<span class="badge" style="background:#FCE7E5;color:#7F1D1D;font-size:9px;border:.5px solid #F8B4B4">⚑ Manquant</span>'
+        : '<span class="badge" style="background:#FFEDD5;color:#9A3412;font-size:9px;border:.5px solid #FDBA74">⚠ Insuffisant</span>';
+      html += '<div style="background:#fff;border:.5px solid var(--border);border-radius:4px;padding:5px 8px;margin-bottom:3px;display:flex;align-items:center;gap:8px">';
+      html += typeLabel;
+      html += '<div style="flex:1;font-size:11px;min-width:0">';
+      html += '<div style="font-weight:500;color:var(--text-1)">'+(iss.title||'(sans titre)').replace(/</g,'&lt;')+'</div>';
+      if (iss.controlName) html += '<div style="color:var(--text-3);font-size:9px;font-style:italic">Contrôle : '+iss.controlName.replace(/</g,'&lt;')+'</div>';
+      html += '</div>';
+      html += '</div>';
+    });
+    html += '</div>';
+  }
 
   // Section "Contrôles à traiter" non encore liés
   if (unlinkedProblems.length) {
@@ -13967,9 +14294,13 @@ function _buildAnalyzePrompt() {
   p += '   - Les décisions et critères (seuils, validations)\n';
   p += '   - Les **WCGW** potentiels repérés. Format : `⚠ WCGW : [scénario à risque]`\n';
   p += '   - Les **contrôles existants** mentionnés. Format : `✓ CTRL Existant : [nom du contrôle] (Acteur : qui · Fréquence : quand · Quoi : description · Preuves : documents/traces)`\n';
-  p += '   - Les **contrôles cibles** suggérés (ce qui manque). Format : `⚑ CTRL Cible : [nom proposé] (Acteur : qui · Fréquence : quand · Quoi : description)`\n';
-  p += '3. Si plusieurs intervenants sont en désaccord sur un point factuel (ex : un seuil), signale avec `⚠️ DIVERGENCE : [Intervenant A] indique X, [Intervenant B] indique Y. À clarifier.`\n';
-  p += '4. Le narratif doit être en **français professionnel d\'audit**, ton neutre, sans jugement.\n';
+  p += '   - Les **contrôles cibles** (recommandations prospectives, à mettre en place dans une logique d\'amélioration). Format : `⚑ CTRL Cible : [nom proposé] (Acteur : qui · Fréquence : quand · Quoi : description)`\n';
+  p += '3. **DESIGN ISSUES** (problèmes de conception du dispositif de contrôle). Pendant l\'analyse, identifie 2 catégories de défaillances et signale-les à la fois inline dans le narratif ET de manière structurée dans le bloc JSON `designIssues` :\n';
+  p += '   - **Contrôle MANQUANT** = un contrôle devrait exister à un endroit du processus pour mitiger un WCGW, mais il n\'existe pas. Format inline : `⚠ DESIGN ISSUE — CTRL Manquant : [description du gap : quel contrôle, pour mitiger quel risque, pourquoi c\'est un problème]`\n';
+  p += '   - **Contrôle INSUFFISANT** = un contrôle existe mais sa conception (design) le rend inefficace ou limité. Format inline : `⚠ DESIGN ISSUE — CTRL Insuffisant : [nom du contrôle existant] — [pourquoi le design est insuffisant : seuil trop élevé, dépendance d\'une seule personne, pas de séparation des tâches, fréquence trop faible, pas de preuve écrite, etc.]`\n';
+  p += '   IMPORTANT : Ne confonds PAS `⚑ CTRL Cible` (recommandation prospective générique) avec `⚠ DESIGN ISSUE — CTRL Manquant` (constat factuel d\'un gap qui devrait être un finding d\'audit). CTRL Cible = "il serait bien d\'avoir X". DESIGN ISSUE Manquant = "il est anormal qu\'il n\'y ait pas de contrôle ici, c\'est une défaillance".\n';
+  p += '4. Si plusieurs intervenants sont en désaccord sur un point factuel (ex : un seuil), signale avec `⚠️ DIVERGENCE : [Intervenant A] indique X, [Intervenant B] indique Y. À clarifier.`\n';
+  p += '5. Le narratif doit être en **français professionnel d\'audit**, ton neutre, sans jugement.\n';
 
   // Format de sortie
   p += '\n## FORMAT DE SORTIE (JSON STRICT)\n\n';
@@ -13980,11 +14311,21 @@ function _buildAnalyzePrompt() {
   p += '    {\n';
   p += '      "name": "Nom du sous-processus",\n';
   p += '      "matchedExistingId": "sp_xxx" ou null,\n';
-  p += '      "narrative": "Texte narratif chronologique avec ⚠ WCGW, ✓ CTRL Existant, ⚑ CTRL Cible et ⚠️ DIVERGENCE inline."\n';
+  p += '      "narrative": "Texte narratif chronologique avec ⚠ WCGW, ✓ CTRL Existant, ⚑ CTRL Cible, ⚠ DESIGN ISSUE — CTRL Manquant, ⚠ DESIGN ISSUE — CTRL Insuffisant, et ⚠️ DIVERGENCE inline."\n';
+  p += '    }\n';
+  p += '  ],\n';
+  p += '  "designIssues": [\n';
+  p += '    {\n';
+  p += '      "subtype": "missing" ou "weak",\n';
+  p += '      "title": "Titre court (5-10 mots) de la défaillance",\n';
+  p += '      "description": "Description détaillée : quel est le gap/la faiblesse de design, quel risque ça expose, pourquoi c\'est un problème (1-3 phrases)",\n';
+  p += '      "controlName": "Nom du contrôle concerné (vide si manquant et qu\'on ne peut pas nommer)",\n';
+  p += '      "relatedSpId": "sp_xxx" du sous-processus concerné, ou null si nouveau SP\n';
   p += '    }\n';
   p += '  ]\n';
   p += '}\n';
   p += '```\n';
+  p += '\nNote : Le tableau `designIssues` peut être vide `[]` si aucune défaillance de design n\'est repérée. Chaque DESIGN ISSUE inline dans le narratif DOIT avoir une entrée structurée correspondante dans `designIssues`.\n';
 
   // Scripts d'entretiens
   p += '\n## TRANSCRIPTIONS D\'ENTRETIENS À ANALYSER\n';
@@ -14189,6 +14530,10 @@ function _renderAnalyzePreview() {
 // Highlight des marqueurs WCGW/CTRL/DIVERGENCE pour la preview
 function _highlightNarrative(text) {
   var s = (text||'').replace(/</g,'&lt;');
+  // v74 : Design Issues en 1er (couleur rouge sombre / orange foncé pour visibilité)
+  s = s.replace(/(⚠\s*DESIGN ISSUE\s*[—\-–]\s*CTRL Manquant\s*:[^\n]+?(?=\.\s|\n|$)\.?)/g, '<span style="background:#FCE7E5;color:#7F1D1D;padding:2px 6px;border-radius:2px;font-weight:600;border:.5px solid #F8B4B4">$1</span>');
+  s = s.replace(/(⚠\s*DESIGN ISSUE\s*[—\-–]\s*CTRL Insuffisant\s*:[^\n]+?(?=\.\s|\n|$)\.?)/g, '<span style="background:#FFEDD5;color:#9A3412;padding:2px 6px;border-radius:2px;font-weight:600;border:.5px solid #FDBA74">$1</span>');
+  // Marqueurs existants
   s = s.replace(/(⚠️\s*DIVERGENCE\s*:[^\n.]+[.])/g, '<span style="background:#FFF4D9;color:#854F0B;padding:1px 5px;border-radius:2px;font-weight:500">$1</span>');
   s = s.replace(/(⚠\s*WCGW\s*:[^\n.]+[.])/g, '<span style="background:#FCEBEB;color:#993C1D;padding:1px 5px;border-radius:2px;font-weight:500">$1</span>');
   s = s.replace(/(✓\s*CTRL Existant\s*:[^\n.]+[.])/g, '<span style="background:#F5FBF8;color:#085041;padding:1px 5px;border-radius:2px;font-weight:500">$1</span>');
@@ -14232,6 +14577,35 @@ async function _doImportAnalysis() {
 
     d.consolidatedNarrative = newNarrative;
 
+    // v74 : créer automatiquement les Design Issues détectées par Copilot
+    var nbDesignIssuesCreated = 0;
+    if (Array.isArray(result.designIssues) && result.designIssues.length > 0) {
+      _ensureIssues(d);
+      result.designIssues.forEach(function(di){
+        // Validation des champs minimum
+        if (!di || (!di.title && !di.description)) return;
+        var subtype = (di.subtype === 'missing' || di.subtype === 'weak') ? di.subtype : 'weak';
+        var title = (di.title || '').trim() || (subtype === 'missing' ? 'Contrôle manquant' : 'Contrôle insuffisant');
+        var description = (di.description || '').trim();
+        // Résoudre l'ID du SP si fourni (et qu'il existe)
+        var spId = di.relatedSpId && spById[di.relatedSpId] ? di.relatedSpId : null;
+
+        d.issues.push({
+          id: 'iss_' + Date.now() + '_' + Math.floor(Math.random()*100000) + '_' + nbDesignIssuesCreated,
+          source: 'design',
+          subtype: subtype, // 'missing' ou 'weak'
+          title: title,
+          description: description,
+          controlName: (di.controlName || '').trim(),
+          relatedSpId: spId,
+          aiGenerated: true,
+          validationStatus: 'pending', // 'pending' (IA, à valider) ou 'validated' (validée par l'auditeur)
+          createdAt: new Date().toISOString(),
+        });
+        nbDesignIssuesCreated++;
+      });
+    }
+
     // Historique au niveau de l'audit (dans attachments.narrativeHistory)
     if (!d.attachments) d.attachments = {};
     if (!Array.isArray(d.attachments.narrativeHistory)) d.attachments.narrativeHistory = [];
@@ -14242,6 +14616,7 @@ async function _doImportAnalysis() {
       mode: _analyzeState.mode,
       nbInterviews: selectedItvIds.length,
       nbSubProcesses: result.subProcesses.length,
+      nbDesignIssues: nbDesignIssuesCreated,
       target: 'audit',
     });
   } else {
@@ -14289,7 +14664,15 @@ async function _doImportAnalysis() {
 
   closeModal();
   document.getElementById('det-content').innerHTML = renderDetContent();
-  toast(isAuditTarget ? '✓ Narratif consolidé importé' : '✓ Narratif importé');
+  // v74 : toast avec count des Design Issues
+  var nbDIs = (result && Array.isArray(result.designIssues)) ? result.designIssues.length : 0;
+  if (isAuditTarget) {
+    var msg = '✓ Narratif consolidé importé';
+    if (nbDIs > 0) msg += ' · ' + nbDIs + ' Design Issue' + (nbDIs > 1 ? 's' : '') + ' créée' + (nbDIs > 1 ? 's' : '') + ' (à valider)';
+    toast(msg);
+  } else {
+    toast('✓ Narratif importé');
+  }
 
   // Si SPs non matchés : proposer à l'auditeur slot par slot
   if (unmatched.length > 0) {
