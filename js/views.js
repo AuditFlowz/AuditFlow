@@ -35,6 +35,148 @@ if (typeof _getRootCauseCategory === 'undefined') {
 // ─── Constantes ───────────────────────────────────────────────
 var STEP_PCT=[10,20,30,40,50,60,70,80,90,100];
 
+// ══════════════════════════════════════════════════════════════
+//  v77 : SAMPLE SIZING & TESTING COVERAGE
+//  Référentiel : standards d'audit interne (formule binomiale +
+//  tables AICPA pré-calculées)
+// ══════════════════════════════════════════════════════════════
+
+// Score Z pour un niveau de confiance donné (cf. tables stats standard)
+// Confidence en pourcentage (80-99), retourne le Z correspondant.
+function _zScore(confidencePercent) {
+  var c = Math.max(80, Math.min(99, Number(confidencePercent) || 95));
+  // Mapping standard (extension d'une table classique)
+  var Z_MAP = {
+    80: 1.282, 81: 1.311, 82: 1.341, 83: 1.372, 84: 1.405,
+    85: 1.440, 86: 1.476, 87: 1.514, 88: 1.555, 89: 1.598,
+    90: 1.645, 91: 1.695, 92: 1.751, 93: 1.812, 94: 1.881,
+    95: 1.960, 96: 2.054, 97: 2.170, 98: 2.326, 99: 2.576,
+  };
+  // Si pas exact, interpole linéairement
+  var c1 = Math.floor(c), c2 = Math.ceil(c);
+  if (c1 === c2) return Z_MAP[c1] || 1.96;
+  var z1 = Z_MAP[c1] || 1.96;
+  var z2 = Z_MAP[c2] || 1.96;
+  return z1 + (z2 - z1) * (c - c1);
+}
+
+// Calcul de la taille d'échantillon recommandée (formule binomiale + correction petite pop)
+// N : taille population (number > 0)
+// confidence : pourcentage (80-99), ex 95
+// EDR : Expected Deviation Rate (% attendu), ex 5 = 5%
+// TDR : Tolerable Deviation Rate (% tolérable), ex 5 = 5%
+// Retourne : {n, formula, note} ou null si entrées invalides
+function _calcSampleSize(N, confidence, EDR, TDR) {
+  N = Number(N);
+  if (!N || N <= 0) return null;
+  var conf = Number(confidence) || 95;
+  var edr = (Number(EDR) || 0) / 100; // ex 0.05
+  var tdr = (Number(TDR) || 5) / 100; // ex 0.05
+  if (tdr <= edr) {
+    return {n: null, formula: '', note: '⚠ TDR doit être supérieur à EDR'};
+  }
+  var Z = _zScore(conf);
+  // Formule infinie (sans correction)
+  var p = Math.max(0.001, Math.min(0.999, edr || 0.05));
+  var E = tdr - edr; // marge d'erreur réelle = TDR - EDR
+  if (E <= 0) E = 0.05;
+  var nInfinite = (Z * Z * p * (1 - p)) / (E * E);
+  // Correction petite population (finite population correction factor)
+  var nFinite = nInfinite / (1 + (nInfinite - 1) / N);
+  var n = Math.ceil(nFinite);
+  if (n > N) n = N;
+  return {
+    n: n,
+    nInfinite: Math.ceil(nInfinite),
+    Z: Z,
+    formula: 'n = ('+Z.toFixed(3)+'² × '+(p*100).toFixed(1)+'% × '+((1-p)*100).toFixed(1)+'%) / '+(E*100).toFixed(1)+'%² → '+Math.ceil(nInfinite)+(N<10000?' → corrigé pour N='+N+' : '+n:''),
+    note: '',
+  };
+}
+
+// Table AICPA pré-calculée (extraits, valeurs standards)
+// Référence : AICPA Audit Sampling Guide, Table 4.5 (confidence levels)
+// Format : {confidence: {edr: {tdr: n}}}
+var AICPA_TABLE = {
+  '90': { // 90% confidence
+    '0':  {'2': 114, '3': 76, '4': 57, '5': 45, '6': 38, '7': 32, '8': 28, '10': 22, '15': 15, '20': 11},
+    '1':  {'2': 194, '3': 129, '4': 96, '5': 77, '6': 64, '7': 55, '8': 48, '10': 38, '15': 25, '20': 18},
+    '2':  {'3': 194, '4': 132, '5': 105, '6': 88, '7': 75, '8': 65, '10': 52, '15': 33, '20': 25},
+    '3':  {'4': 222, '5': 158, '6': 124, '7': 103, '8': 89, '10': 70, '15': 44, '20': 32},
+  },
+  '95': { // 95% confidence (standard audit)
+    '0':  {'2': 149, '3': 99, '4': 74, '5': 59, '6': 49, '7': 42, '8': 36, '10': 29, '15': 19, '20': 14},
+    '1':  {'2': 236, '3': 157, '4': 117, '5': 93, '6': 78, '7': 66, '8': 58, '10': 46, '15': 30, '20': 22},
+    '2':  {'3': 257, '4': 181, '5': 127, '6': 105, '7': 88, '8': 77, '10': 61, '15': 39, '20': 28},
+    '3':  {'4': 268, '5': 192, '6': 152, '7': 125, '8': 105, '10': 84, '15': 53, '20': 39},
+    '5':  {'6': 309, '7': 211, '8': 167, '10': 124, '15': 76, '20': 53},
+  },
+  '99': { // 99% confidence
+    '0':  {'2': 229, '3': 152, '4': 114, '5': 91, '6': 76, '7': 65, '8': 57, '10': 45, '15': 30, '20': 22},
+    '1':  {'2': 351, '3': 234, '4': 175, '5': 140, '6': 117, '7': 100, '8': 88, '10': 70, '15': 46, '20': 34},
+    '2':  {'3': 388, '4': 272, '5': 215, '6': 161, '7': 134, '8': 115, '10': 92, '15': 58, '20': 41},
+  },
+};
+
+// Lookup table AICPA : trouve la valeur la plus proche
+// confidence ∈ {90, 95, 99}, edr ∈ {0,1,2,3,5}, tdr ∈ {2,3,...,20}
+function _aicpaLookup(confidence, EDR, TDR) {
+  var conf = String(Math.round(Number(confidence) / 5) * 5); // arrondi au 5 le plus proche
+  // Mapping vers les colonnes disponibles
+  if (conf === '85' || conf === '80') conf = '90';
+  if (conf === '100') conf = '99';
+  if (!AICPA_TABLE[conf]) conf = '95';
+  var edr = String(Math.round(Number(EDR) || 0));
+  var tdr = String(Math.round(Number(TDR) || 5));
+  var row = AICPA_TABLE[conf][edr];
+  if (!row) {
+    // Trouver l'EDR disponible le plus proche (inférieur)
+    var keys = Object.keys(AICPA_TABLE[conf]).map(Number).sort(function(a,b){return a-b;});
+    var bestEdr = keys.filter(function(k){return k <= Number(edr);}).pop() || keys[0];
+    row = AICPA_TABLE[conf][String(bestEdr)];
+    edr = String(bestEdr);
+  }
+  if (!row) return null;
+  // Trouver le TDR
+  var n = row[tdr];
+  if (n === undefined) {
+    // Trouver le TDR disponible le plus proche (supérieur, pour être conservateur)
+    var tdrKeys = Object.keys(row).map(Number).sort(function(a,b){return a-b;});
+    var bestTdr = tdrKeys.filter(function(k){return k >= Number(tdr);})[0] || tdrKeys[tdrKeys.length-1];
+    n = row[String(bestTdr)];
+    tdr = String(bestTdr);
+  }
+  return {n: n, confidence: conf, edr: edr, tdr: tdr};
+}
+
+// Calcul de la couverture actuelle d'un contrôle testé
+// ctrl : {population:{count, value}, sample:{count, value}}
+// Retourne : {coverageCount, coverageAmount, coverageCountPct, coverageAmountPct, level, hasAmount}
+function _calcCoverage(ctrl) {
+  if (!ctrl) return null;
+  var popCount = Number((ctrl.population || {}).count) || 0;
+  var sampleCount = Number((ctrl.sample || {}).count) || 0;
+  var popAmount = Number((ctrl.population || {}).value) || 0;
+  var sampleAmount = Number((ctrl.sample || {}).value) || 0;
+
+  var result = {
+    popCount: popCount,
+    sampleCount: sampleCount,
+    coverageCountPct: popCount > 0 ? (sampleCount / popCount) * 100 : 0,
+    hasAmount: popAmount > 0,
+    popAmount: popAmount,
+    sampleAmount: sampleAmount,
+    coverageAmountPct: popAmount > 0 ? (sampleAmount / popAmount) * 100 : null,
+  };
+
+  // Niveau de couverture nombre
+  if (result.coverageCountPct >= 15) result.level = 'good';
+  else if (result.coverageCountPct >= 5) result.level = 'moderate';
+  else result.level = 'low';
+
+  return result;
+}
+
 // Niveaux de risque Audit Universe
 var RISK_LEVELS=[
   {key:'faible',   label:'Faible',   color:'var(--green)',  badge:'bdn'},
@@ -11190,6 +11332,72 @@ function renderTestingsBuTestRow(wppId, t, isPreparer) {
   h += '</div>';
   h += '</div>';
 
+  // v77 : Section Sample Sizing (planification a priori) — BU
+  if (!t.samplingPlan) t.samplingPlan = {confidence:95, EDR:5, TDR:5};
+  var sp = t.samplingPlan;
+  var popN = Number(t.population.count) || 0;
+  var recommended = popN > 0 ? _calcSampleSize(popN, sp.confidence, sp.EDR, sp.TDR) : null;
+  var aicpa = _aicpaLookup(sp.confidence, sp.EDR, sp.TDR);
+
+  h += '<div style="background:#fafafa;border:.5px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px">';
+  h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px">';
+  h += '<div style="font-size:10px;font-weight:600;color:var(--text-2);text-transform:uppercase;letter-spacing:.4px">📊 Sample sizing (planification)</div>';
+  h += '<button onclick="showAicpaTableModal('+sp.confidence+','+sp.EDR+','+sp.TDR+')" style="font-size:9px;padding:3px 8px;background:#fff;border:.5px solid var(--border);border-radius:3px;cursor:pointer;color:#3C3489;font-weight:500">📋 Voir table AICPA</button>';
+  h += '</div>';
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">';
+  // Confidence
+  h += '<div>';
+  h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Confiance</label>';
+  if (isPreparer) {
+    h += '<div style="display:flex;align-items:center;gap:4px"><input type="number" min="80" max="99" step="1" value="'+sp.confidence+'" onchange="setTestingsBuSamplingField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'confidence\',this.value)" style="flex:1;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;text-align:right;box-sizing:border-box"/><span style="font-size:11px;color:var(--text-3)">%</span></div>';
+  } else {
+    h += '<div style="font-size:11px;padding:5px 8px;text-align:right">'+sp.confidence+'%</div>';
+  }
+  h += '</div>';
+  // EDR
+  h += '<div>';
+  h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">EDR (% attendu)</label>';
+  if (isPreparer) {
+    h += '<div style="display:flex;align-items:center;gap:4px"><input type="number" min="0" max="50" step="0.5" value="'+sp.EDR+'" onchange="setTestingsBuSamplingField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'EDR\',this.value)" style="flex:1;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;text-align:right;box-sizing:border-box"/><span style="font-size:11px;color:var(--text-3)">%</span></div>';
+  } else {
+    h += '<div style="font-size:11px;padding:5px 8px;text-align:right">'+sp.EDR+'%</div>';
+  }
+  h += '</div>';
+  // TDR
+  h += '<div>';
+  h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">TDR (% tolérable)</label>';
+  if (isPreparer) {
+    h += '<div style="display:flex;align-items:center;gap:4px"><input type="number" min="1" max="50" step="0.5" value="'+sp.TDR+'" onchange="setTestingsBuSamplingField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'TDR\',this.value)" style="flex:1;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;text-align:right;box-sizing:border-box"/><span style="font-size:11px;color:var(--text-3)">%</span></div>';
+  } else {
+    h += '<div style="font-size:11px;padding:5px 8px;text-align:right">'+sp.TDR+'%</div>';
+  }
+  h += '</div>';
+  h += '</div>';
+  // Résultat sample size recommandé
+  if (popN > 0 && recommended && recommended.n) {
+    h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:11px">';
+    h += '<div style="background:#fff;border:.5px solid var(--border);border-radius:3px;padding:7px 9px">';
+    h += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.3px;font-weight:500;margin-bottom:3px">Formule (binomiale + correction)</div>';
+    h += '<div style="font-size:16px;font-weight:600;color:#3C3489">'+recommended.n+'</div>';
+    h += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:2px">sur '+popN+' éléments · '+((recommended.n/popN)*100).toFixed(1)+'% couverture</div>';
+    h += '</div>';
+    h += '<div style="background:#fff;border:.5px solid var(--border);border-radius:3px;padding:7px 9px">';
+    h += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.3px;font-weight:500;margin-bottom:3px">Référence AICPA</div>';
+    if (aicpa) {
+      h += '<div style="font-size:16px;font-weight:600;color:#085041">'+aicpa.n+'</div>';
+      h += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:2px">table large pop · '+aicpa.confidence+'%, EDR '+aicpa.edr+'%, TDR '+aicpa.tdr+'%</div>';
+    } else {
+      h += '<div style="font-size:11px;color:var(--text-3);font-style:italic">Valeurs hors table</div>';
+    }
+    h += '</div>';
+    h += '</div>';
+  } else if (popN === 0) {
+    h += '<div style="font-size:10px;color:var(--text-3);font-style:italic;padding:6px 0">Saisis d\'abord la taille de la population (ci-dessous) pour calculer la taille d\'échantillon recommandée.</div>';
+  } else if (recommended && recommended.note) {
+    h += '<div style="font-size:10px;color:#854F0B;padding:6px 0">'+recommended.note+'</div>';
+  }
+  h += '</div>';
+
   h += '<table style="width:100%;border-collapse:collapse;margin-bottom:8px;font-size:11px">';
   h += '<thead><tr style="background:#f5f5f0">';
   h += '<th style="text-align:left;padding:5px 8px;font-size:9px;color:var(--text-3);font-weight:500;text-transform:uppercase;letter-spacing:.3px;border:.5px solid var(--border)"></th>';
@@ -11224,6 +11432,47 @@ function renderTestingsBuTestRow(wppId, t, isPreparer) {
   });
   h += '</tr>';
   h += '</tbody></table>';
+
+  // v77 : Bloc Coverage actuel — BU
+  var cov = _calcCoverage(t);
+  if (cov && cov.popCount > 0) {
+    var levelColor = cov.level === 'good' ? '#085041' : cov.level === 'moderate' ? '#854F0B' : '#993C1D';
+    var levelBg = cov.level === 'good' ? '#E1F5EE' : cov.level === 'moderate' ? '#FAEEDA' : '#FCEBEB';
+    var levelBorder = cov.level === 'good' ? '#A6E2CD' : cov.level === 'moderate' ? '#FAC775' : '#F2C2C0';
+    var levelEmoji = cov.level === 'good' ? '🟢' : cov.level === 'moderate' ? '🟡' : '🔴';
+    var levelLabel = cov.level === 'good' ? 'Bon' : cov.level === 'moderate' ? 'Modéré' : 'Faible';
+    var advice = '';
+    if (recommended && recommended.n && cov.sampleCount > 0) {
+      if (cov.sampleCount < recommended.n) {
+        advice = ' · ⚠ Sample testé ('+cov.sampleCount+') sous le seuil recommandé ('+recommended.n+')';
+      } else {
+        advice = ' · ✓ Sample atteint le seuil recommandé';
+      }
+    }
+
+    h += '<div style="background:'+levelBg+';border:.5px solid '+levelBorder+';border-radius:4px;padding:8px 10px;margin-bottom:8px">';
+    h += '<div style="font-size:10px;color:'+levelColor+';font-weight:600;margin-bottom:4px;text-transform:uppercase;letter-spacing:.3px">🎯 Couverture actuelle '+levelEmoji+' '+levelLabel+'</div>';
+    h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:11px;color:'+levelColor+'">';
+    h += '<div>';
+    h += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.3px;font-weight:500">Coverage nombre</div>';
+    h += '<div style="font-size:14px;font-weight:600">'+cov.coverageCountPct.toFixed(1)+'%</div>';
+    h += '<div style="font-size:10px;color:var(--text-3)">'+cov.sampleCount+' / '+cov.popCount+'</div>';
+    h += '</div>';
+    if (cov.hasAmount) {
+      h += '<div>';
+      h += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.3px;font-weight:500">Coverage monétaire</div>';
+      h += '<div style="font-size:14px;font-weight:600">'+cov.coverageAmountPct.toFixed(1)+'%</div>';
+      h += '<div style="font-size:10px;color:var(--text-3)">'+_fmtEur(cov.sampleAmount)+' / '+_fmtEur(cov.popAmount)+'</div>';
+      h += '</div>';
+    } else {
+      h += '<div style="font-size:10px;color:var(--text-3);font-style:italic;align-self:center">Saisis le montant de la population pour voir le coverage monétaire</div>';
+    }
+    h += '</div>';
+    if (advice) {
+      h += '<div style="font-size:10px;color:'+levelColor+';margin-top:5px;font-style:italic">'+advice+'</div>';
+    }
+    h += '</div>';
+  }
 
   h += '<div style="background:'+(extrap.applicable?'#EEEDFE':'#F1EFE8')+';border-radius:4px;padding:8px 10px;margin-bottom:8px">';
   h += '<div style="font-size:10px;color:'+(extrap.applicable?'#3C3489':'#5F5E5A')+';font-weight:600;margin-bottom:3px;text-transform:uppercase;letter-spacing:.3px">Extrapolation auto</div>';
@@ -11294,6 +11543,21 @@ async function setTestingsBuSubField(wppId, testId, group, sub, val) {
   if (!t) return;
   if (!t[group]) t[group] = {};
   t[group][sub] = val === '' ? '' : Number(val);
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+// v77 : setter sampling plan pour un test BU
+async function setTestingsBuSamplingField(wppId, testId, field, val) {
+  var d = getAudData(CA);
+  var wp = (d.workProgramBU && Array.isArray(d.workProgramBU.processes))
+    ? d.workProgramBU.processes : [];
+  var wpp = wp.find(function(x){return x.id===wppId;});
+  if (!wpp) return;
+  var t = (wpp.tests||[]).find(function(x){return x.id===testId;});
+  if (!t) return;
+  if (!t.samplingPlan) t.samplingPlan = {confidence:95, EDR:5, TDR:5};
+  t.samplingPlan[field] = val;
   await saveAuditData(CA);
   document.getElementById('det-content').innerHTML = renderDetContent();
 }
@@ -12937,6 +13201,64 @@ async function setProcessTestSubField(i, group, sub, val) {
     document.getElementById('det-content').innerHTML = renderDetContent();
   }
 }
+// v77 : setter pour samplingPlan (objet imbriqué) sur un contrôle Process testé
+async function setProcessSamplingField(i, field, val) {
+  var d = getAudData(CA);
+  if (!d.controls[4] || !d.controls[4][i]) return;
+  if (!d.controls[4][i].samplingPlan) {
+    d.controls[4][i].samplingPlan = {confidence:95, EDR:5, TDR:5};
+  }
+  d.controls[4][i].samplingPlan[field] = val;
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+// v77 : Affiche la modale d'aide table AICPA (lecture seule)
+function showAicpaTableModal(confidence, EDR, TDR, ctrlIdx) {
+  var conf = Number(confidence) || 95;
+  var edr = Number(EDR) || 0;
+  var tdr = Number(TDR) || 5;
+  var lookup = _aicpaLookup(conf, edr, tdr);
+
+  var body = '';
+  body += '<div style="font-size:11px;color:var(--text-2);line-height:1.6;margin-bottom:14px">';
+  body += 'La table ci-dessous est issue du <strong style="font-weight:500">AICPA Audit Sampling Guide</strong>, utilisée par les Big4 comme référentiel pour le sample sizing en audit interne. Les valeurs représentent la taille d\'échantillon recommandée pour <strong style="font-weight:500">95% de confiance</strong> et différents EDR / TDR.';
+  body += '</div>';
+
+  if (lookup) {
+    body += '<div style="background:#EEEDFE;border:.5px solid #CECBF6;border-radius:4px;padding:10px 12px;margin-bottom:14px;font-size:11px;color:#3C3489">';
+    body += '<strong style="font-weight:600">Pour ta configuration</strong> (confiance '+lookup.confidence+'%, EDR '+lookup.edr+'%, TDR '+lookup.tdr+'%) :<br>';
+    body += '→ Taille recommandée AICPA : <strong style="font-weight:600;font-size:14px">'+lookup.n+'</strong>';
+    body += '</div>';
+  }
+
+  // Génération table HTML — vue 95% confidence par défaut
+  body += '<div style="font-size:11px;font-weight:600;margin-bottom:6px;color:var(--text-1)">Table 95% confidence (extrait)</div>';
+  body += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">';
+  body += '<thead><tr style="background:#f5f5f0">';
+  body += '<th style="padding:6px 10px;text-align:left;border:.5px solid var(--border);font-size:10px;color:var(--text-3);font-weight:500">EDR \\ TDR</th>';
+  ['2','3','4','5','6','7','8','10','15','20'].forEach(function(t){
+    body += '<th style="padding:6px 10px;text-align:right;border:.5px solid var(--border);font-size:10px;color:var(--text-3);font-weight:500">'+t+'%</th>';
+  });
+  body += '</tr></thead><tbody>';
+  ['0','1','2','3','5'].forEach(function(eRow){
+    var row = AICPA_TABLE['95'][eRow] || {};
+    body += '<tr>';
+    body += '<td style="padding:5px 10px;border:.5px solid var(--border);background:#fafafa;font-weight:500">'+eRow+'%</td>';
+    ['2','3','4','5','6','7','8','10','15','20'].forEach(function(t){
+      var v = row[t];
+      var isMatch = (lookup && lookup.confidence==='95' && lookup.edr===eRow && lookup.tdr===t);
+      body += '<td style="padding:5px 10px;border:.5px solid var(--border);text-align:right;font-family:monospace;'+(isMatch?'background:#3C3489;color:#fff;font-weight:600':'')+'">'+(v||'—')+'</td>';
+    });
+    body += '</tr>';
+  });
+  body += '</tbody></table></div>';
+
+  body += '<div style="font-size:10px;color:var(--text-3);font-style:italic;margin-top:10px;line-height:1.5">';
+  body += '<strong style="font-weight:500">Note méthodologique :</strong> Les valeurs AICPA sont calculées pour des populations larges (correction infinite). Pour une petite population, la formule statistique avec correction donne une taille plus petite — c\'est pourquoi AuditFlow affiche les deux valeurs.';
+  body += '</div>';
+
+  openModal('📊 Table AICPA — Sample Sizing', body, null, {wide:true, hideOk:true, cancelLabel:'Fermer'});
+}
 async function setProcessIssueDescription(i, val) {
   var d = getAudData(CA);
   if (!d.controls[4] || !d.controls[4][i]) return;
@@ -13369,6 +13691,62 @@ function buildExecTable(kc){
     html += '<textarea onchange="setTestNature('+globalIdx+',this.value)" '+dis+' placeholder="Décrivez la procédure de test..." style="width:100%;min-height:50px;font-size:11px;padding:6px;border:1px solid var(--border);border-radius:3px;font-family:inherit;box-sizing:border-box">'+(ctrl.testNature||'').replace(/</g,'&lt;')+'</textarea>';
     html += '</div>';
 
+    // v77 : Section Sample Sizing (planification a priori)
+    if (!ctrl.samplingPlan) ctrl.samplingPlan = {confidence:95, EDR:5, TDR:5};
+    var sp = ctrl.samplingPlan;
+    var popN = Number(ctrl.population.count) || 0;
+    var recommended = popN > 0 ? _calcSampleSize(popN, sp.confidence, sp.EDR, sp.TDR) : null;
+    var aicpa = _aicpaLookup(sp.confidence, sp.EDR, sp.TDR);
+
+    html += '<div style="background:#fafafa;border:.5px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px">';
+    html += '<div style="font-size:10px;font-weight:600;color:var(--text-2);text-transform:uppercase;letter-spacing:.4px">📊 Sample sizing (planification)</div>';
+    html += '<button onclick="showAicpaTableModal('+sp.confidence+','+sp.EDR+','+sp.TDR+','+globalIdx+')" style="font-size:9px;padding:3px 8px;background:#fff;border:.5px solid var(--border);border-radius:3px;cursor:pointer;color:#3C3489;font-weight:500">📋 Voir table AICPA</button>';
+    html += '</div>';
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">';
+    // Confidence
+    html += '<div>';
+    html += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px" title="Niveau de confiance souhaité (80-99%)">Confiance</label>';
+    html += '<div style="display:flex;align-items:center;gap:4px"><input type="number" min="80" max="99" step="1" '+dis+' value="'+sp.confidence+'" onchange="setProcessSamplingField('+globalIdx+',\'confidence\',this.value)" style="flex:1;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;text-align:right;box-sizing:border-box"/><span style="font-size:11px;color:var(--text-3)">%</span></div>';
+    html += '</div>';
+    // EDR
+    html += '<div>';
+    html += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px" title="Expected Deviation Rate — % d\'erreurs attendu">EDR (% attendu)</label>';
+    html += '<div style="display:flex;align-items:center;gap:4px"><input type="number" min="0" max="50" step="0.5" '+dis+' value="'+sp.EDR+'" onchange="setProcessSamplingField('+globalIdx+',\'EDR\',this.value)" style="flex:1;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;text-align:right;box-sizing:border-box"/><span style="font-size:11px;color:var(--text-3)">%</span></div>';
+    html += '</div>';
+    // TDR
+    html += '<div>';
+    html += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px" title="Tolerable Deviation Rate — % d\'erreurs max acceptable">TDR (% tolérable)</label>';
+    html += '<div style="display:flex;align-items:center;gap:4px"><input type="number" min="1" max="50" step="0.5" '+dis+' value="'+sp.TDR+'" onchange="setProcessSamplingField('+globalIdx+',\'TDR\',this.value)" style="flex:1;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;text-align:right;box-sizing:border-box"/><span style="font-size:11px;color:var(--text-3)">%</span></div>';
+    html += '</div>';
+    html += '</div>';
+    // Résultat sample size recommandé
+    if (popN > 0 && recommended && recommended.n) {
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:11px">';
+      // Formule
+      html += '<div style="background:#fff;border:.5px solid var(--border);border-radius:3px;padding:7px 9px">';
+      html += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.3px;font-weight:500;margin-bottom:3px">Formule (binomiale + correction)</div>';
+      html += '<div style="font-size:16px;font-weight:600;color:#3C3489">'+recommended.n+'</div>';
+      html += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:2px">sur '+popN+' éléments · '+((recommended.n/popN)*100).toFixed(1)+'% de couverture</div>';
+      html += '</div>';
+      // AICPA
+      html += '<div style="background:#fff;border:.5px solid var(--border);border-radius:3px;padding:7px 9px">';
+      html += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.3px;font-weight:500;margin-bottom:3px">Référence AICPA</div>';
+      if (aicpa) {
+        html += '<div style="font-size:16px;font-weight:600;color:#085041">'+aicpa.n+'</div>';
+        html += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:2px">table large pop · confidence '+aicpa.confidence+'%, EDR '+aicpa.edr+'%, TDR '+aicpa.tdr+'%</div>';
+      } else {
+        html += '<div style="font-size:11px;color:var(--text-3);font-style:italic">Valeurs hors table</div>';
+      }
+      html += '</div>';
+      html += '</div>';
+    } else if (popN === 0) {
+      html += '<div style="font-size:10px;color:var(--text-3);font-style:italic;padding:6px 0">Saisis d\'abord la taille de la population (ci-dessous) pour calculer la taille d\'échantillon recommandée.</div>';
+    } else if (recommended && recommended.note) {
+      html += '<div style="font-size:10px;color:#854F0B;padding:6px 0">'+recommended.note+'</div>';
+    }
+    html += '</div>';
+
     // Tableau Population/Sample/Anomalies (Nombre + Valeur €)
     html += '<table style="width:100%;border-collapse:collapse;margin-bottom:8px;font-size:11px">';
     html += '<thead><tr style="background:#f5f5f0">';
@@ -13398,6 +13776,50 @@ function buildExecTable(kc){
     });
     html += '</tr>';
     html += '</tbody></table>';
+
+    // v77 : Bloc Coverage actuel
+    var cov = _calcCoverage(ctrl);
+    if (cov && cov.popCount > 0) {
+      var levelColor = cov.level === 'good' ? '#085041' : cov.level === 'moderate' ? '#854F0B' : '#993C1D';
+      var levelBg = cov.level === 'good' ? '#E1F5EE' : cov.level === 'moderate' ? '#FAEEDA' : '#FCEBEB';
+      var levelBorder = cov.level === 'good' ? '#A6E2CD' : cov.level === 'moderate' ? '#FAC775' : '#F2C2C0';
+      var levelEmoji = cov.level === 'good' ? '🟢' : cov.level === 'moderate' ? '🟡' : '🔴';
+      var levelLabel = cov.level === 'good' ? 'Bon' : cov.level === 'moderate' ? 'Modéré' : 'Faible';
+      // Compare avec sample size recommandé pour avis
+      var advice = '';
+      if (recommended && recommended.n && cov.sampleCount > 0) {
+        if (cov.sampleCount < recommended.n) {
+          advice = ' · ⚠ Sample testé ('+cov.sampleCount+') sous le seuil recommandé ('+recommended.n+')';
+        } else {
+          advice = ' · ✓ Sample atteint le seuil recommandé';
+        }
+      }
+
+      html += '<div style="background:'+levelBg+';border:.5px solid '+levelBorder+';border-radius:4px;padding:8px 10px;margin-bottom:8px">';
+      html += '<div style="font-size:10px;color:'+levelColor+';font-weight:600;margin-bottom:4px;text-transform:uppercase;letter-spacing:.3px">🎯 Couverture actuelle '+levelEmoji+' '+levelLabel+'</div>';
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:11px;color:'+levelColor+'">';
+      // Coverage nombre
+      html += '<div>';
+      html += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.3px;font-weight:500">Coverage nombre</div>';
+      html += '<div style="font-size:14px;font-weight:600">'+cov.coverageCountPct.toFixed(1)+'%</div>';
+      html += '<div style="font-size:10px;color:var(--text-3)">'+cov.sampleCount+' / '+cov.popCount+'</div>';
+      html += '</div>';
+      // Coverage monétaire (seulement si renseigné)
+      if (cov.hasAmount) {
+        html += '<div>';
+        html += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.3px;font-weight:500">Coverage monétaire</div>';
+        html += '<div style="font-size:14px;font-weight:600">'+cov.coverageAmountPct.toFixed(1)+'%</div>';
+        html += '<div style="font-size:10px;color:var(--text-3)">'+_fmtEur(cov.sampleAmount)+' / '+_fmtEur(cov.popAmount)+'</div>';
+        html += '</div>';
+      } else {
+        html += '<div style="font-size:10px;color:var(--text-3);font-style:italic;align-self:center">Saisis le montant total de la population pour voir le coverage monétaire</div>';
+      }
+      html += '</div>';
+      if (advice) {
+        html += '<div style="font-size:10px;color:'+levelColor+';margin-top:5px;font-style:italic">'+advice+'</div>';
+      }
+      html += '</div>';
+    }
 
     // Extrapolation auto
     html += '<div style="background:'+(extrap.applicable?'#EEEDFE':'#F1EFE8')+';border-radius:4px;padding:8px 10px;margin-bottom:8px">';
