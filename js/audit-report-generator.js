@@ -650,48 +650,169 @@ async function generateAuditReportPptx(auditId, options) {
   }
 
   // ════════════════════════════════════════════════════════════════════
-  // SLIDE — TESTING STRATEGY
+  // SLIDE — TESTING STRATEGY (synthèse de tous les tests)
+  // v77.5 : refonte pour inclure Control / Substantive / Analysis avec mode + sample + résultat
   // ════════════════════════════════════════════════════════════════════
+
+  // Construire la liste unifiée de tous les tests (Process + BU)
+  // Format unifié : {name, mode, freq?, sample, population, anomalies, result, raw, type:'process'|'bu', wppId?}
+  const allTests = [];
+  if (!isBU) {
+    // Process : controls[4] finalizés ou non
+    controls.forEach(c => {
+      if (c.clef && c.design === 'existing') {
+        allTests.push({
+          name: c.name || '—',
+          description: c.testNature || '',
+          mode: c.testMode || '',
+          population: c.population || {count:'', value:''},
+          sample: c.sample || {count:'', value:''},
+          anomalies: c.anomalies || {count:'', value:''},
+          samplingPlan: c.samplingPlan || {},
+          analysisConfig: c.analysisConfig || null,
+          analysisData: c.analysisData || null,
+          result: c.result,
+          finalized: c.finalized,
+          raw: c,
+          type: 'process',
+        });
+      }
+    });
+  } else {
+    // BU : workProgramBU.processes[].tests
+    workProgramBU.forEach(wpp => {
+      const p = _PROCESSES.find(x => x.id === wpp.auditProcessId);
+      const procName = p ? p.proc : '(Process inconnu)';
+      (wpp.tests || []).forEach(t => {
+        allTests.push({
+          name: t.statement || '(sans énoncé)',
+          procName: procName,
+          description: t.objective || '',
+          mode: t.testMode || '',
+          population: t.population || {count:'', value:''},
+          sample: t.sample || {count:'', value:''},
+          anomalies: t.anomalies || {count:'', value:''},
+          samplingPlan: t.samplingPlan || {},
+          analysisConfig: t.analysisConfig || null,
+          analysisData: t.analysisData || null,
+          result: t.testStatus === 'fait' ? (Number((t.anomalies||{}).count) > 0 ? 'fail' : 'pass') : null,
+          finalized: t.testStatus === 'fait',
+          raw: t,
+          type: 'bu',
+          wppId: wpp.id,
+        });
+      });
+    });
+  }
+
+  // Helper : libellé du mode lisible
+  function _ar_modeLabel(mode) {
+    if (mode === 'control') return 'Control';
+    if (mode === 'substantive') return 'Substantive';
+    if (mode === 'analysis') return 'Analysis';
+    return '—';
+  }
+  // Helper : couleur du mode
+  function _ar_modeColor(mode) {
+    if (mode === 'control') return '3C3489';
+    if (mode === 'substantive') return '085041';
+    if (mode === 'analysis') return '854F0B';
+    return AR_COLORS.textGray;
+  }
+  // Helper : sample size affiché selon le mode
+  function _ar_sampleDisplay(test) {
+    if (test.mode === 'control') {
+      const freqId = (test.samplingPlan || {}).freqId;
+      const freqRow = (typeof CONTROL_FREQ_TABLE !== 'undefined') ? CONTROL_FREQ_TABLE.find(f => f.id === freqId) : null;
+      if (freqRow) {
+        const n = (test.samplingPlan.confLevel === 'low') ? freqRow.low : freqRow.high;
+        return n + ' / ' + freqRow.popPerYear + ' (' + freqRow.shortLabel + ')';
+      }
+    }
+    const sCount = (test.sample||{}).count || '—';
+    const pCount = (test.population||{}).count || '—';
+    return sCount + ' / ' + pCount;
+  }
+  // Helper : résultat affiché selon le mode
+  function _ar_resultDisplay(test) {
+    if (test.mode === 'analysis' && test.analysisData && Array.isArray(test.analysisData.items) && test.analysisData.items.length > 0) {
+      // Pour Analysis : nb d'items avec divergence
+      const results = (typeof _calcAnalysisResults === 'function')
+        ? _calcAnalysisResults(test.analysisData.items, test.analysisConfig)
+        : null;
+      if (results) {
+        if (results.itemsWithDivergence === 0) return {text: 'OK ('+results.totalItems+' items)', color: '548235'};
+        return {text: results.itemsWithDivergence+'/'+results.totalItems+' divergences', color: AR_COLORS.red};
+      }
+      return {text: '—', color: AR_COLORS.textGray};
+    }
+    const aCount = Number((test.anomalies||{}).count) || 0;
+    if (test.result === 'pass' || (test.finalized && aCount === 0)) return {text: 'PASS', color: '548235'};
+    if (test.result === 'fail' || aCount > 0) return {text: aCount+' anomaly'+(aCount>1?'ies':''), color: AR_COLORS.red};
+    return {text: '—', color: AR_COLORS.textGray};
+  }
+
   const sT = pres.addSlide();
-  ar_addTitleBar(pres, sT, "Testing Strategy", null);
-  sT.addText("We conducted the following analyses and test batteries to verify that the processes described by the operational teams were properly followed.", {
+  ar_addTitleBar(pres, sT, "Tests Performed", null);
+  sT.addText("Summary of all tests conducted during this audit (control testing, substantive testing and multi-attribute analyses).", {
     x: 0.5, y: 1.05, w: 12.3, h: 0.5,
     fontSize: 12, color: AR_COLORS.textDark, fontFace: "Calibri",
   });
 
   const tHeader = [
-    {text: "Test Name", options: {bold: true, color: AR_COLORS.white, fill: {color: AR_COLORS.navy}, valign: "middle"}},
-    {text: "Test Description", options: {bold: true, color: AR_COLORS.white, fill: {color: AR_COLORS.navy}, valign: "middle"}},
+    {text: "Test", options: {bold: true, color: AR_COLORS.white, fill: {color: AR_COLORS.navy}, valign: "middle"}},
+    {text: "Mode", options: {bold: true, color: AR_COLORS.white, fill: {color: AR_COLORS.navy}, valign: "middle", align: "center"}},
+    {text: "Sample / Population", options: {bold: true, color: AR_COLORS.white, fill: {color: AR_COLORS.navy}, valign: "middle", align: "center"}},
     {text: "Result", options: {bold: true, color: AR_COLORS.white, fill: {color: AR_COLORS.navy}, valign: "middle", align: "center"}},
     {text: "Linked Finding", options: {bold: true, color: AR_COLORS.white, fill: {color: AR_COLORS.navy}, valign: "middle"}},
   ];
   let tRows;
-  if (testedControls.length) {
-    tRows = [tHeader].concat(testedControls.map((c) => {
-      // Find linked finding
-      const linkedFinding = findings.find(f => (f.controlIds||[]).includes(c.id));
-      const linkedFindingIdx = linkedFinding ? findings.indexOf(linkedFinding)+1 : null;
-      const resultColor = c.result === 'pass' ? '548235' : AR_COLORS.red;
-      const resultText = c.result === 'pass' ? 'PASS' : c.result === 'fail' ? 'Fail' : '—';
+  if (allTests.length) {
+    tRows = [tHeader].concat(allTests.map((tst) => {
+      // Find linked finding (Process : par controlIds, BU : par testId via issues)
+      let linkedFindingIdx = null;
+      if (tst.type === 'process') {
+        const lf = findings.find(f => (f.controlIds||[]).includes(tst.raw.id));
+        if (lf) linkedFindingIdx = findings.indexOf(lf) + 1;
+      } else {
+        // BU : trouver l'issue Operating liée à ce test, puis le finding qui contient cette issue
+        const iss = issues.find(i => i.source === 'operating' && i.testId === tst.raw.id);
+        if (iss) {
+          const lf = findings.find(f => (f.issueIds||[]).includes(iss.id));
+          if (lf) linkedFindingIdx = findings.indexOf(lf) + 1;
+        }
+      }
+      const result = _ar_resultDisplay(tst);
+      const modeLabel = _ar_modeLabel(tst.mode);
+      const modeColor = _ar_modeColor(tst.mode);
       return [
-        {text: c.name || '—', options: {valign: "middle", color: AR_COLORS.textDark, fontSize: 11, bold: true}},
-        {text: c.testNature || '—', options: {valign: "middle", color: AR_COLORS.textDark, fontSize: 10}},
-        {text: resultText, options: {valign: "middle", align: "center", color: resultColor, fontSize: 11, bold: true}},
-        {text: linkedFindingIdx ? 'Finding '+linkedFindingIdx : (c.result === 'fail' ? '⚠ to link' : 'N/A'),
-         options: {valign: "middle", color: AR_COLORS.textGray, fontSize: 10}},
+        {text: tst.name, options: {valign: "middle", color: AR_COLORS.textDark, fontSize: 10, bold: true}},
+        {text: modeLabel, options: {valign: "middle", align: "center", color: modeColor, fontSize: 10, bold: true}},
+        {text: _ar_sampleDisplay(tst), options: {valign: "middle", align: "center", color: AR_COLORS.textDark, fontSize: 10}},
+        {text: result.text, options: {valign: "middle", align: "center", color: result.color, fontSize: 10, bold: true}},
+        {text: linkedFindingIdx ? 'Finding '+linkedFindingIdx : '—',
+         options: {valign: "middle", color: AR_COLORS.textGray, fontSize: 9}},
       ];
     }));
   } else {
-    tRows = [tHeader, [{text: 'No test recorded'}, {text: '—'}, {text: '—'}, {text: '—'}]];
+    tRows = [tHeader, [{text: 'No test recorded'}, {text: '—'}, {text: '—'}, {text: '—'}, {text: '—'}]];
   }
   sT.addTable(tRows, {
     x: 0.4, y: 1.7, w: 12.5,
-    fontSize: 11, fontFace: "Calibri",
+    fontSize: 10, fontFace: "Calibri",
     border: {type: "solid", pt: 0.5, color: AR_COLORS.grayMed},
-    rowH: testedControls.length > 5 ? 0.5 : 0.7,
-    colW: [3.0, 6.5, 1.5, 1.5],
+    rowH: allTests.length > 6 ? 0.4 : 0.55,
+    colW: [4.5, 1.5, 2.5, 2.0, 2.0],
   });
   ar_addFooter(pres, sT);
+
+  // ════════════════════════════════════════════════════════════════════
+  // SLIDES — 1 SLIDE PAR TEST (DÉTAIL)
+  // v77.5 : pour chaque test, slide(s) avec détail selon le mode
+  // ════════════════════════════════════════════════════════════════════
+  allTests.forEach((tst, idx) => {
+    ar_addDetailedTestSlides(pres, tst, idx + 1, allTests.length);
+  });
 
   // ════════════════════════════════════════════════════════════════════
   // SLIDE — APPENDIX DIVIDER
@@ -1128,4 +1249,254 @@ function ar_addBuProcessFindingsSlide(pres, procName, procFindings, allIssues, g
 
     ar_addFooter(pres, s);
   });
+}
+
+// v77.5 : génère 1 (ou plusieurs) slide(s) de détail pour un test
+// test : objet unifié construit dans generateAuditReportPptx (avec .mode, .samplingPlan, etc.)
+// numIdx, total : pour numérotation "Test 3 / 12"
+function ar_addDetailedTestSlides(pres, test, numIdx, total) {
+  const title = "Test " + numIdx + " / " + total;
+  const subtitle = test.name + (test.procName ? ' — ' + test.procName : '');
+  const mode = test.mode || '';
+
+  // ─── Slide 1 : synthèse du test ───
+  const s = pres.addSlide();
+  ar_addTitleBar(pres, s, title, subtitle);
+
+  // Bandeau coloré selon le mode
+  let modeBg = AR_COLORS.grayMed;
+  let modeLabel = 'Test';
+  if (mode === 'control') { modeBg = '3C3489'; modeLabel = '🎯 Control Testing'; }
+  else if (mode === 'substantive') { modeBg = '085041'; modeLabel = '💰 Substantive Testing'; }
+  else if (mode === 'analysis') { modeBg = '854F0B'; modeLabel = '📊 Multi-Attribute Analysis'; }
+
+  s.addShape(pres.ShapeType.rect, {
+    x: 0.4, y: 1.55, w: 12.5, h: 0.4,
+    fill: {color: modeBg}, line: {type: "none"},
+  });
+  s.addText(modeLabel, {
+    x: 0.5, y: 1.55, w: 12.3, h: 0.4,
+    fontSize: 13, bold: true, color: AR_COLORS.white,
+    fontFace: "Calibri", valign: "middle",
+  });
+
+  // Description du test
+  if (test.description) {
+    s.addText(test.description, {
+      x: 0.5, y: 2.1, w: 12.3, h: 0.6,
+      fontSize: 11, color: AR_COLORS.textDark, fontFace: "Calibri", italic: true,
+    });
+  }
+
+  // Tableau de synthèse selon le mode
+  let detailRows = [];
+  if (mode === 'control') {
+    // Control testing
+    const sp = test.samplingPlan || {};
+    const freqRow = (typeof CONTROL_FREQ_TABLE !== 'undefined') ? CONTROL_FREQ_TABLE.find(f => f.id === sp.freqId) : null;
+    const sampleN = freqRow ? (sp.confLevel === 'low' ? freqRow.low : freqRow.high) : '—';
+    const freqLabel = freqRow ? freqRow.label + ' (~' + freqRow.popPerYear + ' occurrences/year)' : '—';
+    const aCount = Number((test.anomalies||{}).count) || 0;
+    detailRows = [
+      ['Test Frequency', freqLabel],
+      ['Confidence Level', sp.confLevel === 'low' ? 'Low (operational control)' : 'High (key control)'],
+      ['Sample Size (recommended)', sampleN.toString()],
+      ['Sample Tested', ((test.sample||{}).count || '—').toString()],
+      ['Anomalies Found', aCount + (aCount > 0 ? ' (' + ((test.anomalies||{}).value ? ar_fmtEur((test.anomalies||{}).value) + ' impact' : 'no value') + ')' : '')],
+    ];
+  } else if (mode === 'substantive') {
+    // Substantive testing
+    const sp = test.samplingPlan || {};
+    const aCount = Number((test.anomalies||{}).count) || 0;
+    detailRows = [
+      ['Confidence Level', (sp.confidence || 95) + '%'],
+      ['Expected Deviation Rate (EDR)', (sp.EDR || 5) + '%'],
+      ['Tolerable Deviation Rate (TDR)', (sp.TDR || 5) + '%'],
+      ['Population', ((test.population||{}).count || '—').toString()],
+      ['Sample Tested', ((test.sample||{}).count || '—').toString()],
+      ['Anomalies Found', aCount + (aCount > 0 ? ' (' + ((test.anomalies||{}).value ? ar_fmtEur((test.anomalies||{}).value) + ' impact' : 'no value') + ')' : '')],
+    ];
+  } else if (mode === 'analysis') {
+    // Analysis
+    const cfg = test.analysisConfig || {sources:[], attributes:[]};
+    const data = test.analysisData || {items: []};
+    const itemsCount = (data.items || []).length;
+    const results = (typeof _calcAnalysisResults === 'function' && itemsCount > 0)
+      ? _calcAnalysisResults(data.items, cfg) : null;
+    detailRows = [
+      ['Sources Compared', (cfg.sources || []).join(' vs ') || '—'],
+      ['Attributes Compared', (cfg.attributes || []).join(', ') || '—'],
+      ['Items Analyzed', itemsCount.toString()],
+      ['Items without Divergence', results ? results.itemsWithoutDivergence.toString() : '—'],
+      ['Items with ≥1 Divergence', results ? (results.itemsWithDivergence + ' (' + ((results.itemsWithDivergence/results.totalItems)*100).toFixed(1) + '%)') : '—'],
+    ];
+  } else {
+    detailRows = [['Mode', '—']];
+  }
+
+  // Affichage du tableau de synthèse
+  const tableData = detailRows.map(r => [
+    {text: r[0], options: {bold: true, color: AR_COLORS.textDark, fill: {color: AR_COLORS.grayLight}, valign: "middle", fontSize: 11}},
+    {text: r[1].toString(), options: {valign: "middle", color: AR_COLORS.textDark, fontSize: 11}},
+  ]);
+  s.addTable(tableData, {
+    x: 0.5, y: 2.85, w: 12.3,
+    fontSize: 11, fontFace: "Calibri",
+    border: {type: "solid", pt: 0.5, color: AR_COLORS.grayMed},
+    colW: [4.0, 8.3],
+    rowH: 0.4,
+  });
+
+  // Pour Analysis : synthèse divergences par attribut
+  if (mode === 'analysis') {
+    const cfg = test.analysisConfig || {sources:[], attributes:[]};
+    const data = test.analysisData || {items: []};
+    if (data.items && data.items.length > 0 && typeof _calcAnalysisResults === 'function') {
+      const results = _calcAnalysisResults(data.items, cfg);
+      const yStart = 2.85 + (detailRows.length * 0.4) + 0.4;
+      s.addText("Divergences by attribute:", {
+        x: 0.5, y: yStart, w: 12.3, h: 0.3,
+        fontSize: 11, bold: true, color: AR_COLORS.textDark, fontFace: "Calibri",
+      });
+      const divHeader = [
+        {text: "Attribute", options: {bold: true, color: AR_COLORS.white, fill: {color: AR_COLORS.navy}, fontSize: 10}},
+        {text: "Divergences", options: {bold: true, color: AR_COLORS.white, fill: {color: AR_COLORS.navy}, fontSize: 10, align: "center"}},
+        {text: "% of items", options: {bold: true, color: AR_COLORS.white, fill: {color: AR_COLORS.navy}, fontSize: 10, align: "center"}},
+        {text: "Items concerned (first 8)", options: {bold: true, color: AR_COLORS.white, fill: {color: AR_COLORS.navy}, fontSize: 10}},
+      ];
+      const divRows = Object.keys(results.divergencesByAttribute).map(attr => {
+        const info = results.divergencesByAttribute[attr];
+        const pct = results.totalItems > 0 ? ((info.count / results.totalItems) * 100).toFixed(1) : '0';
+        const itemsList = info.items.slice(0, 8).join(', ') + (info.items.length > 8 ? ' …' : '');
+        return [
+          {text: attr, options: {bold: true, color: AR_COLORS.textDark, fontSize: 10}},
+          {text: info.count + ' / ' + results.totalItems, options: {align: "center", color: info.count > 0 ? AR_COLORS.red : '548235', fontSize: 10, bold: true}},
+          {text: pct + '%', options: {align: "center", color: AR_COLORS.textDark, fontSize: 10}},
+          {text: info.items.length ? itemsList : '—', options: {color: AR_COLORS.textGray, fontSize: 9}},
+        ];
+      });
+      s.addTable([divHeader].concat(divRows), {
+        x: 0.5, y: yStart + 0.35, w: 12.3,
+        fontSize: 10, fontFace: "Calibri",
+        border: {type: "solid", pt: 0.5, color: AR_COLORS.grayMed},
+        colW: [2.5, 1.8, 1.5, 6.5],
+        rowH: 0.35,
+      });
+    }
+  }
+
+  ar_addFooter(pres, s);
+
+  // ─── Slide(s) suivante(s) : détail item par item (UNIQUEMENT pour Analysis) ───
+  if (mode === 'analysis') {
+    const cfg = test.analysisConfig || {sources:[], attributes:[]};
+    const data = test.analysisData || {items: []};
+    if (data.items && data.items.length > 0) {
+      ar_addAnalysisDetailSlides(pres, test, cfg, data, title);
+    }
+  }
+}
+
+// Helper formate un montant € pour le rapport
+function ar_fmtEur(v) {
+  if (v === null || v === undefined || v === '') return '—';
+  const n = Number(v);
+  if (isNaN(n)) return v;
+  if (n >= 1000000) return (n / 1000000).toFixed(1) + ' M€';
+  if (n >= 1000) return (n / 1000).toFixed(0) + ' k€';
+  return n.toFixed(0) + ' €';
+}
+
+// v77.5 : slides détail item-par-item pour une analyse
+// Si le nombre d'items dépasse ce qui tient sur 1 slide, on pagine
+function ar_addAnalysisDetailSlides(pres, test, cfg, data, parentTitle) {
+  const items = data.items || [];
+  if (!items.length) return;
+
+  // Construire les colonnes : ID + (Attribut × Source) + Commentaire
+  const sources = cfg.sources || [];
+  const attributes = cfg.attributes || [];
+
+  // Construire header
+  const headerCells = [
+    {text: "ID", options: {bold: true, color: AR_COLORS.white, fill: {color: AR_COLORS.navy}, fontSize: 9, valign: "middle"}}
+  ];
+  attributes.forEach(attr => {
+    sources.forEach(src => {
+      headerCells.push({
+        text: attr + '\n(' + src + ')',
+        options: {bold: true, color: AR_COLORS.white, fill: {color: AR_COLORS.navy}, fontSize: 8, valign: "middle", align: "center"}
+      });
+    });
+  });
+  headerCells.push({text: "Comment", options: {bold: true, color: AR_COLORS.white, fill: {color: AR_COLORS.navy}, fontSize: 9, valign: "middle"}});
+
+  // Calcul des divergences (pour highlight)
+  const results = (typeof _calcAnalysisResults === 'function') ? _calcAnalysisResults(items, cfg) : null;
+  const divByItem = {};
+  if (results && Array.isArray(results.itemDetails)) {
+    results.itemDetails.forEach(d => { divByItem[d.id] = d; });
+  }
+
+  // Pagination : ~15 items par slide pour rester lisible
+  const itemsPerPage = 15;
+  const nbPages = Math.ceil(items.length / itemsPerPage);
+
+  for (let page = 0; page < nbPages; page++) {
+    const s = pres.addSlide();
+    const pageLabel = nbPages > 1 ? ' (' + (page+1) + '/' + nbPages + ')' : '';
+    ar_addTitleBar(pres, s, parentTitle + " — Item Detail" + pageLabel, test.name);
+
+    const startIdx = page * itemsPerPage;
+    const endIdx = Math.min(startIdx + itemsPerPage, items.length);
+    const pageItems = items.slice(startIdx, endIdx);
+
+    const rows = [headerCells];
+    pageItems.forEach(item => {
+      const itemDiv = divByItem[item.id];
+      const divergentAttrs = itemDiv ? itemDiv.divergentAttrs : [];
+
+      const row = [
+        {text: item.id, options: {bold: true, color: AR_COLORS.textDark, fontSize: 9, valign: "middle"}}
+      ];
+      attributes.forEach(attr => {
+        const isAttrDiv = divergentAttrs.indexOf(attr) >= 0;
+        sources.forEach(src => {
+          const v = (item.values && item.values[attr] && item.values[attr][src]) || '—';
+          row.push({
+            text: String(v),
+            options: {
+              fontSize: 8,
+              valign: "middle",
+              align: "center",
+              color: isAttrDiv ? AR_COLORS.red : AR_COLORS.textDark,
+              bold: isAttrDiv,
+              fill: isAttrDiv ? {color: 'FCEBEB'} : undefined,
+            }
+          });
+        });
+      });
+      row.push({text: item.comment || '', options: {fontSize: 8, valign: "middle", color: AR_COLORS.textGray, italic: true}});
+      rows.push(row);
+    });
+
+    // Largeurs colonnes : ID fixé, attributs équilibrés, comment fixe
+    const nbValueCols = attributes.length * sources.length;
+    const idW = 0.8;
+    const commentW = 1.8;
+    const valueColW = Math.max(0.6, (12.5 - idW - commentW) / nbValueCols);
+    const colW = [idW];
+    for (let i = 0; i < nbValueCols; i++) colW.push(valueColW);
+    colW.push(commentW);
+
+    s.addTable(rows, {
+      x: 0.4, y: 1.55, w: 12.5,
+      fontSize: 8, fontFace: "Calibri",
+      border: {type: "solid", pt: 0.4, color: AR_COLORS.grayMed},
+      colW: colW,
+      rowH: 0.3,
+    });
+
+    ar_addFooter(pres, s);
+  }
 }
