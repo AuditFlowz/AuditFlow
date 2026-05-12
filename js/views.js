@@ -125,6 +125,398 @@ function _calcControlSampleByFreq(frequency, confidenceLevel) {
 }
 
 
+// ══════════════════════════════════════════════════════════════
+//  v77.4 : ANALYSIS MODE (multi-attributs)
+// ══════════════════════════════════════════════════════════════
+
+// Initialise la config Analysis sur un test (sources et attributs par défaut)
+function _ensureAnalysisConfig(t) {
+  if (!t.analysisConfig) {
+    t.analysisConfig = {
+      sources: ['Source 1', 'Source 2'],
+      attributes: ['Attribut 1'],
+    };
+  }
+  if (!Array.isArray(t.analysisConfig.sources)) t.analysisConfig.sources = ['Source 1', 'Source 2'];
+  if (!Array.isArray(t.analysisConfig.attributes)) t.analysisConfig.attributes = ['Attribut 1'];
+  if (t.analysisConfig.sources.length < 2) t.analysisConfig.sources.push('Source '+(t.analysisConfig.sources.length+1));
+  if (t.analysisConfig.attributes.length < 1) t.analysisConfig.attributes.push('Attribut 1');
+  if (!t.analysisData) t.analysisData = { items: [], importedAt: null, fileName: null };
+  return t.analysisConfig;
+}
+
+// Génère un fichier .xlsx template pour une analyse
+// config : {sources: ['Contrat','ERP'], attributes: ['Date','Valeur']}
+// recommendedN : nombre de lignes pré-générées (sample size)
+// retourne : déclenche le download du fichier
+function _generateAnalysisTemplate(config, recommendedN, fileName) {
+  if (typeof XLSX === 'undefined') {
+    toast('Erreur : librairie Excel non chargée. Recharge la page.');
+    return;
+  }
+  var sources = config.sources || [];
+  var attributes = config.attributes || [];
+  if (sources.length < 2 || attributes.length < 1) {
+    toast('Définis au moins 2 sources et 1 attribut.');
+    return;
+  }
+
+  // Construire les en-têtes : ID, puis pour chaque attribut × source, puis Commentaire
+  var headers = ['ID Item'];
+  attributes.forEach(function(attr){
+    sources.forEach(function(src){
+      headers.push(attr+' ('+src+')');
+    });
+  });
+  headers.push('Commentaire');
+
+  // Lignes vides pré-générées (sample size + 5 extra pour marge)
+  var nbLines = Math.max(Number(recommendedN) || 10, 1) + 5;
+  var data = [headers];
+  for (var i = 0; i < nbLines; i++) {
+    var row = ['ITEM-'+String(i+1).padStart(3,'0')];
+    for (var j = 0; j < attributes.length * sources.length; j++) row.push('');
+    row.push('');
+    data.push(row);
+  }
+
+  // Ligne d'instructions en haut (en commentaire visuel)
+  var instructions = [
+    '# INSTRUCTIONS — Remplis ce template avec les données de chaque item de ton échantillon.',
+    '# Pour chaque attribut, renseigne la valeur observée dans chaque source.',
+    '# Les divergences seront calculées automatiquement à l\'import dans AuditFlow.',
+  ];
+
+  // Préparer la feuille
+  var ws = XLSX.utils.aoa_to_sheet([]);
+  XLSX.utils.sheet_add_aoa(ws, [[instructions[0]]], {origin: 'A1'});
+  XLSX.utils.sheet_add_aoa(ws, [[instructions[1]]], {origin: 'A2'});
+  XLSX.utils.sheet_add_aoa(ws, [[instructions[2]]], {origin: 'A3'});
+  XLSX.utils.sheet_add_aoa(ws, data, {origin: 'A5'});
+
+  // Largeurs colonnes auto (32 chars pour ID + Commentaire, 22 pour les data)
+  ws['!cols'] = headers.map(function(h, i){
+    if (i === 0 || i === headers.length - 1) return {wch: 32};
+    return {wch: 22};
+  });
+
+  // Créer le workbook
+  var wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Analysis');
+
+  // Télécharger
+  XLSX.writeFile(wb, fileName || 'analyse_template.xlsx');
+}
+
+// Parse un fichier .xlsx importé pour une analyse
+// File : un objet File depuis input[type=file]
+// config : {sources, attributes} — pour valider les colonnes
+// callback : function(result, error) — result = {items: [...], errors: [...]}
+function _parseAnalysisExcel(file, config, callback) {
+  if (typeof XLSX === 'undefined') {
+    callback(null, 'Librairie Excel non chargée');
+    return;
+  }
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      var data = new Uint8Array(e.target.result);
+      var workbook = XLSX.read(data, {type: 'array', cellDates: false});
+      var firstSheetName = workbook.SheetNames[0];
+      var ws = workbook.Sheets[firstSheetName];
+      // Convertir en tableau de tableaux
+      var allRows = XLSX.utils.sheet_to_json(ws, {header: 1, defval: '', raw: false});
+
+      // Trouver la ligne d'en-tête : commence par "ID Item"
+      var headerRowIdx = -1;
+      for (var i = 0; i < allRows.length; i++) {
+        if (allRows[i] && (''+allRows[i][0]).trim() === 'ID Item') {
+          headerRowIdx = i;
+          break;
+        }
+      }
+      if (headerRowIdx === -1) {
+        callback(null, 'En-tête "ID Item" introuvable. Utilise le template téléchargé.');
+        return;
+      }
+
+      var headers = allRows[headerRowIdx].map(function(h){return (''+h).trim();});
+      var sources = config.sources || [];
+      var attributes = config.attributes || [];
+
+      // Construire mapping colonne → {attribute, source}
+      var colMap = {}; // index → {attr, src}
+      headers.forEach(function(h, idx){
+        if (idx === 0 || h === 'Commentaire') return;
+        // Format attendu : "Attr (Source)"
+        var m = h.match(/^(.+?)\s*\((.+?)\)\s*$/);
+        if (m) {
+          var attr = m[1].trim();
+          var src = m[2].trim();
+          // Vérifier qu'on a bien les attr et src dans la config
+          if (attributes.indexOf(attr) >= 0 && sources.indexOf(src) >= 0) {
+            colMap[idx] = {attr: attr, src: src};
+          }
+        }
+      });
+      var commentColIdx = headers.indexOf('Commentaire');
+
+      // Parser les lignes de données
+      var items = [];
+      var errors = [];
+      for (var r = headerRowIdx + 1; r < allRows.length; r++) {
+        var row = allRows[r];
+        if (!row || !row.length) continue;
+        var itemId = (''+(row[0]||'')).trim();
+        if (!itemId) continue; // ligne vide
+
+        var values = {}; // {attr: {src: value}}
+        attributes.forEach(function(a){ values[a] = {}; sources.forEach(function(s){ values[a][s] = ''; }); });
+
+        Object.keys(colMap).forEach(function(colIdx){
+          var info = colMap[colIdx];
+          var v = (''+(row[colIdx]||'')).trim();
+          values[info.attr][info.src] = v;
+        });
+
+        var comment = commentColIdx >= 0 ? (''+(row[commentColIdx]||'')).trim() : '';
+
+        items.push({id: itemId, values: values, comment: comment});
+      }
+
+      if (items.length === 0) {
+        callback(null, 'Aucune ligne de données trouvée dans le fichier.');
+        return;
+      }
+
+      callback({items: items, errors: errors, fileName: file.name}, null);
+    } catch (err) {
+      callback(null, 'Erreur lecture Excel : '+(err.message||err));
+    }
+  };
+  reader.onerror = function() { callback(null, 'Erreur lecture du fichier'); };
+  reader.readAsArrayBuffer(file);
+}
+
+// Calcule les divergences sur les données d'une analyse
+// items : [{id, values:{attr:{src: value}}, comment}]
+// config : {sources, attributes}
+// Retourne : {
+//   totalItems: N,
+//   itemsWithDivergence: N,
+//   itemsWithoutDivergence: N,
+//   divergencesByAttribute: {attr: {count, items: [id, id, ...]}},
+//   itemDetails: [{id, hasDivergence, divergentAttrs: [attr, ...]}]
+// }
+function _calcAnalysisResults(items, config) {
+  var sources = config.sources || [];
+  var attributes = config.attributes || [];
+  var result = {
+    totalItems: items.length,
+    itemsWithDivergence: 0,
+    itemsWithoutDivergence: 0,
+    divergencesByAttribute: {},
+    itemDetails: [],
+  };
+  attributes.forEach(function(a){
+    result.divergencesByAttribute[a] = {count: 0, items: []};
+  });
+
+  items.forEach(function(item){
+    var divergentAttrs = [];
+    attributes.forEach(function(attr){
+      var vals = (item.values || {})[attr] || {};
+      // Récupérer les valeurs non vides pour cet attribut
+      var nonEmpty = sources.map(function(s){return (vals[s] || '').trim();}).filter(function(v){return v !== '';});
+      if (nonEmpty.length < 2) return; // pas assez de données pour comparer
+      // Exact match : toutes les valeurs doivent être identiques
+      var first = nonEmpty[0];
+      var allSame = nonEmpty.every(function(v){return v === first;});
+      if (!allSame) {
+        divergentAttrs.push(attr);
+        result.divergencesByAttribute[attr].count++;
+        result.divergencesByAttribute[attr].items.push(item.id);
+      }
+    });
+    var hasDivergence = divergentAttrs.length > 0;
+    if (hasDivergence) result.itemsWithDivergence++;
+    else result.itemsWithoutDivergence++;
+    result.itemDetails.push({id: item.id, hasDivergence: hasDivergence, divergentAttrs: divergentAttrs});
+  });
+
+  return result;
+}
+
+// État global temporaire pour l'upload Excel d'une analyse
+// (pour éviter de passer t et globalIdx via DOM attributes)
+var _pendingAnalysisUpload = null;
+
+// Rendu UI complet de la config Analysis pour un test
+// t : le test (Process ctrl ou BU test)
+// idOrIdx : globalIdx pour Process, t.id pour BU
+// context : 'process' | 'bu'
+// dis : 'disabled' ou ''
+// wppId : (BU uniquement) wpp.id
+function _renderAnalysisConfigUI(t, idOrIdx, context, dis, wppId) {
+  _ensureAnalysisConfig(t);
+  var cfg = t.analysisConfig;
+  var data = t.analysisData || {items: [], importedAt: null, fileName: null};
+  var sp = t.samplingPlan || {confidence:95, EDR:5, TDR:5};
+  var popN = Number((t.population || {}).count) || 0;
+
+  // Identifier la fonction setter selon le contexte
+  var setSampling, setAnalysisField, setAnalysisItem, setAnalysisSources, setAnalysisAttributes, uploadFnArgs;
+  if (context === 'process') {
+    setSampling = 'setProcessSamplingField('+idOrIdx;
+    setAnalysisSources = 'setProcessAnalysisSources('+idOrIdx;
+    setAnalysisAttributes = 'setProcessAnalysisAttributes('+idOrIdx;
+    uploadFnArgs = '\'process\','+idOrIdx;
+  } else {
+    setSampling = 'setTestingsBuSamplingField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(idOrIdx)+'\'';
+    setAnalysisSources = 'setBuAnalysisSources(\''+_escJsArg(wppId)+'\',\''+_escJsArg(idOrIdx)+'\'';
+    setAnalysisAttributes = 'setBuAnalysisAttributes(\''+_escJsArg(wppId)+'\',\''+_escJsArg(idOrIdx)+'\'';
+    uploadFnArgs = '\'bu\',\''+_escJsArg(wppId)+'\',\''+_escJsArg(idOrIdx)+'\'';
+  }
+
+  var h = '';
+
+  // ─── Sample sizing (binomial, comme substantif) ───
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px">';
+  h += '<div>';
+  h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Confiance <span style="cursor:help;color:#3C3489" title="Probabilité que le taux d\'erreur réel soit dans la fourchette annoncée. 95% = standard audit.">ⓘ</span></label>';
+  h += '<div style="display:flex;align-items:center;gap:4px"><input type="number" min="80" max="99" step="1" '+(dis||'')+' value="'+sp.confidence+'" onchange="'+setSampling+',\'confidence\',this.value)" style="flex:1;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;text-align:right;box-sizing:border-box"/><span style="font-size:11px;color:var(--text-3)">%</span></div>';
+  h += '</div>';
+  h += '<div>';
+  h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">EDR (% attendu) <span style="cursor:help;color:#3C3489" title="Expected Deviation Rate : taux d\'erreur que tu anticipes. Si pas d\'historique : 5%.">ⓘ</span></label>';
+  h += '<div style="display:flex;align-items:center;gap:4px"><input type="number" min="0" max="50" step="0.5" '+(dis||'')+' value="'+sp.EDR+'" onchange="'+setSampling+',\'EDR\',this.value)" style="flex:1;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;text-align:right;box-sizing:border-box"/><span style="font-size:11px;color:var(--text-3)">%</span></div>';
+  h += '</div>';
+  h += '<div>';
+  h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">TDR (% tolérable) <span style="cursor:help;color:#3C3489" title="Tolerable Deviation Rate : taux d\'erreur max acceptable. Doit être > EDR.">ⓘ</span></label>';
+  h += '<div style="display:flex;align-items:center;gap:4px"><input type="number" min="1" max="50" step="0.5" '+(dis||'')+' value="'+sp.TDR+'" onchange="'+setSampling+',\'TDR\',this.value)" style="flex:1;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;text-align:right;box-sizing:border-box"/><span style="font-size:11px;color:var(--text-3)">%</span></div>';
+  h += '</div>';
+  h += '</div>';
+
+  // Résultat sample size
+  var recommended = popN > 0 ? _calcSampleSize(popN, sp.confidence, sp.EDR, sp.TDR) : null;
+  if (popN > 0 && recommended && recommended.n) {
+    var fullPopRecommended = recommended.n >= popN;
+    if (fullPopRecommended) {
+      h += '<div style="background:#EEEDFE;border:.5px solid #CECBF6;border-radius:3px;padding:8px 10px;font-size:11px;color:#3C3489;margin-bottom:10px">';
+      h += '<strong style="font-weight:600">📌 Test exhaustif recommandé — N='+popN+'</strong> · Teste 100% des éléments.';
+      h += '</div>';
+    } else {
+      h += '<div style="background:#fff;border:.5px solid var(--border);border-radius:3px;padding:8px 10px;margin-bottom:10px">';
+      h += '<span style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.3px;font-weight:500">Taille d\'échantillon recommandée</span> ';
+      h += '<span style="font-size:14px;font-weight:600;color:#3C3489;margin-left:8px">'+recommended.n+'</span>';
+      h += '<span style="font-size:10px;color:var(--text-3);margin-left:6px">sur '+popN+' ('+((recommended.n/popN)*100).toFixed(1)+'%)</span>';
+      h += '</div>';
+    }
+  } else if (popN === 0) {
+    h += '<div style="font-size:10px;color:var(--text-3);font-style:italic;padding:4px 0 8px">Saisis la taille de la population (ci-dessous) pour calculer la taille d\'échantillon.</div>';
+  }
+
+  // ─── Configuration sources + attributs ───
+  h += '<div style="background:#fff;border:.5px solid var(--border);border-radius:4px;padding:10px;margin-bottom:8px">';
+  h += '<div style="font-size:10px;font-weight:600;color:var(--text-2);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">📋 Configuration de l\'analyse</div>';
+
+  // Sources (2-3)
+  h += '<div style="margin-bottom:10px">';
+  h += '<div style="font-size:10px;color:var(--text-3);margin-bottom:4px">Sources de données ('+cfg.sources.length+'/3) <span style="font-style:italic">— ex : Contrat, ERP, Relevé banque</span></div>';
+  cfg.sources.forEach(function(src, srcIdx){
+    h += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">';
+    h += '<span style="font-size:10px;color:var(--text-3);min-width:60px">Source '+(srcIdx+1)+'</span>';
+    if (!dis) {
+      h += '<input type="text" value="'+_escAttr(src)+'" placeholder="Nom de la source" onchange="'+setAnalysisSources+',\'update\','+srcIdx+',this.value)" style="flex:1;font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box"/>';
+      if (cfg.sources.length > 2) {
+        h += '<button onclick="'+setAnalysisSources+',\'remove\','+srcIdx+',null)" style="font-size:11px;padding:3px 7px;background:#fff;color:#993C1D;border:.5px solid var(--border);border-radius:3px;cursor:pointer">×</button>';
+      }
+    } else {
+      h += '<span style="flex:1;font-size:11px;padding:4px 7px">'+(''+src).replace(/</g,'&lt;')+'</span>';
+    }
+    h += '</div>';
+  });
+  if (!dis && cfg.sources.length < 3) {
+    h += '<button onclick="'+setAnalysisSources+',\'add\',null,null)" style="font-size:10px;padding:4px 8px;background:#fff;border:.5px solid var(--border);border-radius:3px;cursor:pointer;color:#3C3489;font-weight:500">+ Ajouter une source</button>';
+  }
+  h += '</div>';
+
+  // Attributs (1-5)
+  h += '<div>';
+  h += '<div style="font-size:10px;color:var(--text-3);margin-bottom:4px">Attributs à comparer ('+cfg.attributes.length+'/5) <span style="font-style:italic">— ex : Date, Valeur, Devise</span></div>';
+  cfg.attributes.forEach(function(attr, attrIdx){
+    h += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">';
+    h += '<span style="font-size:10px;color:var(--text-3);min-width:60px">Attribut '+(attrIdx+1)+'</span>';
+    if (!dis) {
+      h += '<input type="text" value="'+_escAttr(attr)+'" placeholder="Nom de l\'attribut" onchange="'+setAnalysisAttributes+',\'update\','+attrIdx+',this.value)" style="flex:1;font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box"/>';
+      if (cfg.attributes.length > 1) {
+        h += '<button onclick="'+setAnalysisAttributes+',\'remove\','+attrIdx+',null)" style="font-size:11px;padding:3px 7px;background:#fff;color:#993C1D;border:.5px solid var(--border);border-radius:3px;cursor:pointer">×</button>';
+      }
+    } else {
+      h += '<span style="flex:1;font-size:11px;padding:4px 7px">'+(''+attr).replace(/</g,'&lt;')+'</span>';
+    }
+    h += '</div>';
+  });
+  if (!dis && cfg.attributes.length < 5) {
+    h += '<button onclick="'+setAnalysisAttributes+',\'add\',null,null)" style="font-size:10px;padding:4px 8px;background:#fff;border:.5px solid var(--border);border-radius:3px;cursor:pointer;color:#3C3489;font-weight:500">+ Ajouter un attribut</button>';
+  }
+  h += '</div>';
+
+  h += '</div>';
+
+  // ─── Boutons Excel ───
+  if (!dis) {
+    var nValue = recommended && recommended.n ? recommended.n : 10;
+    h += '<div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">';
+    h += '<button onclick="downloadAnalysisTemplate('+uploadFnArgs+','+nValue+')" style="font-size:11px;padding:6px 12px;background:#fff;border:.5px solid var(--border);border-radius:3px;cursor:pointer;color:#3C3489;font-weight:500">📥 Télécharger template Excel</button>';
+    h += '<button onclick="triggerAnalysisUpload('+uploadFnArgs+')" style="font-size:11px;padding:6px 12px;background:#3C3489;color:#fff;border:none;border-radius:3px;cursor:pointer;font-weight:500">📤 Importer résultats Excel</button>';
+    h += '<input type="file" id="ana-file-input-'+idOrIdx+'" accept=".xlsx,.xls" style="display:none" onchange="handleAnalysisFileSelected(event,'+uploadFnArgs+')"/>';
+    h += '</div>';
+  }
+
+  // ─── Résultats ───
+  if (data.items && data.items.length > 0) {
+    var results = _calcAnalysisResults(data.items, cfg);
+    var anomalyPct = results.totalItems > 0 ? (results.itemsWithDivergence / results.totalItems) * 100 : 0;
+    var anoColor = anomalyPct >= 15 ? '#993C1D' : anomalyPct >= 5 ? '#854F0B' : '#085041';
+    var anoBg = anomalyPct >= 15 ? '#FCEBEB' : anomalyPct >= 5 ? '#FAEEDA' : '#E1F5EE';
+    var anoBorder = anomalyPct >= 15 ? '#F2C2C0' : anomalyPct >= 5 ? '#FAC775' : '#A6E2CD';
+    h += '<div style="background:'+anoBg+';border:.5px solid '+anoBorder+';border-radius:4px;padding:10px 12px;margin-top:6px">';
+    h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:6px">';
+    h += '<div style="font-size:11px;font-weight:600;color:'+anoColor+'">📊 Résultats de l\'analyse</div>';
+    if (data.fileName) {
+      h += '<div style="font-size:9px;color:var(--text-3);font-style:italic">'+(''+data.fileName).replace(/</g,'&lt;')+(data.importedAt?' · importé le '+new Date(data.importedAt).toLocaleDateString('fr-FR'):'')+'</div>';
+    }
+    h += '</div>';
+    h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:11px;color:'+anoColor+';margin-bottom:8px">';
+    h += '<div><strong style="font-weight:600">'+results.totalItems+'</strong> items analysés · <strong style="font-weight:600">'+results.itemsWithoutDivergence+'</strong> sans divergence</div>';
+    h += '<div><strong style="font-weight:600">'+results.itemsWithDivergence+'</strong> items avec ≥1 divergence ('+anomalyPct.toFixed(1)+'%)</div>';
+    h += '</div>';
+    h += '<div style="font-size:11px;color:var(--text-2);margin-top:6px">';
+    h += '<strong style="font-weight:600">Divergences par attribut :</strong>';
+    h += '<ul style="margin:4px 0 0 0;padding-left:20px">';
+    Object.keys(results.divergencesByAttribute).forEach(function(attr){
+      var info = results.divergencesByAttribute[attr];
+      var pct = results.totalItems > 0 ? (info.count / results.totalItems) * 100 : 0;
+      var itemsStr = info.items.slice(0, 5).join(', ') + (info.items.length > 5 ? ' …' : '');
+      h += '<li style="margin-bottom:2px"><strong style="font-weight:500">'+(''+attr).replace(/</g,'&lt;')+'</strong> : '+info.count+'/'+results.totalItems+' ('+pct.toFixed(1)+'%)'+(info.items.length?' → '+itemsStr.replace(/</g,'&lt;'):'')+'</li>';
+    });
+    h += '</ul>';
+    h += '</div>';
+    if (!dis) {
+      h += '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">';
+      h += '<button onclick="showAnalysisDetailModal('+uploadFnArgs+')" style="font-size:10px;padding:4px 9px;background:#fff;border:.5px solid var(--border);border-radius:3px;cursor:pointer;font-weight:500">📋 Voir détail item par item</button>';
+      if (results.itemsWithDivergence > 0) {
+        h += '<button onclick="createIssueFromAnalysis('+uploadFnArgs+')" style="font-size:10px;padding:4px 9px;background:#3C3489;color:#fff;border:none;border-radius:3px;cursor:pointer;font-weight:500">+ Créer Issue Operating</button>';
+      }
+      h += '</div>';
+    }
+    h += '</div>';
+  }
+
+  return h;
+}
+
+
 // Calcul de la couverture actuelle d'un contrôle testé
 // ctrl : {population:{count, value}, sample:{count, value}}
 // Retourne : {coverageCount, coverageAmount, coverageCountPct, coverageAmountPct, level, hasAmount}
@@ -11322,9 +11714,9 @@ function renderTestingsBuTestRow(wppId, t, isPreparer) {
   h += '<button onclick="showSamplingHelpModal()" title="Guide d\'utilisation" style="font-size:9px;padding:3px 8px;background:#fff;border:.5px solid var(--border);border-radius:3px;cursor:pointer;color:#3C3489;font-weight:500">❓ Aide</button>';
   h += '</div>';
 
-  // Toggle Nature du test
+  // Toggle Nature du test (3 cards)
   h += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.3px;font-weight:500;margin-bottom:4px">Nature du test</div>';
-  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px">';
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px">';
   // Control
   var ctrlActive = testMode === 'control';
   if (isPreparer) {
@@ -11355,10 +11747,28 @@ function renderTestingsBuTestRow(wppId, t, isPreparer) {
     h += '<span style="font-size:11px;font-weight:600">💰 Test substantif</span>';
     h += '</div>';
   }
+  // Analysis (v77.4)
+  var anaActive = testMode === 'analysis';
+  if (isPreparer) {
+    h += '<div onclick="setBuTestModeField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'analysis\')" style="padding:8px 10px;border:1px solid '+(anaActive?'#854F0B':'var(--border)')+';border-radius:4px;background:'+(anaActive?'#FAEEDA':'#fff')+';cursor:pointer;box-sizing:border-box;min-width:0">';
+    h += '<div style="display:flex;align-items:center;gap:7px;margin-bottom:2px">';
+    h += '<input type="radio" name="test-mode-'+_escAttr(t.id)+'" '+(anaActive?'checked':'')+' onclick="event.stopPropagation();setBuTestModeField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'analysis\')" style="margin:0;width:auto;flex-shrink:0"/>';
+    h += '<span style="font-size:11px;font-weight:600;color:'+(anaActive?'#854F0B':'var(--text-2)')+'">📊 Analyse multi-attributs</span>';
+    h += '</div>';
+    h += '<div style="font-size:10px;color:var(--text-3);padding-left:22px">Compare attributs entre sources — import Excel</div>';
+    h += '</div>';
+  } else {
+    h += '<div style="padding:8px 10px;border:1px solid '+(anaActive?'#854F0B':'var(--border)')+';border-radius:4px;background:'+(anaActive?'#FAEEDA':'#fff')+';opacity:'+(anaActive?'1':'.5')+'">';
+    h += '<span style="font-size:11px;font-weight:600">📊 Analyse multi-attributs</span>';
+    h += '</div>';
+  }
   h += '</div>';
 
   if (!testMode) {
     h += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:10px;text-align:center;background:#fff;border:.5px dashed var(--border);border-radius:3px">Choisis la nature du test ci-dessus pour configurer le sampling.</div>';
+  } else if (testMode === 'analysis') {
+    // ─── ANALYSIS (v77.4) ───
+    h += _renderAnalysisConfigUI(t, t.id, 'bu', isPreparer ? '' : 'disabled', wppId);
   } else if (testMode === 'control') {
     // ─── CONTROL TESTING ───
     h += '<div style="display:grid;grid-template-columns:2fr 1fr;gap:8px;margin-bottom:8px">';
@@ -13288,6 +13698,258 @@ async function setProcessTestModeField(i, mode) {
   document.getElementById('det-content').innerHTML = renderDetContent();
 }
 
+// ══════════════════════════════════════════════════════════════
+//  v77.4 : Setters & handlers ANALYSIS MODE
+// ══════════════════════════════════════════════════════════════
+
+// Setters Process : Sources de l'analyse
+async function setProcessAnalysisSources(i, action, idx, value) {
+  var d = getAudData(CA);
+  if (!d.controls[4] || !d.controls[4][i]) return;
+  var t = d.controls[4][i];
+  _ensureAnalysisConfig(t);
+  if (action === 'add') {
+    if (t.analysisConfig.sources.length < 3) {
+      t.analysisConfig.sources.push('Source '+(t.analysisConfig.sources.length+1));
+    }
+  } else if (action === 'remove' && t.analysisConfig.sources.length > 2) {
+    t.analysisConfig.sources.splice(idx, 1);
+  } else if (action === 'update') {
+    t.analysisConfig.sources[idx] = value;
+  }
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+async function setProcessAnalysisAttributes(i, action, idx, value) {
+  var d = getAudData(CA);
+  if (!d.controls[4] || !d.controls[4][i]) return;
+  var t = d.controls[4][i];
+  _ensureAnalysisConfig(t);
+  if (action === 'add') {
+    if (t.analysisConfig.attributes.length < 5) {
+      t.analysisConfig.attributes.push('Attribut '+(t.analysisConfig.attributes.length+1));
+    }
+  } else if (action === 'remove' && t.analysisConfig.attributes.length > 1) {
+    t.analysisConfig.attributes.splice(idx, 1);
+  } else if (action === 'update') {
+    t.analysisConfig.attributes[idx] = value;
+  }
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+// Setters BU : Sources + attributs
+async function setBuAnalysisSources(wppId, testId, action, idx, value) {
+  var d = getAudData(CA);
+  var wp = (d.workProgramBU && d.workProgramBU.processes) || [];
+  var wpp = wp.find(function(x){return x.id===wppId;});
+  if (!wpp) return;
+  var t = (wpp.tests||[]).find(function(x){return x.id===testId;});
+  if (!t) return;
+  _ensureAnalysisConfig(t);
+  if (action === 'add') {
+    if (t.analysisConfig.sources.length < 3) {
+      t.analysisConfig.sources.push('Source '+(t.analysisConfig.sources.length+1));
+    }
+  } else if (action === 'remove' && t.analysisConfig.sources.length > 2) {
+    t.analysisConfig.sources.splice(idx, 1);
+  } else if (action === 'update') {
+    t.analysisConfig.sources[idx] = value;
+  }
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+async function setBuAnalysisAttributes(wppId, testId, action, idx, value) {
+  var d = getAudData(CA);
+  var wp = (d.workProgramBU && d.workProgramBU.processes) || [];
+  var wpp = wp.find(function(x){return x.id===wppId;});
+  if (!wpp) return;
+  var t = (wpp.tests||[]).find(function(x){return x.id===testId;});
+  if (!t) return;
+  _ensureAnalysisConfig(t);
+  if (action === 'add') {
+    if (t.analysisConfig.attributes.length < 5) {
+      t.analysisConfig.attributes.push('Attribut '+(t.analysisConfig.attributes.length+1));
+    }
+  } else if (action === 'remove' && t.analysisConfig.attributes.length > 1) {
+    t.analysisConfig.attributes.splice(idx, 1);
+  } else if (action === 'update') {
+    t.analysisConfig.attributes[idx] = value;
+  }
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+// Helper interne : récupère le test selon le contexte
+function _getAnalysisTest(/* context, ...args */) {
+  var args = Array.prototype.slice.call(arguments);
+  var context = args[0];
+  var d = getAudData(CA);
+  if (context === 'process') {
+    var i = args[1];
+    return d.controls && d.controls[4] && d.controls[4][i] ? {t: d.controls[4][i], wppId: null, idOrIdx: i} : null;
+  } else {
+    var wppId = args[1];
+    var testId = args[2];
+    var wp = (d.workProgramBU && d.workProgramBU.processes) || [];
+    var wpp = wp.find(function(x){return x.id===wppId;});
+    if (!wpp) return null;
+    var t = (wpp.tests||[]).find(function(x){return x.id===testId;});
+    return t ? {t: t, wppId: wppId, idOrIdx: testId} : null;
+  }
+}
+
+// Téléchargement du template Excel
+// signatures : ('process', i, recommendedN) ou ('bu', wppId, testId, recommendedN)
+function downloadAnalysisTemplate(/* context, ...args, recommendedN */) {
+  var args = Array.prototype.slice.call(arguments);
+  var recommendedN = args[args.length - 1];
+  var ctxArgs = args.slice(0, -1);
+  var info = _getAnalysisTest.apply(null, ctxArgs);
+  if (!info) { toast('Test introuvable'); return; }
+  _ensureAnalysisConfig(info.t);
+  var a = AUDIT_PLAN.find(function(x){return x.id===CA;});
+  var auditTitle = a ? (a.titre || a.id) : 'audit';
+  var ctrlName = info.t.name || info.t.statement || 'test';
+  var fileName = ('AuditFlow_'+auditTitle+'_'+ctrlName+'_template.xlsx').replace(/[\\/:*?"<>|]/g, '_').substring(0, 80);
+  _generateAnalysisTemplate(info.t.analysisConfig, recommendedN, fileName);
+  toast('✓ Template Excel téléchargé');
+}
+
+// Trigger l'ouverture du file picker pour upload
+// signatures : ('process', i) ou ('bu', wppId, testId)
+function triggerAnalysisUpload(/* context, ...args */) {
+  var args = Array.prototype.slice.call(arguments);
+  _pendingAnalysisUpload = args;
+  var info = _getAnalysisTest.apply(null, args);
+  if (!info) return;
+  var fileInput = document.getElementById('ana-file-input-'+info.idOrIdx);
+  if (fileInput) fileInput.click();
+}
+
+// Handler du choix de fichier — déclenche le parsing + sauvegarde
+function handleAnalysisFileSelected(event /* , context, ...args */) {
+  var args = Array.prototype.slice.call(arguments, 1);
+  var file = event.target.files && event.target.files[0];
+  if (!file) return;
+  var info = _getAnalysisTest.apply(null, args);
+  if (!info) { toast('Test introuvable'); return; }
+  _ensureAnalysisConfig(info.t);
+
+  _parseAnalysisExcel(file, info.t.analysisConfig, function(result, err) {
+    if (err) {
+      toast('Erreur import : '+err);
+      return;
+    }
+    if (!result || !result.items || result.items.length === 0) {
+      toast('Aucune donnée trouvée dans le fichier');
+      return;
+    }
+    // Sauvegarder
+    info.t.analysisData = {
+      items: result.items,
+      importedAt: new Date().toISOString(),
+      fileName: result.fileName,
+    };
+    saveAuditData(CA).then(function(){
+      document.getElementById('det-content').innerHTML = renderDetContent();
+      toast('✓ '+result.items.length+' items importés');
+    });
+  });
+
+  // Reset input pour permettre de réimporter le même fichier
+  event.target.value = '';
+}
+
+// Modale détail item par item
+function showAnalysisDetailModal(/* context, ...args */) {
+  var args = Array.prototype.slice.call(arguments);
+  var info = _getAnalysisTest.apply(null, args);
+  if (!info) return;
+  _ensureAnalysisConfig(info.t);
+  var cfg = info.t.analysisConfig;
+  var data = info.t.analysisData || {items:[]};
+  var results = _calcAnalysisResults(data.items, cfg);
+
+  var body = '';
+  body += '<div style="font-size:11px;color:var(--text-2);margin-bottom:12px">Détail item par item — divergences en rouge</div>';
+  body += '<div style="max-height:60vh;overflow-y:auto">';
+  body += '<table style="width:100%;border-collapse:collapse;font-size:11px">';
+  body += '<thead><tr style="background:#f5f5f0;position:sticky;top:0">';
+  body += '<th style="padding:6px 8px;text-align:left;border:.5px solid var(--border);font-weight:500;color:var(--text-3)">ID</th>';
+  cfg.attributes.forEach(function(attr){
+    cfg.sources.forEach(function(src){
+      body += '<th style="padding:6px 8px;text-align:left;border:.5px solid var(--border);font-weight:500;color:var(--text-3);font-size:9px">'+(''+attr).replace(/</g,'&lt;')+'<br><span style="font-weight:400">('+(''+src).replace(/</g,'&lt;')+')</span></th>';
+    });
+  });
+  body += '<th style="padding:6px 8px;text-align:left;border:.5px solid var(--border);font-weight:500;color:var(--text-3)">Commentaire</th>';
+  body += '</tr></thead><tbody>';
+  data.items.forEach(function(item, idx){
+    var details = results.itemDetails[idx];
+    var hasDiv = details && details.hasDivergence;
+    body += '<tr'+(hasDiv?' style="background:#FCEBEB"':'')+'>';
+    body += '<td style="padding:5px 8px;border:.5px solid var(--border);font-weight:500">'+(''+item.id).replace(/</g,'&lt;')+'</td>';
+    cfg.attributes.forEach(function(attr){
+      var isAttrDiv = details && details.divergentAttrs.indexOf(attr) >= 0;
+      cfg.sources.forEach(function(src){
+        var v = (item.values && item.values[attr] && item.values[attr][src]) || '';
+        body += '<td style="padding:5px 8px;border:.5px solid var(--border);'+(isAttrDiv?'color:#993C1D;font-weight:600':'')+'">'+(''+v).replace(/</g,'&lt;')+'</td>';
+      });
+    });
+    body += '<td style="padding:5px 8px;border:.5px solid var(--border);font-size:10px;color:var(--text-3);font-style:italic">'+(''+(item.comment||'')).replace(/</g,'&lt;')+'</td>';
+    body += '</tr>';
+  });
+  body += '</tbody></table>';
+  body += '</div>';
+
+  openModal('📋 Détail de l\'analyse — '+data.items.length+' items', body, null, {wide:true, hideOk:true, cancelLabel:'Fermer'});
+}
+
+// Crée une Issue Operating pré-remplie depuis les résultats de l'analyse
+async function createIssueFromAnalysis(/* context, ...args */) {
+  var args = Array.prototype.slice.call(arguments);
+  var context = args[0];
+  var info = _getAnalysisTest.apply(null, args);
+  if (!info) return;
+  _ensureAnalysisConfig(info.t);
+  var cfg = info.t.analysisConfig;
+  var data = info.t.analysisData || {items:[]};
+  var results = _calcAnalysisResults(data.items, cfg);
+
+  // Construire description
+  var desc = 'Analyse multi-attributs sur '+results.totalItems+' items :\n';
+  desc += '• Sources comparées : '+cfg.sources.join(' vs ')+'\n';
+  desc += '• Items avec divergence : '+results.itemsWithDivergence+'/'+results.totalItems+' ('+((results.itemsWithDivergence/results.totalItems)*100).toFixed(1)+'%)\n\n';
+  desc += 'Divergences par attribut :\n';
+  Object.keys(results.divergencesByAttribute).forEach(function(attr){
+    var info2 = results.divergencesByAttribute[attr];
+    if (info2.count > 0) {
+      var itemsStr = info2.items.slice(0, 10).join(', ') + (info2.items.length > 10 ? ' …' : '');
+      desc += '• '+attr+' : '+info2.count+' divergence'+(info2.count>1?'s':'')+' ('+itemsStr+')\n';
+    }
+  });
+
+  var d = getAudData(CA);
+  _ensureIssues(d);
+
+  if (context === 'process') {
+    // Process : utilise setProcessIssueDescription qui crée/maj une issue operating
+    var i = args[1];
+    if (typeof setProcessIssueDescription === 'function') {
+      await setProcessIssueDescription(i, desc);
+      toast('✓ Issue Operating créée depuis l\'analyse');
+    }
+  } else {
+    // BU : utilise setBuIssueDescription
+    var wppId = args[1];
+    var testId = args[2];
+    if (typeof setBuIssueDescription === 'function') {
+      await setBuIssueDescription(wppId, testId, desc);
+      toast('✓ Issue Operating créée depuis l\'analyse');
+    }
+  }
+}
+
 // v77.3 : Modale d'aide / guide d'utilisation des paramètres de sampling
 function showSamplingHelpModal() {
   var body = '';
@@ -13362,12 +14024,40 @@ function showSamplingHelpModal() {
   body += '</div>';
   body += '</div>';
 
-  body += '<div style="background:#E1F5EE;border:.5px solid #A6E2CD;border-radius:4px;padding:12px;margin-bottom:14px">';
+  body += '<div style="background:#E1F5EE;border:.5px solid #A6E2CD;border-radius:4px;padding:12px;margin-bottom:8px">';
   body += '<div style="font-size:11px;font-weight:600;color:#085041;margin-bottom:4px">💰 Test substantif — Vérification de factures fournisseurs > 50k€</div>';
   body += '<div style="font-size:11px;color:var(--text-2);line-height:1.5">';
   body += '• Population : 850 factures<br>';
   body += '• Confiance : <strong>95%</strong>, EDR : <strong>5%</strong>, TDR : <strong>5%</strong><br>';
   body += '→ Échantillon binomial : <strong>~73 factures</strong>';
+  body += '</div>';
+  body += '</div>';
+
+  // ─── ANALYSIS (v77.4) ───
+  body += '<div style="border:1.5px solid #854F0B;border-radius:6px;padding:14px;margin-top:14px;margin-bottom:14px;background:#FFFCF6">';
+  body += '<div style="font-size:14px;font-weight:600;color:#854F0B;margin-bottom:8px">📊 Analyse multi-attributs (Analysis)</div>';
+  body += '<div style="font-size:12px;color:var(--text-2);line-height:1.6;margin-bottom:10px">';
+  body += '<strong>Objectif</strong> : comparer plusieurs attributs d\'un même item entre 2-3 sources de données. Détecte les incohérences entre systèmes.<br>';
+  body += '<strong>Exemples</strong> : contrat vs ERP (date, valeur, devise), facture vs bon de commande vs réception (3-way match), créance comptable vs relevé client.';
+  body += '</div>';
+  body += '<div style="font-size:11px;color:var(--text-2);line-height:1.6">';
+  body += '<strong>Workflow</strong> :<br>';
+  body += '1. Configure les <strong>sources</strong> (2-3) et les <strong>attributs</strong> (1-5) à comparer<br>';
+  body += '2. Sample size calculée par formule binomiale (comme substantive)<br>';
+  body += '3. Télécharge le <strong>template Excel</strong> pré-formaté<br>';
+  body += '4. Remplis les valeurs observées dans Excel<br>';
+  body += '5. Importe le fichier dans AuditFlow → <strong>divergences calculées automatiquement</strong><br>';
+  body += '6. Si divergences significatives → bouton "Créer Issue Operating" pré-remplit la description';
+  body += '</div>';
+  body += '</div>';
+
+  body += '<div style="background:#FFFCF6;border:.5px solid #FAC775;border-radius:4px;padding:12px;margin-bottom:14px">';
+  body += '<div style="font-size:11px;font-weight:600;color:#854F0B;margin-bottom:4px">📊 Analyse — Cohérence des contrats avec le système</div>';
+  body += '<div style="font-size:11px;color:var(--text-2);line-height:1.5">';
+  body += '• Population : 1 200 contrats actifs · Sample binomial : 73 contrats<br>';
+  body += '• Sources : <strong>Contrat papier</strong> vs <strong>ERP</strong> vs <strong>CRM</strong><br>';
+  body += '• Attributs : Date de signature, Valeur, Devise<br>';
+  body += '→ Résultats : 8 contrats (11%) avec divergence dont 5 sur la Valeur et 3 sur la Date';
   body += '</div>';
   body += '</div>';
 
@@ -13821,9 +14511,9 @@ function buildExecTable(kc){
     html += '<button onclick="showSamplingHelpModal()" title="Guide d\'utilisation" style="font-size:9px;padding:3px 8px;background:#fff;border:.5px solid var(--border);border-radius:3px;cursor:pointer;color:#3C3489;font-weight:500">❓ Aide</button>';
     html += '</div>';
 
-    // Toggle Nature du test (2 cards) — utilise <div onclick> pour éviter bug CSS .mb label
+    // Toggle Nature du test (3 cards) — utilise <div onclick> pour éviter bug CSS .mb label
     html += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.3px;font-weight:500;margin-bottom:4px">Nature du test</div>';
-    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px">';
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px">';
     // Control
     var ctrlActive = testMode === 'control';
     html += '<div onclick="setProcessTestModeField('+globalIdx+',\'control\')" style="padding:8px 10px;border:1px solid '+(ctrlActive?'#3C3489':'var(--border)')+';border-radius:4px;background:'+(ctrlActive?'#EEEDFE':'#fff')+';cursor:pointer;box-sizing:border-box;min-width:0">';
@@ -13842,11 +14532,23 @@ function buildExecTable(kc){
     html += '</div>';
     html += '<div style="font-size:10px;color:var(--text-3);padding-left:22px">Détecte des anomalies sur transactions — sample binomial</div>';
     html += '</div>';
+    // Analysis (v77.4)
+    var anaActive = testMode === 'analysis';
+    html += '<div onclick="setProcessTestModeField('+globalIdx+',\'analysis\')" style="padding:8px 10px;border:1px solid '+(anaActive?'#854F0B':'var(--border)')+';border-radius:4px;background:'+(anaActive?'#FAEEDA':'#fff')+';cursor:pointer;box-sizing:border-box;min-width:0">';
+    html += '<div style="display:flex;align-items:center;gap:7px;margin-bottom:2px">';
+    html += '<input type="radio" name="test-mode-'+globalIdx+'" '+(anaActive?'checked':'')+' onclick="event.stopPropagation();setProcessTestModeField('+globalIdx+',\'analysis\')" style="margin:0;width:auto;flex-shrink:0"/>';
+    html += '<span style="font-size:11px;font-weight:600;color:'+(anaActive?'#854F0B':'var(--text-2)')+'">📊 Analyse multi-attributs</span>';
+    html += '</div>';
+    html += '<div style="font-size:10px;color:var(--text-3);padding-left:22px">Compare plusieurs attributs entre 2-3 sources de données — import Excel</div>';
+    html += '</div>';
     html += '</div>';
 
     if (!testMode) {
       // Aucun mode choisi — invite à choisir
       html += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:10px;text-align:center;background:#fff;border:.5px dashed var(--border);border-radius:3px">Choisis la nature du test ci-dessus pour configurer le sampling.</div>';
+    } else if (testMode === 'analysis') {
+      // ─── ANALYSIS MULTI-ATTRIBUTS (v77.4) ───
+      html += _renderAnalysisConfigUI(ctrl, globalIdx, 'process', dis);
     } else if (testMode === 'control') {
       // ─── CONTROL TESTING : frequency-based ───
       html += '<div style="display:grid;grid-template-columns:2fr 1fr;gap:8px;margin-bottom:8px">';
