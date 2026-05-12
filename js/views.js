@@ -380,6 +380,19 @@ function _renderAnalysisConfigUI(t, idOrIdx, context, dis, wppId) {
 
   var h = '';
 
+  // ─── Population (saisie dédiée au mode Analysis) ───
+  // Identifier le setter SubField selon le contexte
+  var setPopField;
+  if (context === 'process') {
+    setPopField = 'setProcessTestSubField('+idOrIdx+',\'population\',\'count\',this.value)';
+  } else {
+    setPopField = 'setTestingsBuSubField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(idOrIdx)+'\',\'population\',\'count\',this.value)';
+  }
+  h += '<div style="margin-bottom:10px">';
+  h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Taille de la population <span style="cursor:help;color:#3C3489" title="Nombre total d\'items dans la population (ex: nombre total de contrats actifs). Sert à calculer la taille d\'échantillon binomiale recommandée.">ⓘ</span></label>';
+  h += '<input type="number" min="0" '+(dis||'')+' value="'+_escAttr(popN||'')+'" placeholder="ex: 1200" onchange="'+setPopField+'" style="width:200px;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;text-align:right;box-sizing:border-box"/>';
+  h += '</div>';
+
   // ─── Sample sizing (binomial, comme substantif) ───
   h += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px">';
   h += '<div>';
@@ -11860,6 +11873,8 @@ function renderTestingsBuTestRow(wppId, t, isPreparer) {
   }
   h += '</div>';
 
+  // v77.4.2 : Blocs Tableau Pop/Sample, Coverage, Extrapolation seulement pour Control/Substantive
+  if (testMode !== 'analysis') {
   h += '<table style="width:100%;border-collapse:collapse;margin-bottom:8px;font-size:11px">';
   h += '<thead><tr style="background:#f5f5f0">';
   h += '<th style="text-align:left;padding:5px 8px;font-size:9px;color:var(--text-3);font-weight:500;text-transform:uppercase;letter-spacing:.3px;border:.5px solid var(--border)"></th>';
@@ -11953,6 +11968,7 @@ function renderTestingsBuTestRow(wppId, t, isPreparer) {
     h += '</div>';
   }
   h += '</div>';
+  } // end if (testMode !== 'analysis')
 
   // Issue Description inline (remplace l'ancienne section "Observations" + modale Issue Operating)
   // Une issue Operating EST cette description sur un test. Si vide → pas d'issue.
@@ -14673,6 +14689,9 @@ function buildExecTable(kc){
     }
     html += '</div>';
 
+    // v77.4.2 : Blocs Tableau Pop/Sample, Coverage, Extrapolation seulement pour Control/Substantive
+    // En mode Analysis, ces données viennent du fichier Excel et sont présentées différemment.
+    if (testMode !== 'analysis') {
     // Tableau Population/Sample/Anomalies (Nombre + Valeur €)
     html += '<table style="width:100%;border-collapse:collapse;margin-bottom:8px;font-size:11px">';
     html += '<thead><tr style="background:#f5f5f0">';
@@ -14765,6 +14784,7 @@ function buildExecTable(kc){
       html += '</div>';
     }
     html += '</div>';
+    } // end if (testMode !== 'analysis')
 
     // Issue description (remplace l'ancien Pass/Fail + commentaire)
     html += '<div style="margin-bottom:6px">';
