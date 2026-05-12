@@ -12085,6 +12085,54 @@ async function setBuIssueDescription(wppId, testId, description) {
 // Pré-remplit la zone Issue Description avec un résumé des résultats du test.
 // Conserve ce que l'auditeur a déjà tapé (en l'ajoutant à la suite ?) — non, on remplace,
 // puisque c'est un bouton volontaire (l'auditeur l'a cliqué intentionnellement).
+// v77.5 : Pré-remplit la description Issue Operating sur un contrôle Process testé
+// Génère une synthèse depuis sample/anomalies + extrapolation (cf. BU)
+function prefillProcessIssueDescription(i) {
+  var d = getAudData(CA);
+  if (!d.controls || !d.controls[4] || !d.controls[4][i]) return;
+  var ctrl = d.controls[4][i];
+
+  var smp = ctrl.sample || {};
+  var ano = ctrl.anomalies || {};
+  var lines = [];
+  var hasAnomalies = (ano.count !== '' && Number(ano.count) > 0);
+
+  if (!hasAnomalies) {
+    if (smp.count) {
+      lines.push('Test sur '+_fmtNum(smp.count)+' '+(ctrl.selectionMethod==='Coverage'?'cas ciblés':'cas')+' : aucune anomalie identifiée.');
+    } else {
+      lines.push('Test non finalisé — saisis la population, l\'échantillon et les anomalies pour pré-remplir.');
+    }
+  } else {
+    var line = 'Test sur '+_fmtNum(smp.count)+' '+(ctrl.selectionMethod==='Coverage'?'cas ciblés':'cas')
+      +' : '+_fmtNum(ano.count)+' anomalie'+(Number(ano.count)>1?'s':'');
+    if (ano.value) line += ' ('+_fmtEur(ano.value)+' d\'écarts)';
+    line += '.';
+    lines.push(line);
+    if (ctrl.selectionMethod === 'Aléatoire' || ctrl.selectionMethod === 'Mix') {
+      var extrap = _computeExtrapolation(ctrl);
+      if (extrap.applicable && extrap.countExtrapolated > 0) {
+        var extrapLine = 'Extrapolation : '+_fmtNum(extrap.countExtrapolated)+' cas potentiellement impactés';
+        if (extrap.valueExtrapolated) extrapLine += ' (~'+_fmtEur(extrap.valueExtrapolated)+' d\'impact estimé)';
+        extrapLine += '.';
+        lines.push(extrapLine);
+      }
+    }
+  }
+
+  var newDesc = lines.join('\n');
+
+  // Confirmation si textarea contient déjà du texte
+  var ta = document.getElementById('iss-desc-proc-'+i);
+  if (ta && ta.value.trim() && ta.value.trim() !== newDesc) {
+    if (!confirm('La description contient déjà du texte. Le remplacer par le pré-remplissage ?\n\n(Pour ajouter à la suite, copie-colle manuellement.)')) {
+      return;
+    }
+  }
+  if (ta) ta.value = newDesc;
+  setProcessIssueDescription(i, newDesc);
+}
+
 function prefillBuIssueDescription(wppId, testId) {
   var d = getAudData(CA);
   var wp = (d.workProgramBU && Array.isArray(d.workProgramBU.processes))
@@ -14720,8 +14768,13 @@ function buildExecTable(kc){
 
     // Issue description (remplace l'ancien Pass/Fail + commentaire)
     html += '<div style="margin-bottom:6px">';
-    html += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Issue description <span style="font-style:italic">(remontée dans le rapport — laisser vide si pas d\'anomalie)</span></label>';
-    html += '<textarea onchange="setProcessIssueDescription('+globalIdx+',this.value)" '+dis+' placeholder="Détail des anomalies trouvées, contexte, ce qui sera remonté dans le rapport..." style="width:100%;min-height:60px;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;resize:vertical;font-family:inherit;box-sizing:border-box">'+issueDesc.replace(/</g,'&lt;')+'</textarea>';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">';
+    html += '<label style="font-size:9px;color:var(--text-3)">Issue description <span style="font-style:italic">(remontée dans le rapport — bouton ci-contre pour pré-remplir avec les résultats du test)</span></label>';
+    if (!ctrl.finalized) {
+      html += '<button class="bs" style="font-size:10px;padding:2px 7px" onclick="prefillProcessIssueDescription('+globalIdx+')" title="Pré-remplir depuis les résultats du test">📋 Pré-remplir</button>';
+    }
+    html += '</div>';
+    html += '<textarea id="iss-desc-proc-'+globalIdx+'" onchange="setProcessIssueDescription('+globalIdx+',this.value)" '+dis+' placeholder="Détail des anomalies trouvées, contexte, ce qui sera remonté dans le rapport..." style="width:100%;min-height:60px;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;resize:vertical;font-family:inherit;box-sizing:border-box">'+issueDesc.replace(/</g,'&lt;')+'</textarea>';
     html += '</div>';
 
     // Bouton finaliser
