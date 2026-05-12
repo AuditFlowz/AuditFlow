@@ -94,60 +94,36 @@ function _calcSampleSize(N, confidence, EDR, TDR) {
   };
 }
 
-// Table AICPA pré-calculée (extraits, valeurs standards)
-// Référence : AICPA Audit Sampling Guide, Table 4.5 (confidence levels)
-// Format : {confidence: {edr: {tdr: n}}}
-var AICPA_TABLE = {
-  '90': { // 90% confidence
-    '0':  {'2': 114, '3': 76, '4': 57, '5': 45, '6': 38, '7': 32, '8': 28, '10': 22, '15': 15, '20': 11},
-    '1':  {'2': 194, '3': 129, '4': 96, '5': 77, '6': 64, '7': 55, '8': 48, '10': 38, '15': 25, '20': 18},
-    '2':  {'3': 194, '4': 132, '5': 105, '6': 88, '7': 75, '8': 65, '10': 52, '15': 33, '20': 25},
-    '3':  {'4': 222, '5': 158, '6': 124, '7': 103, '8': 89, '10': 70, '15': 44, '20': 32},
-  },
-  '95': { // 95% confidence (standard audit)
-    '0':  {'2': 149, '3': 99, '4': 74, '5': 59, '6': 49, '7': 42, '8': 36, '10': 29, '15': 19, '20': 14},
-    '1':  {'2': 236, '3': 157, '4': 117, '5': 93, '6': 78, '7': 66, '8': 58, '10': 46, '15': 30, '20': 22},
-    '2':  {'3': 257, '4': 181, '5': 127, '6': 105, '7': 88, '8': 77, '10': 61, '15': 39, '20': 28},
-    '3':  {'4': 268, '5': 192, '6': 152, '7': 125, '8': 105, '10': 84, '15': 53, '20': 39},
-    '5':  {'6': 309, '7': 211, '8': 167, '10': 124, '15': 76, '20': 53},
-  },
-  '99': { // 99% confidence
-    '0':  {'2': 229, '3': 152, '4': 114, '5': 91, '6': 76, '7': 65, '8': 57, '10': 45, '15': 30, '20': 22},
-    '1':  {'2': 351, '3': 234, '4': 175, '5': 140, '6': 117, '7': 100, '8': 88, '10': 70, '15': 46, '20': 34},
-    '2':  {'3': 388, '4': 272, '5': 215, '6': 161, '7': 134, '8': 115, '10': 92, '15': 58, '20': 41},
-  },
-};
+// v77.3 : Table frequency-based pour CONTROL TESTING
+// Référence : pratiques Big4 / IIA (SAS 39, SAS 111)
+// Sample size dépend de la fréquence du contrôle, pas de la population.
+// 2 niveaux : High confidence (audit critique) ou Low confidence (audit standard)
+var CONTROL_FREQ_TABLE = [
+  {id: 'annual',     label: 'Annual',          shortLabel: 'Annuel',         popPerYear: 1,   high: 1,  low: 1},
+  {id: 'quarterly',  label: 'Quarterly',       shortLabel: 'Trimestriel',    popPerYear: 4,   high: 2,  low: 2},
+  {id: 'monthly',    label: 'Monthly',         shortLabel: 'Mensuel',        popPerYear: 12,  high: 3,  low: 2},
+  {id: 'weekly',     label: 'Weekly',          shortLabel: 'Hebdomadaire',   popPerYear: 52,  high: 8,  low: 5},
+  {id: 'daily',      label: 'Daily',           shortLabel: 'Quotidien',      popPerYear: 250, high: 25, low: 15},
+  {id: 'continuous', label: 'Multiple/day',    shortLabel: 'Continu',        popPerYear: 999, high: 60, low: 25},
+];
 
-// Lookup table AICPA : trouve la valeur la plus proche
-// confidence ∈ {90, 95, 99}, edr ∈ {0,1,2,3,5}, tdr ∈ {2,3,...,20}
-function _aicpaLookup(confidence, EDR, TDR) {
-  var conf = String(Math.round(Number(confidence) / 5) * 5); // arrondi au 5 le plus proche
-  // Mapping vers les colonnes disponibles
-  if (conf === '85' || conf === '80') conf = '90';
-  if (conf === '100') conf = '99';
-  if (!AICPA_TABLE[conf]) conf = '95';
-  var edr = String(Math.round(Number(EDR) || 0));
-  var tdr = String(Math.round(Number(TDR) || 5));
-  var row = AICPA_TABLE[conf][edr];
-  if (!row) {
-    // Trouver l'EDR disponible le plus proche (inférieur)
-    var keys = Object.keys(AICPA_TABLE[conf]).map(Number).sort(function(a,b){return a-b;});
-    var bestEdr = keys.filter(function(k){return k <= Number(edr);}).pop() || keys[0];
-    row = AICPA_TABLE[conf][String(bestEdr)];
-    edr = String(bestEdr);
-  }
+// Lookup taille d'échantillon pour control testing selon fréquence + niveau de confiance
+// frequency : id de la table (annual, quarterly, monthly, weekly, daily, continuous)
+// confidenceLevel : 'high' | 'low'
+// Retourne : {n, freqLabel, freqPopPerYear, confidenceLevel} ou null
+function _calcControlSampleByFreq(frequency, confidenceLevel) {
+  var row = CONTROL_FREQ_TABLE.find(function(r){return r.id === frequency;});
   if (!row) return null;
-  // Trouver le TDR
-  var n = row[tdr];
-  if (n === undefined) {
-    // Trouver le TDR disponible le plus proche (supérieur, pour être conservateur)
-    var tdrKeys = Object.keys(row).map(Number).sort(function(a,b){return a-b;});
-    var bestTdr = tdrKeys.filter(function(k){return k >= Number(tdr);})[0] || tdrKeys[tdrKeys.length-1];
-    n = row[String(bestTdr)];
-    tdr = String(bestTdr);
-  }
-  return {n: n, confidence: conf, edr: edr, tdr: tdr};
+  var n = (confidenceLevel === 'low') ? row.low : row.high;
+  return {
+    n: n,
+    freqLabel: row.label,
+    freqShortLabel: row.shortLabel,
+    freqPopPerYear: row.popPerYear,
+    confidenceLevel: confidenceLevel === 'low' ? 'low' : 'high',
+  };
 }
+
 
 // Calcul de la couverture actuelle d'un contrôle testé
 // ctrl : {population:{count, value}, sample:{count, value}}
@@ -11332,72 +11308,145 @@ function renderTestingsBuTestRow(wppId, t, isPreparer) {
   h += '</div>';
   h += '</div>';
 
-  // v77 : Section Sample Sizing (planification a priori) — BU
-  if (!t.samplingPlan) t.samplingPlan = {confidence:95, EDR:5, TDR:5};
+  // v77.3 : Section Sample Sizing — choix Control vs Substantive testing (BU)
+  if (!t.samplingPlan) t.samplingPlan = {confidence:95, EDR:5, TDR:5, freqId:'', confLevel:'high'};
   var sp = t.samplingPlan;
+  if (!sp.freqId) sp.freqId = '';
+  if (!sp.confLevel) sp.confLevel = 'high';
+  var testMode = t.testMode || ''; // 'control' | 'substantive' | ''
   var popN = Number(t.population.count) || 0;
-  var recommended = popN > 0 ? _calcSampleSize(popN, sp.confidence, sp.EDR, sp.TDR) : null;
-  var aicpa = _aicpaLookup(sp.confidence, sp.EDR, sp.TDR);
 
   h += '<div style="background:#fafafa;border:.5px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px">';
   h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px">';
   h += '<div style="font-size:10px;font-weight:600;color:var(--text-2);text-transform:uppercase;letter-spacing:.4px">📊 Sample sizing (planification)</div>';
-  h += '<div style="display:flex;gap:5px">';
-  h += '<button onclick="showSamplingHelpModal()" title="Guide d\'utilisation des paramètres" style="font-size:9px;padding:3px 8px;background:#fff;border:.5px solid var(--border);border-radius:3px;cursor:pointer;color:#3C3489;font-weight:500">❓ Aide</button>';
-  h += '<button onclick="showAicpaTableModal('+sp.confidence+','+sp.EDR+','+sp.TDR+')" style="font-size:9px;padding:3px 8px;background:#fff;border:.5px solid var(--border);border-radius:3px;cursor:pointer;color:#3C3489;font-weight:500">📋 Voir table AICPA</button>';
+  h += '<button onclick="showSamplingHelpModal()" title="Guide d\'utilisation" style="font-size:9px;padding:3px 8px;background:#fff;border:.5px solid var(--border);border-radius:3px;cursor:pointer;color:#3C3489;font-weight:500">❓ Aide</button>';
   h += '</div>';
-  h += '</div>';
-  h += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">';
-  // Confidence
-  h += '<div>';
-  h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Confiance <span style="cursor:help;color:#3C3489" title="Probabilité que le taux d\'erreur réel soit dans la fourchette annoncée. 95% = standard audit, 99% = très haute exigence.">ⓘ</span></label>';
+
+  // Toggle Nature du test
+  h += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.3px;font-weight:500;margin-bottom:4px">Nature du test</div>';
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px">';
+  // Control
+  var ctrlActive = testMode === 'control';
   if (isPreparer) {
-    h += '<div style="display:flex;align-items:center;gap:4px"><input type="number" min="80" max="99" step="1" value="'+sp.confidence+'" onchange="setTestingsBuSamplingField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'confidence\',this.value)" style="flex:1;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;text-align:right;box-sizing:border-box"/><span style="font-size:11px;color:var(--text-3)">%</span></div>';
-  } else {
-    h += '<div style="font-size:11px;padding:5px 8px;text-align:right">'+sp.confidence+'%</div>';
-  }
-  h += '</div>';
-  // EDR
-  h += '<div>';
-  h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">EDR (% attendu) <span style="cursor:help;color:#3C3489" title="Expected Deviation Rate : taux d\'erreur que tu anticipes. Si pas d\'historique : 5%. Si l\'audit précédent a trouvé 2% : 2%.">ⓘ</span></label>';
-  if (isPreparer) {
-    h += '<div style="display:flex;align-items:center;gap:4px"><input type="number" min="0" max="50" step="0.5" value="'+sp.EDR+'" onchange="setTestingsBuSamplingField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'EDR\',this.value)" style="flex:1;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;text-align:right;box-sizing:border-box"/><span style="font-size:11px;color:var(--text-3)">%</span></div>';
-  } else {
-    h += '<div style="font-size:11px;padding:5px 8px;text-align:right">'+sp.EDR+'%</div>';
-  }
-  h += '</div>';
-  // TDR
-  h += '<div>';
-  h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">TDR (% tolérable) <span style="cursor:help;color:#3C3489" title="Tolerable Deviation Rate : taux d\'erreur max acceptable. Standard audit : 5%. Doit être > EDR.">ⓘ</span></label>';
-  if (isPreparer) {
-    h += '<div style="display:flex;align-items:center;gap:4px"><input type="number" min="1" max="50" step="0.5" value="'+sp.TDR+'" onchange="setTestingsBuSamplingField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'TDR\',this.value)" style="flex:1;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;text-align:right;box-sizing:border-box"/><span style="font-size:11px;color:var(--text-3)">%</span></div>';
-  } else {
-    h += '<div style="font-size:11px;padding:5px 8px;text-align:right">'+sp.TDR+'%</div>';
-  }
-  h += '</div>';
-  h += '</div>';
-  // Résultat sample size recommandé
-  if (popN > 0 && recommended && recommended.n) {
-    h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:11px">';
-    h += '<div style="background:#fff;border:.5px solid var(--border);border-radius:3px;padding:7px 9px">';
-    h += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.3px;font-weight:500;margin-bottom:3px">Formule (binomiale + correction)</div>';
-    h += '<div style="font-size:16px;font-weight:600;color:#3C3489">'+recommended.n+'</div>';
-    h += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:2px">sur '+popN+' éléments · '+((recommended.n/popN)*100).toFixed(1)+'% couverture</div>';
+    h += '<div onclick="setBuTestModeField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'control\')" style="padding:8px 10px;border:1px solid '+(ctrlActive?'#3C3489':'var(--border)')+';border-radius:4px;background:'+(ctrlActive?'#EEEDFE':'#fff')+';cursor:pointer;box-sizing:border-box;min-width:0">';
+    h += '<div style="display:flex;align-items:center;gap:7px;margin-bottom:2px">';
+    h += '<input type="radio" name="test-mode-'+_escAttr(t.id)+'" '+(ctrlActive?'checked':'')+' onclick="event.stopPropagation();setBuTestModeField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'control\')" style="margin:0;width:auto;flex-shrink:0"/>';
+    h += '<span style="font-size:11px;font-weight:600;color:'+(ctrlActive?'#3C3489':'var(--text-2)')+'">🎯 Test de contrôle</span>';
     h += '</div>';
-    h += '<div style="background:#fff;border:.5px solid var(--border);border-radius:3px;padding:7px 9px">';
-    h += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.3px;font-weight:500;margin-bottom:3px">Référence AICPA</div>';
-    if (aicpa) {
-      h += '<div style="font-size:16px;font-weight:600;color:#085041">'+aicpa.n+'</div>';
-      h += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:2px">table large pop · '+aicpa.confidence+'%, EDR '+aicpa.edr+'%, TDR '+aicpa.tdr+'%</div>';
+    h += '<div style="font-size:10px;color:var(--text-3);padding-left:22px">Sample basé sur la fréquence du contrôle</div>';
+    h += '</div>';
+  } else {
+    h += '<div style="padding:8px 10px;border:1px solid '+(ctrlActive?'#3C3489':'var(--border)')+';border-radius:4px;background:'+(ctrlActive?'#EEEDFE':'#fff')+';opacity:'+(ctrlActive?'1':'.5')+'">';
+    h += '<span style="font-size:11px;font-weight:600">🎯 Test de contrôle</span>';
+    h += '</div>';
+  }
+  // Substantive
+  var subActive = testMode === 'substantive';
+  if (isPreparer) {
+    h += '<div onclick="setBuTestModeField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'substantive\')" style="padding:8px 10px;border:1px solid '+(subActive?'#085041':'var(--border)')+';border-radius:4px;background:'+(subActive?'#E1F5EE':'#fff')+';cursor:pointer;box-sizing:border-box;min-width:0">';
+    h += '<div style="display:flex;align-items:center;gap:7px;margin-bottom:2px">';
+    h += '<input type="radio" name="test-mode-'+_escAttr(t.id)+'" '+(subActive?'checked':'')+' onclick="event.stopPropagation();setBuTestModeField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'substantive\')" style="margin:0;width:auto;flex-shrink:0"/>';
+    h += '<span style="font-size:11px;font-weight:600;color:'+(subActive?'#085041':'var(--text-2)')+'">💰 Test substantif</span>';
+    h += '</div>';
+    h += '<div style="font-size:10px;color:var(--text-3);padding-left:22px">Sample binomial sur transactions</div>';
+    h += '</div>';
+  } else {
+    h += '<div style="padding:8px 10px;border:1px solid '+(subActive?'#085041':'var(--border)')+';border-radius:4px;background:'+(subActive?'#E1F5EE':'#fff')+';opacity:'+(subActive?'1':'.5')+'">';
+    h += '<span style="font-size:11px;font-weight:600">💰 Test substantif</span>';
+    h += '</div>';
+  }
+  h += '</div>';
+
+  if (!testMode) {
+    h += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:10px;text-align:center;background:#fff;border:.5px dashed var(--border);border-radius:3px">Choisis la nature du test ci-dessus pour configurer le sampling.</div>';
+  } else if (testMode === 'control') {
+    // ─── CONTROL TESTING ───
+    h += '<div style="display:grid;grid-template-columns:2fr 1fr;gap:8px;margin-bottom:8px">';
+    h += '<div>';
+    h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Fréquence du contrôle <span style="cursor:help;color:#3C3489" title="À quelle fréquence le contrôle s\'exécute-t-il dans l\'année ?">ⓘ</span></label>';
+    if (isPreparer) {
+      h += '<select onchange="setTestingsBuSamplingField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'freqId\',this.value)" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;background:#fff;box-sizing:border-box">';
+      h += '<option value=""'+(!sp.freqId?' selected':'')+'>— Choisir —</option>';
+      CONTROL_FREQ_TABLE.forEach(function(f){
+        h += '<option value="'+f.id+'"'+(sp.freqId===f.id?' selected':'')+'>'+f.label+' ('+f.shortLabel+', ~'+f.popPerYear+' occurrences/an)</option>';
+      });
+      h += '</select>';
     } else {
-      h += '<div style="font-size:11px;color:var(--text-3);font-style:italic">Valeurs hors table</div>';
+      h += '<div style="font-size:11px;padding:5px 8px">'+(sp.freqId||'—')+'</div>';
+    }
+    h += '</div>';
+    h += '<div>';
+    h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Niveau de confiance <span style="cursor:help;color:#3C3489" title="High = contrôle clé. Low = contrôle de niveau opérationnel.">ⓘ</span></label>';
+    if (isPreparer) {
+      h += '<select onchange="setTestingsBuSamplingField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'confLevel\',this.value)" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;background:#fff;box-sizing:border-box">';
+      h += '<option value="high"'+(sp.confLevel==='high'?' selected':'')+'>High (contrôle clé)</option>';
+      h += '<option value="low"'+(sp.confLevel==='low'?' selected':'')+'>Low (opérationnel)</option>';
+      h += '</select>';
+    } else {
+      h += '<div style="font-size:11px;padding:5px 8px">'+(sp.confLevel==='high'?'High':'Low')+'</div>';
     }
     h += '</div>';
     h += '</div>';
-  } else if (popN === 0) {
-    h += '<div style="font-size:10px;color:var(--text-3);font-style:italic;padding:6px 0">Saisis d\'abord la taille de la population (ci-dessous) pour calculer la taille d\'échantillon recommandée.</div>';
-  } else if (recommended && recommended.note) {
-    h += '<div style="font-size:10px;color:#854F0B;padding:6px 0">'+recommended.note+'</div>';
+
+    var freqResult = sp.freqId ? _calcControlSampleByFreq(sp.freqId, sp.confLevel) : null;
+    if (freqResult) {
+      h += '<div style="background:#fff;border:.5px solid var(--border);border-radius:3px;padding:9px 11px">';
+      h += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.3px;font-weight:500;margin-bottom:3px">Taille d\'échantillon recommandée</div>';
+      h += '<div style="font-size:18px;font-weight:600;color:#3C3489">'+freqResult.n+'</div>';
+      h += '<div style="font-size:10px;color:var(--text-3);font-style:italic;margin-top:2px">Contrôle '+freqResult.freqShortLabel.toLowerCase()+' (~'+freqResult.freqPopPerYear+' occurrences/an) · niveau '+(freqResult.confidenceLevel==='high'?'High':'Low')+' confidence · table standard audit interne</div>';
+      h += '</div>';
+    } else if (sp.freqId === '') {
+      h += '<div style="font-size:10px;color:var(--text-3);font-style:italic;padding:6px 0">Sélectionne la fréquence du contrôle pour calculer la taille d\'échantillon recommandée.</div>';
+    }
+  } else {
+    // ─── SUBSTANTIVE TESTING ───
+    h += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">';
+    h += '<div>';
+    h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Confiance <span style="cursor:help;color:#3C3489" title="Probabilité que le taux d\'erreur réel soit dans la fourchette annoncée. 95% = standard audit, 99% = très haute exigence.">ⓘ</span></label>';
+    if (isPreparer) {
+      h += '<div style="display:flex;align-items:center;gap:4px"><input type="number" min="80" max="99" step="1" value="'+sp.confidence+'" onchange="setTestingsBuSamplingField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'confidence\',this.value)" style="flex:1;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;text-align:right;box-sizing:border-box"/><span style="font-size:11px;color:var(--text-3)">%</span></div>';
+    } else {
+      h += '<div style="font-size:11px;padding:5px 8px;text-align:right">'+sp.confidence+'%</div>';
+    }
+    h += '</div>';
+    h += '<div>';
+    h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">EDR (% attendu) <span style="cursor:help;color:#3C3489" title="Expected Deviation Rate : taux d\'erreur que tu anticipes. Si pas d\'historique : 5%.">ⓘ</span></label>';
+    if (isPreparer) {
+      h += '<div style="display:flex;align-items:center;gap:4px"><input type="number" min="0" max="50" step="0.5" value="'+sp.EDR+'" onchange="setTestingsBuSamplingField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'EDR\',this.value)" style="flex:1;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;text-align:right;box-sizing:border-box"/><span style="font-size:11px;color:var(--text-3)">%</span></div>';
+    } else {
+      h += '<div style="font-size:11px;padding:5px 8px;text-align:right">'+sp.EDR+'%</div>';
+    }
+    h += '</div>';
+    h += '<div>';
+    h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">TDR (% tolérable) <span style="cursor:help;color:#3C3489" title="Tolerable Deviation Rate : taux d\'erreur max acceptable. Standard audit : 5%. Doit être > EDR.">ⓘ</span></label>';
+    if (isPreparer) {
+      h += '<div style="display:flex;align-items:center;gap:4px"><input type="number" min="1" max="50" step="0.5" value="'+sp.TDR+'" onchange="setTestingsBuSamplingField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'TDR\',this.value)" style="flex:1;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;text-align:right;box-sizing:border-box"/><span style="font-size:11px;color:var(--text-3)">%</span></div>';
+    } else {
+      h += '<div style="font-size:11px;padding:5px 8px;text-align:right">'+sp.TDR+'%</div>';
+    }
+    h += '</div>';
+    h += '</div>';
+
+    var recommended = popN > 0 ? _calcSampleSize(popN, sp.confidence, sp.EDR, sp.TDR) : null;
+    if (popN > 0 && recommended && recommended.n) {
+      var fullPopRecommended = recommended.n >= popN;
+      if (fullPopRecommended) {
+        h += '<div style="background:#EEEDFE;border:.5px solid #CECBF6;border-radius:3px;padding:10px 12px;font-size:11px;color:#3C3489;line-height:1.5">';
+        h += '<div style="font-weight:600;margin-bottom:3px">📌 Test exhaustif recommandé — N='+popN+'</div>';
+        h += 'La population est trop petite pour faire du sampling statistique avec tes paramètres. <strong>Teste 100% des éléments</strong> ('+popN+' / '+popN+').';
+        h += '</div>';
+      } else {
+        h += '<div style="background:#fff;border:.5px solid var(--border);border-radius:3px;padding:9px 11px">';
+        h += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.3px;font-weight:500;margin-bottom:3px">Taille d\'échantillon recommandée</div>';
+        h += '<div style="font-size:18px;font-weight:600;color:#3C3489">'+recommended.n+'</div>';
+        h += '<div style="font-size:10px;color:var(--text-3);font-style:italic;margin-top:2px">sur '+popN+' éléments · '+((recommended.n/popN)*100).toFixed(1)+'% couverture · formule binomiale avec correction petite population</div>';
+        h += '</div>';
+      }
+    } else if (popN === 0) {
+      h += '<div style="font-size:10px;color:var(--text-3);font-style:italic;padding:6px 0">Saisis d\'abord la taille de la population (ci-dessous) pour calculer la taille d\'échantillon recommandée.</div>';
+    } else if (recommended && recommended.note) {
+      h += '<div style="font-size:10px;color:#854F0B;padding:6px 0">'+recommended.note+'</div>';
+    }
   }
   h += '</div>';
 
@@ -11561,6 +11610,20 @@ async function setTestingsBuSamplingField(wppId, testId, field, val) {
   if (!t) return;
   if (!t.samplingPlan) t.samplingPlan = {confidence:95, EDR:5, TDR:5};
   t.samplingPlan[field] = val;
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+// v77.3 : setter pour le mode de test (control / substantive) BU
+async function setBuTestModeField(wppId, testId, mode) {
+  var d = getAudData(CA);
+  var wp = (d.workProgramBU && Array.isArray(d.workProgramBU.processes))
+    ? d.workProgramBU.processes : [];
+  var wpp = wp.find(function(x){return x.id===wppId;});
+  if (!wpp) return;
+  var t = (wpp.tests||[]).find(function(x){return x.id===testId;});
+  if (!t) return;
+  t.testMode = mode;
   await saveAuditData(CA);
   document.getElementById('det-content').innerHTML = renderDetContent();
 }
@@ -13215,154 +13278,97 @@ async function setProcessSamplingField(i, field, val) {
   await saveAuditData(CA);
   document.getElementById('det-content').innerHTML = renderDetContent();
 }
-// v77 : Affiche la modale d'aide table AICPA (lecture seule)
-function showAicpaTableModal(confidence, EDR, TDR, ctrlIdx) {
-  var conf = Number(confidence) || 95;
-  var edr = Number(EDR) || 0;
-  var tdr = Number(TDR) || 5;
-  var lookup = _aicpaLookup(conf, edr, tdr);
 
-  var body = '';
-  body += '<div style="font-size:11px;color:var(--text-2);line-height:1.6;margin-bottom:14px">';
-  body += 'La table ci-dessous est issue du <strong style="font-weight:500">AICPA Audit Sampling Guide</strong>, utilisée par les Big4 comme référentiel pour le sample sizing en audit interne. Les valeurs représentent la taille d\'échantillon recommandée pour <strong style="font-weight:500">95% de confiance</strong> et différents EDR / TDR.';
-  body += '</div>';
-
-  if (lookup) {
-    body += '<div style="background:#EEEDFE;border:.5px solid #CECBF6;border-radius:4px;padding:10px 12px;margin-bottom:14px;font-size:11px;color:#3C3489">';
-    body += '<strong style="font-weight:600">Pour ta configuration</strong> (confiance '+lookup.confidence+'%, EDR '+lookup.edr+'%, TDR '+lookup.tdr+'%) :<br>';
-    body += '→ Taille recommandée AICPA : <strong style="font-weight:600;font-size:14px">'+lookup.n+'</strong>';
-    body += '</div>';
-  }
-
-  // Génération table HTML — vue 95% confidence par défaut
-  body += '<div style="font-size:11px;font-weight:600;margin-bottom:6px;color:var(--text-1)">Table 95% confidence (extrait)</div>';
-  body += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">';
-  body += '<thead><tr style="background:#f5f5f0">';
-  body += '<th style="padding:6px 10px;text-align:left;border:.5px solid var(--border);font-size:10px;color:var(--text-3);font-weight:500">EDR \\ TDR</th>';
-  ['2','3','4','5','6','7','8','10','15','20'].forEach(function(t){
-    body += '<th style="padding:6px 10px;text-align:right;border:.5px solid var(--border);font-size:10px;color:var(--text-3);font-weight:500">'+t+'%</th>';
-  });
-  body += '</tr></thead><tbody>';
-  ['0','1','2','3','5'].forEach(function(eRow){
-    var row = AICPA_TABLE['95'][eRow] || {};
-    body += '<tr>';
-    body += '<td style="padding:5px 10px;border:.5px solid var(--border);background:#fafafa;font-weight:500">'+eRow+'%</td>';
-    ['2','3','4','5','6','7','8','10','15','20'].forEach(function(t){
-      var v = row[t];
-      var isMatch = (lookup && lookup.confidence==='95' && lookup.edr===eRow && lookup.tdr===t);
-      body += '<td style="padding:5px 10px;border:.5px solid var(--border);text-align:right;font-family:monospace;'+(isMatch?'background:#3C3489;color:#fff;font-weight:600':'')+'">'+(v||'—')+'</td>';
-    });
-    body += '</tr>';
-  });
-  body += '</tbody></table></div>';
-
-  body += '<div style="font-size:10px;color:var(--text-3);font-style:italic;margin-top:10px;line-height:1.5">';
-  body += '<strong style="font-weight:500">Note méthodologique :</strong> Les valeurs AICPA sont calculées pour des populations larges (correction infinite). Pour une petite population, la formule statistique avec correction donne une taille plus petite — c\'est pourquoi AuditFlow affiche les deux valeurs.';
-  body += '</div>';
-
-  openModal('📊 Table AICPA — Sample Sizing', body, null, {wide:true, hideOk:true, cancelLabel:'Fermer'});
+// v77.3 : setter pour le mode de test (control / substantive) Process
+async function setProcessTestModeField(i, mode) {
+  var d = getAudData(CA);
+  if (!d.controls[4] || !d.controls[4][i]) return;
+  d.controls[4][i].testMode = mode;
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
 }
 
-// v77 : Modale d'aide / guide d'utilisation des paramètres de sampling
+// v77.3 : Modale d'aide / guide d'utilisation des paramètres de sampling
 function showSamplingHelpModal() {
   var body = '';
 
   // Intro
   body += '<div style="background:#EEEDFE;border:.5px solid #CECBF6;border-radius:4px;padding:12px 14px;margin-bottom:14px;font-size:12px;color:#3C3489;line-height:1.6">';
-  body += '<div style="font-weight:600;margin-bottom:4px">🎯 Pourquoi calculer une taille d\'échantillon ?</div>';
-  body += 'Tu ne peux pas tester 100% d\'une population (trop coûteux). Tu testes un <strong>échantillon</strong>, et la statistique te dit combien d\'éléments tester pour pouvoir <strong>conclure avec une fiabilité donnée</strong> sur le taux d\'erreur réel.';
+  body += '<div style="font-weight:600;margin-bottom:4px">🎯 Deux natures de tests, deux méthodes de sampling</div>';
+  body += 'En audit, on distingue les tests de contrôle (vérifier que les contrôles fonctionnent) des tests substantifs (détecter des anomalies sur des transactions). Les deux exigent des approches statistiques différentes.';
   body += '</div>';
 
-  // Les 3 paramètres
-  body += '<div style="font-size:13px;font-weight:600;color:var(--text-1);margin-bottom:10px">📊 Les 3 paramètres à régler</div>';
-
-  // CONFIDENCE
-  body += '<div style="border:.5px solid var(--border);border-radius:4px;padding:12px 14px;margin-bottom:10px;background:#fff">';
-  body += '<div style="font-size:12px;font-weight:600;color:#3C3489;margin-bottom:4px">1. Confiance (Z) — par défaut 95%</div>';
-  body += '<div style="font-size:11px;color:var(--text-2);line-height:1.6;margin-bottom:6px">';
-  body += 'Probabilité que ta conclusion soit fiable. C\'est <strong>la solidité statistique</strong> que tu veux.';
+  // ─── TEST DE CONTRÔLE ───
+  body += '<div style="border:1.5px solid #3C3489;border-radius:6px;padding:14px;margin-bottom:14px;background:#fafafe">';
+  body += '<div style="font-size:14px;font-weight:600;color:#3C3489;margin-bottom:8px">🎯 Test de contrôle (Control Testing)</div>';
+  body += '<div style="font-size:12px;color:var(--text-2);line-height:1.6;margin-bottom:10px">';
+  body += '<strong>Objectif</strong> : vérifier que le contrôle <strong>fonctionne effectivement</strong>. Tu testes des occurrences du contrôle, pas des transactions individuelles.<br>';
+  body += '<strong>Exemples</strong> : revue manager mensuelle, validation des paiements, rapprochement bancaire, contrôle SoD, signature manager.';
   body += '</div>';
-  body += '<table style="width:100%;font-size:11px;border-collapse:collapse;margin-bottom:6px">';
-  body += '<tr style="background:#fafafa"><td style="padding:4px 8px;border:.5px solid var(--border);font-weight:500">90%</td><td style="padding:4px 8px;border:.5px solid var(--border)">Audit interne basique, contrôle non critique</td></tr>';
-  body += '<tr style="background:#EEEDFE"><td style="padding:4px 8px;border:.5px solid var(--border);font-weight:500">95% ← standard</td><td style="padding:4px 8px;border:.5px solid var(--border)">Standard d\'audit interne, le plus utilisé</td></tr>';
-  body += '<tr style="background:#fafafa"><td style="padding:4px 8px;border:.5px solid var(--border);font-weight:500">99%</td><td style="padding:4px 8px;border:.5px solid var(--border)">Audit critique, exigence réglementaire forte (Sapin II, SOX)</td></tr>';
-  body += '</table>';
-  body += '<div style="font-size:10px;color:var(--text-3);font-style:italic">⚠ Plus la confiance est élevée, plus l\'échantillon à tester est grand.</div>';
-  body += '</div>';
-
-  // EDR
-  body += '<div style="border:.5px solid var(--border);border-radius:4px;padding:12px 14px;margin-bottom:10px;background:#fff">';
-  body += '<div style="font-size:12px;font-weight:600;color:#3C3489;margin-bottom:4px">2. EDR — Expected Deviation Rate (% attendu)</div>';
-  body += '<div style="font-size:11px;color:var(--text-2);line-height:1.6;margin-bottom:6px">';
-  body += '<strong>Taux d\'erreur que tu t\'attends à trouver</strong> dans la population. C\'est une estimation a priori.';
-  body += '</div>';
-  body += '<table style="width:100%;font-size:11px;border-collapse:collapse;margin-bottom:6px">';
-  body += '<tr style="background:#fafafa"><td style="padding:4px 8px;border:.5px solid var(--border);font-weight:500">0%</td><td style="padding:4px 8px;border:.5px solid var(--border)">Tu ne t\'attends à aucune erreur (contrôle clé, automatisé, robuste)</td></tr>';
-  body += '<tr style="background:#EEEDFE"><td style="padding:4px 8px;border:.5px solid var(--border);font-weight:500">2-5% ← courant</td><td style="padding:4px 8px;border:.5px solid var(--border)">Cas standard : 5% par défaut si pas d\'historique</td></tr>';
-  body += '<tr style="background:#fafafa"><td style="padding:4px 8px;border:.5px solid var(--border);font-weight:500">10%+</td><td style="padding:4px 8px;border:.5px solid var(--border)">Processus à risque connu, audit précédent avait trouvé beaucoup d\'écarts</td></tr>';
-  body += '</table>';
-  body += '<div style="font-size:10px;color:var(--text-3);font-style:italic">💡 Si l\'audit précédent a trouvé 3% d\'erreurs, tu peux mettre EDR = 3% pour ce nouvel audit.</div>';
+  body += '<div style="font-size:12px;font-weight:600;color:#3C3489;margin-bottom:6px">Sample size selon la fréquence (standard audit interne)</div>';
+  body += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">';
+  body += '<thead><tr style="background:#f5f5f0">';
+  body += '<th style="padding:6px 10px;text-align:left;border:.5px solid var(--border)">Fréquence</th>';
+  body += '<th style="padding:6px 10px;text-align:right;border:.5px solid var(--border)">Occurrences/an</th>';
+  body += '<th style="padding:6px 10px;text-align:right;border:.5px solid var(--border)">High confidence<br><span style="font-weight:400;color:var(--text-3);font-size:10px">(contrôle clé)</span></th>';
+  body += '<th style="padding:6px 10px;text-align:right;border:.5px solid var(--border)">Low confidence<br><span style="font-weight:400;color:var(--text-3);font-size:10px">(opérationnel)</span></th>';
+  body += '</tr></thead><tbody>';
+  CONTROL_FREQ_TABLE.forEach(function(r){
+    body += '<tr>';
+    body += '<td style="padding:5px 10px;border:.5px solid var(--border);font-weight:500">'+r.label+' ('+r.shortLabel+')</td>';
+    body += '<td style="padding:5px 10px;border:.5px solid var(--border);text-align:right">'+r.popPerYear+'</td>';
+    body += '<td style="padding:5px 10px;border:.5px solid var(--border);text-align:right;font-weight:600;color:#3C3489">'+r.high+'</td>';
+    body += '<td style="padding:5px 10px;border:.5px solid var(--border);text-align:right;font-weight:600;color:#854F0B">'+r.low+'</td>';
+    body += '</tr>';
+  });
+  body += '</tbody></table></div>';
+  body += '<div style="font-size:10px;color:var(--text-3);font-style:italic;margin-top:8px">Référence : SAS 39 / SAS 111 — pratique standard des Big4 pour les tests de contrôle.</div>';
   body += '</div>';
 
-  // TDR
-  body += '<div style="border:.5px solid var(--border);border-radius:4px;padding:12px 14px;margin-bottom:10px;background:#fff">';
-  body += '<div style="font-size:12px;font-weight:600;color:#3C3489;margin-bottom:4px">3. TDR — Tolerable Deviation Rate (% tolérable)</div>';
-  body += '<div style="font-size:11px;color:var(--text-2);line-height:1.6;margin-bottom:6px">';
-  body += '<strong>Taux d\'erreur maximum acceptable</strong>. Au-delà, tu considères que le contrôle ne fonctionne pas et un finding sera émis.';
+  // ─── TEST SUBSTANTIF ───
+  body += '<div style="border:1.5px solid #085041;border-radius:6px;padding:14px;margin-bottom:14px;background:#fbfdfc">';
+  body += '<div style="font-size:14px;font-weight:600;color:#085041;margin-bottom:8px">💰 Test substantif (Substantive Testing)</div>';
+  body += '<div style="font-size:12px;color:var(--text-2);line-height:1.6;margin-bottom:10px">';
+  body += '<strong>Objectif</strong> : détecter des <strong>anomalies financières individuelles</strong> et conclure sur le montant total d\'erreurs dans la population.<br>';
+  body += '<strong>Exemples</strong> : revue de factures fournisseurs, écritures comptables, créances clients, valorisation stocks.';
   body += '</div>';
-  body += '<table style="width:100%;font-size:11px;border-collapse:collapse;margin-bottom:6px">';
-  body += '<tr style="background:#fafafa"><td style="padding:4px 8px;border:.5px solid var(--border);font-weight:500">2-3%</td><td style="padding:4px 8px;border:.5px solid var(--border)">Contrôle critique (sécurité, conformité réglementaire, fraud)</td></tr>';
-  body += '<tr style="background:#EEEDFE"><td style="padding:4px 8px;border:.5px solid var(--border);font-weight:500">5% ← standard</td><td style="padding:4px 8px;border:.5px solid var(--border)">Cas courant en audit interne</td></tr>';
-  body += '<tr style="background:#fafafa"><td style="padding:4px 8px;border:.5px solid var(--border);font-weight:500">10%+</td><td style="padding:4px 8px;border:.5px solid var(--border)">Contrôle de niveau opérationnel, faible impact</td></tr>';
-  body += '</table>';
-  body += '<div style="font-size:10px;color:#854F0B;font-style:italic">⚠ TDR doit être supérieur à EDR (sinon le test n\'a pas de sens).</div>';
+  body += '<div style="font-size:12px;font-weight:600;color:#085041;margin-bottom:6px">3 paramètres à régler</div>';
+  body += '<div style="font-size:11px;color:var(--text-2);line-height:1.7">';
+  body += '<strong>Confiance</strong> — Probabilité que la conclusion soit fiable. Standard : 95%. Critique : 99%.<br>';
+  body += '<strong>EDR (Expected Deviation Rate)</strong> — % d\'erreurs anticipé. Sans historique : 5%. Si audit précédent a trouvé 2% : 2%.<br>';
+  body += '<strong>TDR (Tolerable Deviation Rate)</strong> — % d\'erreurs max acceptable. Standard : 5%. Doit être supérieur à EDR.';
+  body += '</div>';
+  body += '<div style="font-size:10px;color:var(--text-3);font-style:italic;margin-top:8px">Formule binomiale avec correction pour petite population : <code style="font-family:monospace;background:#fff;padding:1px 4px;border-radius:2px">n = (Z² × p × (1-p)) / (TDR-EDR)²</code></div>';
   body += '</div>';
 
-  // Exemples concrets
-  body += '<div style="font-size:13px;font-weight:600;color:var(--text-1);margin-top:14px;margin-bottom:10px">💼 Exemples concrets</div>';
+  // ─── EXEMPLES ───
+  body += '<div style="font-size:14px;font-weight:600;color:var(--text-1);margin-top:14px;margin-bottom:10px">💼 Exemples concrets</div>';
 
-  body += '<div style="background:#F5FBF8;border:.5px solid #A6E2CD;border-radius:4px;padding:12px;margin-bottom:8px">';
-  body += '<div style="font-size:11px;font-weight:600;color:#085041;margin-bottom:4px">Ex 1 : Test classique — Validation manager des paiements > 50k€</div>';
+  body += '<div style="background:#EEEDFE;border:.5px solid #CECBF6;border-radius:4px;padding:12px;margin-bottom:8px">';
+  body += '<div style="font-size:11px;font-weight:600;color:#3C3489;margin-bottom:4px">🎯 Test de contrôle — Validation manager mensuelle des paiements</div>';
   body += '<div style="font-size:11px;color:var(--text-2);line-height:1.5">';
-  body += '• Population : 850 paiements > 50k€ sur l\'année<br>';
-  body += '• <strong>Confiance : 95%</strong> (standard)<br>';
-  body += '• <strong>EDR : 5%</strong> (pas d\'historique → valeur par défaut)<br>';
-  body += '• <strong>TDR : 5%</strong> (standard audit)<br>';
-  body += '→ Échantillon recommandé : <strong>~73 paiements</strong> (formule) / 59 (AICPA)';
+  body += '• Fréquence : <strong>Monthly</strong> (~12 occurrences/an)<br>';
+  body += '• Niveau : <strong>High confidence</strong> (contrôle clé)<br>';
+  body += '→ Échantillon : <strong>3 occurrences</strong> de la validation manager (sur les 12 mois)';
   body += '</div>';
   body += '</div>';
 
   body += '<div style="background:#FFFAF0;border:.5px solid #FAC775;border-radius:4px;padding:12px;margin-bottom:8px">';
-  body += '<div style="font-size:11px;font-weight:600;color:#854F0B;margin-bottom:4px">Ex 2 : Contrôle critique — Séparation des tâches sur les paiements</div>';
+  body += '<div style="font-size:11px;font-weight:600;color:#854F0B;margin-bottom:4px">🎯 Test de contrôle — Rapprochement bancaire quotidien</div>';
   body += '<div style="font-size:11px;color:var(--text-2);line-height:1.5">';
-  body += '• Population : 1 200 paiements<br>';
-  body += '• <strong>Confiance : 99%</strong> (contrôle critique, exigence SOX)<br>';
-  body += '• <strong>EDR : 0%</strong> (on n\'attend aucune erreur de SoD)<br>';
-  body += '• <strong>TDR : 2%</strong> (tolérance très faible)<br>';
-  body += '→ Échantillon recommandé : <strong>~210 paiements</strong> (formule) / 229 (AICPA)';
+  body += '• Fréquence : <strong>Daily</strong> (~250 occurrences/an)<br>';
+  body += '• Niveau : <strong>Low confidence</strong> (contrôle opérationnel automatisé)<br>';
+  body += '→ Échantillon : <strong>15 jours</strong> à tester';
   body += '</div>';
   body += '</div>';
 
-  body += '<div style="background:#FCEBEB;border:.5px solid #F2C2C0;border-radius:4px;padding:12px;margin-bottom:14px">';
-  body += '<div style="font-size:11px;font-weight:600;color:#993C1D;margin-bottom:4px">Ex 3 : Test léger — Vérification des justificatifs de frais < 500€</div>';
+  body += '<div style="background:#E1F5EE;border:.5px solid #A6E2CD;border-radius:4px;padding:12px;margin-bottom:14px">';
+  body += '<div style="font-size:11px;font-weight:600;color:#085041;margin-bottom:4px">💰 Test substantif — Vérification de factures fournisseurs > 50k€</div>';
   body += '<div style="font-size:11px;color:var(--text-2);line-height:1.5">';
-  body += '• Population : 3 500 notes de frais<br>';
-  body += '• <strong>Confiance : 90%</strong> (contrôle de niveau opérationnel)<br>';
-  body += '• <strong>EDR : 5%</strong><br>';
-  body += '• <strong>TDR : 10%</strong> (impact faible, on est tolérant)<br>';
-  body += '→ Échantillon recommandé : <strong>~22 notes de frais</strong> (formule) / 22 (AICPA)';
+  body += '• Population : 850 factures<br>';
+  body += '• Confiance : <strong>95%</strong>, EDR : <strong>5%</strong>, TDR : <strong>5%</strong><br>';
+  body += '→ Échantillon binomial : <strong>~73 factures</strong>';
   body += '</div>';
-  body += '</div>';
-
-  // Workflow
-  body += '<div style="font-size:13px;font-weight:600;color:var(--text-1);margin-top:14px;margin-bottom:8px">🚀 Workflow conseillé</div>';
-  body += '<div style="font-size:11px;color:var(--text-2);line-height:1.7;padding-left:20px">';
-  body += '<strong>1.</strong> Saisis la <strong>taille de la population</strong> dans le tableau du test<br>';
-  body += '<strong>2.</strong> Ajuste les 3 paramètres selon le profil de risque du contrôle<br>';
-  body += '<strong>3.</strong> Note la taille d\'échantillon recommandée<br>';
-  body += '<strong>4.</strong> Sélectionne ton sample selon la méthode (Aléatoire / Coverage / Mix)<br>';
-  body += '<strong>5.</strong> Réalise les tests et saisis l\'échantillon réellement testé<br>';
-  body += '<strong>6.</strong> Vérifie le bloc 🎯 Coverage : ton sample atteint-il le seuil recommandé ?';
   body += '</div>';
 
   openModal('❓ Guide — Sample Sizing en audit', body, null, {wide:true, hideOk:true, cancelLabel:'Fermer'});
@@ -13800,62 +13806,120 @@ function buildExecTable(kc){
     html += '<textarea onchange="setTestNature('+globalIdx+',this.value)" '+dis+' placeholder="Décrivez la procédure de test..." style="width:100%;min-height:50px;font-size:11px;padding:6px;border:1px solid var(--border);border-radius:3px;font-family:inherit;box-sizing:border-box">'+(ctrl.testNature||'').replace(/</g,'&lt;')+'</textarea>';
     html += '</div>';
 
-    // v77 : Section Sample Sizing (planification a priori)
-    if (!ctrl.samplingPlan) ctrl.samplingPlan = {confidence:95, EDR:5, TDR:5};
+    // v77.3 : Section Sample Sizing — choix Control vs Substantive testing
+    if (!ctrl.samplingPlan) ctrl.samplingPlan = {confidence:95, EDR:5, TDR:5, freqId:'', confLevel:'high'};
     var sp = ctrl.samplingPlan;
+    if (!sp.freqId) sp.freqId = '';
+    if (!sp.confLevel) sp.confLevel = 'high';
+    var testMode = ctrl.testMode || ''; // 'control' | 'substantive' | ''
     var popN = Number(ctrl.population.count) || 0;
-    var recommended = popN > 0 ? _calcSampleSize(popN, sp.confidence, sp.EDR, sp.TDR) : null;
-    var aicpa = _aicpaLookup(sp.confidence, sp.EDR, sp.TDR);
 
     html += '<div style="background:#fafafa;border:.5px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px">';
+    // Header avec aide
     html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px">';
     html += '<div style="font-size:10px;font-weight:600;color:var(--text-2);text-transform:uppercase;letter-spacing:.4px">📊 Sample sizing (planification)</div>';
-    html += '<div style="display:flex;gap:5px">';
-    html += '<button onclick="showSamplingHelpModal()" title="Guide d\'utilisation des paramètres" style="font-size:9px;padding:3px 8px;background:#fff;border:.5px solid var(--border);border-radius:3px;cursor:pointer;color:#3C3489;font-weight:500">❓ Aide</button>';
-    html += '<button onclick="showAicpaTableModal('+sp.confidence+','+sp.EDR+','+sp.TDR+','+globalIdx+')" style="font-size:9px;padding:3px 8px;background:#fff;border:.5px solid var(--border);border-radius:3px;cursor:pointer;color:#3C3489;font-weight:500">📋 Voir table AICPA</button>';
+    html += '<button onclick="showSamplingHelpModal()" title="Guide d\'utilisation" style="font-size:9px;padding:3px 8px;background:#fff;border:.5px solid var(--border);border-radius:3px;cursor:pointer;color:#3C3489;font-weight:500">❓ Aide</button>';
+    html += '</div>';
+
+    // Toggle Nature du test (2 cards) — utilise <div onclick> pour éviter bug CSS .mb label
+    html += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.3px;font-weight:500;margin-bottom:4px">Nature du test</div>';
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px">';
+    // Control
+    var ctrlActive = testMode === 'control';
+    html += '<div onclick="setProcessTestModeField('+globalIdx+',\'control\')" style="padding:8px 10px;border:1px solid '+(ctrlActive?'#3C3489':'var(--border)')+';border-radius:4px;background:'+(ctrlActive?'#EEEDFE':'#fff')+';cursor:pointer;box-sizing:border-box;min-width:0">';
+    html += '<div style="display:flex;align-items:center;gap:7px;margin-bottom:2px">';
+    html += '<input type="radio" name="test-mode-'+globalIdx+'" '+(ctrlActive?'checked':'')+' onclick="event.stopPropagation();setProcessTestModeField('+globalIdx+',\'control\')" style="margin:0;width:auto;flex-shrink:0"/>';
+    html += '<span style="font-size:11px;font-weight:600;color:'+(ctrlActive?'#3C3489':'var(--text-2)')+'">🎯 Test de contrôle</span>';
+    html += '</div>';
+    html += '<div style="font-size:10px;color:var(--text-3);padding-left:22px">Vérifie que le contrôle fonctionne — sample basé sur la fréquence</div>';
+    html += '</div>';
+    // Substantive
+    var subActive = testMode === 'substantive';
+    html += '<div onclick="setProcessTestModeField('+globalIdx+',\'substantive\')" style="padding:8px 10px;border:1px solid '+(subActive?'#085041':'var(--border)')+';border-radius:4px;background:'+(subActive?'#E1F5EE':'#fff')+';cursor:pointer;box-sizing:border-box;min-width:0">';
+    html += '<div style="display:flex;align-items:center;gap:7px;margin-bottom:2px">';
+    html += '<input type="radio" name="test-mode-'+globalIdx+'" '+(subActive?'checked':'')+' onclick="event.stopPropagation();setProcessTestModeField('+globalIdx+',\'substantive\')" style="margin:0;width:auto;flex-shrink:0"/>';
+    html += '<span style="font-size:11px;font-weight:600;color:'+(subActive?'#085041':'var(--text-2)')+'">💰 Test substantif</span>';
+    html += '</div>';
+    html += '<div style="font-size:10px;color:var(--text-3);padding-left:22px">Détecte des anomalies sur transactions — sample binomial</div>';
     html += '</div>';
     html += '</div>';
-    html += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">';
-    // Confidence
-    html += '<div>';
-    html += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px" title="Niveau de confiance souhaité dans la conclusion du test (80-99%). Plus élevé = plus de garantie statistique = échantillon plus grand. Standard audit : 95%.">Confiance <span style="cursor:help;color:#3C3489" title="Probabilité que le taux d\'erreur réel soit dans la fourchette annoncée. 95% = standard audit, 99% = très haute exigence (audit critique).">ⓘ</span></label>';
-    html += '<div style="display:flex;align-items:center;gap:4px"><input type="number" min="80" max="99" step="1" '+dis+' value="'+sp.confidence+'" onchange="setProcessSamplingField('+globalIdx+',\'confidence\',this.value)" style="flex:1;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;text-align:right;box-sizing:border-box"/><span style="font-size:11px;color:var(--text-3)">%</span></div>';
-    html += '</div>';
-    // EDR
-    html += '<div>';
-    html += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">EDR (% attendu) <span style="cursor:help;color:#3C3489" title="Expected Deviation Rate : taux d\'erreur que tu anticipes dans la population. Si tu n\'as pas d\'historique, mets 5% par défaut. Si l\'audit précédent a trouvé 2% d\'erreurs, mets 2%.">ⓘ</span></label>';
-    html += '<div style="display:flex;align-items:center;gap:4px"><input type="number" min="0" max="50" step="0.5" '+dis+' value="'+sp.EDR+'" onchange="setProcessSamplingField('+globalIdx+',\'EDR\',this.value)" style="flex:1;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;text-align:right;box-sizing:border-box"/><span style="font-size:11px;color:var(--text-3)">%</span></div>';
-    html += '</div>';
-    // TDR
-    html += '<div>';
-    html += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">TDR (% tolérable) <span style="cursor:help;color:#3C3489" title="Tolerable Deviation Rate : taux d\'erreur maximum acceptable au-delà duquel tu considères que le contrôle ne fonctionne pas. Standard audit : 5%. Si TDR ≤ EDR, le test n\'a pas de sens (réduis EDR ou augmente TDR).">ⓘ</span></label>';
-    html += '<div style="display:flex;align-items:center;gap:4px"><input type="number" min="1" max="50" step="0.5" '+dis+' value="'+sp.TDR+'" onchange="setProcessSamplingField('+globalIdx+',\'TDR\',this.value)" style="flex:1;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;text-align:right;box-sizing:border-box"/><span style="font-size:11px;color:var(--text-3)">%</span></div>';
-    html += '</div>';
-    html += '</div>';
-    // Résultat sample size recommandé
-    if (popN > 0 && recommended && recommended.n) {
-      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:11px">';
-      // Formule
-      html += '<div style="background:#fff;border:.5px solid var(--border);border-radius:3px;padding:7px 9px">';
-      html += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.3px;font-weight:500;margin-bottom:3px">Formule (binomiale + correction)</div>';
-      html += '<div style="font-size:16px;font-weight:600;color:#3C3489">'+recommended.n+'</div>';
-      html += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:2px">sur '+popN+' éléments · '+((recommended.n/popN)*100).toFixed(1)+'% de couverture</div>';
+
+    if (!testMode) {
+      // Aucun mode choisi — invite à choisir
+      html += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:10px;text-align:center;background:#fff;border:.5px dashed var(--border);border-radius:3px">Choisis la nature du test ci-dessus pour configurer le sampling.</div>';
+    } else if (testMode === 'control') {
+      // ─── CONTROL TESTING : frequency-based ───
+      html += '<div style="display:grid;grid-template-columns:2fr 1fr;gap:8px;margin-bottom:8px">';
+      // Fréquence
+      html += '<div>';
+      html += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Fréquence du contrôle <span style="cursor:help;color:#3C3489" title="À quelle fréquence le contrôle s\'exécute-t-il dans l\'année ?">ⓘ</span></label>';
+      html += '<select '+dis+' onchange="setProcessSamplingField('+globalIdx+',\'freqId\',this.value)" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;background:#fff;box-sizing:border-box">';
+      html += '<option value=""'+(!sp.freqId?' selected':'')+'>— Choisir —</option>';
+      CONTROL_FREQ_TABLE.forEach(function(f){
+        html += '<option value="'+f.id+'"'+(sp.freqId===f.id?' selected':'')+'>'+f.label+' ('+f.shortLabel+', ~'+f.popPerYear+' occurrences/an)</option>';
+      });
+      html += '</select>';
       html += '</div>';
-      // AICPA
-      html += '<div style="background:#fff;border:.5px solid var(--border);border-radius:3px;padding:7px 9px">';
-      html += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.3px;font-weight:500;margin-bottom:3px">Référence AICPA</div>';
-      if (aicpa) {
-        html += '<div style="font-size:16px;font-weight:600;color:#085041">'+aicpa.n+'</div>';
-        html += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:2px">table large pop · confidence '+aicpa.confidence+'%, EDR '+aicpa.edr+'%, TDR '+aicpa.tdr+'%</div>';
-      } else {
-        html += '<div style="font-size:11px;color:var(--text-3);font-style:italic">Valeurs hors table</div>';
+      // Niveau de confiance
+      html += '<div>';
+      html += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Niveau de confiance <span style="cursor:help;color:#3C3489" title="High = contrôle clé, risque élevé. Low = contrôle de niveau opérationnel, risque modéré.">ⓘ</span></label>';
+      html += '<select '+dis+' onchange="setProcessSamplingField('+globalIdx+',\'confLevel\',this.value)" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;background:#fff;box-sizing:border-box">';
+      html += '<option value="high"'+(sp.confLevel==='high'?' selected':'')+'>High (contrôle clé)</option>';
+      html += '<option value="low"'+(sp.confLevel==='low'?' selected':'')+'>Low (opérationnel)</option>';
+      html += '</select>';
+      html += '</div>';
+      html += '</div>';
+
+      var freqResult = sp.freqId ? _calcControlSampleByFreq(sp.freqId, sp.confLevel) : null;
+      if (freqResult) {
+        html += '<div style="background:#fff;border:.5px solid var(--border);border-radius:3px;padding:9px 11px">';
+        html += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.3px;font-weight:500;margin-bottom:3px">Taille d\'échantillon recommandée</div>';
+        html += '<div style="font-size:18px;font-weight:600;color:#3C3489">'+freqResult.n+'</div>';
+        html += '<div style="font-size:10px;color:var(--text-3);font-style:italic;margin-top:2px">Contrôle '+freqResult.freqShortLabel.toLowerCase()+' (~'+freqResult.freqPopPerYear+' occurrences/an) · niveau '+(freqResult.confidenceLevel==='high'?'High':'Low')+' confidence · table standard audit interne</div>';
+        html += '</div>';
+      } else if (sp.freqId === '') {
+        html += '<div style="font-size:10px;color:var(--text-3);font-style:italic;padding:6px 0">Sélectionne la fréquence du contrôle pour calculer la taille d\'échantillon recommandée.</div>';
       }
+    } else {
+      // ─── SUBSTANTIVE TESTING : binomial ───
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">';
+      // Confidence
+      html += '<div>';
+      html += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Confiance <span style="cursor:help;color:#3C3489" title="Probabilité que le taux d\'erreur réel soit dans la fourchette annoncée. 95% = standard audit, 99% = très haute exigence.">ⓘ</span></label>';
+      html += '<div style="display:flex;align-items:center;gap:4px"><input type="number" min="80" max="99" step="1" '+dis+' value="'+sp.confidence+'" onchange="setProcessSamplingField('+globalIdx+',\'confidence\',this.value)" style="flex:1;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;text-align:right;box-sizing:border-box"/><span style="font-size:11px;color:var(--text-3)">%</span></div>';
+      html += '</div>';
+      // EDR
+      html += '<div>';
+      html += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">EDR (% attendu) <span style="cursor:help;color:#3C3489" title="Expected Deviation Rate : taux d\'erreur que tu anticipes dans la population. Si tu n\'as pas d\'historique, mets 5% par défaut. Si l\'audit précédent a trouvé 2% d\'erreurs, mets 2%.">ⓘ</span></label>';
+      html += '<div style="display:flex;align-items:center;gap:4px"><input type="number" min="0" max="50" step="0.5" '+dis+' value="'+sp.EDR+'" onchange="setProcessSamplingField('+globalIdx+',\'EDR\',this.value)" style="flex:1;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;text-align:right;box-sizing:border-box"/><span style="font-size:11px;color:var(--text-3)">%</span></div>';
+      html += '</div>';
+      // TDR
+      html += '<div>';
+      html += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">TDR (% tolérable) <span style="cursor:help;color:#3C3489" title="Tolerable Deviation Rate : taux d\'erreur maximum acceptable. Doit être > EDR.">ⓘ</span></label>';
+      html += '<div style="display:flex;align-items:center;gap:4px"><input type="number" min="1" max="50" step="0.5" '+dis+' value="'+sp.TDR+'" onchange="setProcessSamplingField('+globalIdx+',\'TDR\',this.value)" style="flex:1;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;text-align:right;box-sizing:border-box"/><span style="font-size:11px;color:var(--text-3)">%</span></div>';
       html += '</div>';
       html += '</div>';
-    } else if (popN === 0) {
-      html += '<div style="font-size:10px;color:var(--text-3);font-style:italic;padding:6px 0">Saisis d\'abord la taille de la population (ci-dessous) pour calculer la taille d\'échantillon recommandée.</div>';
-    } else if (recommended && recommended.note) {
-      html += '<div style="font-size:10px;color:#854F0B;padding:6px 0">'+recommended.note+'</div>';
+
+      var recommended = popN > 0 ? _calcSampleSize(popN, sp.confidence, sp.EDR, sp.TDR) : null;
+      if (popN > 0 && recommended && recommended.n) {
+        var fullPopRecommended = recommended.n >= popN;
+        if (fullPopRecommended) {
+          html += '<div style="background:#EEEDFE;border:.5px solid #CECBF6;border-radius:3px;padding:10px 12px;font-size:11px;color:#3C3489;line-height:1.5">';
+          html += '<div style="font-weight:600;margin-bottom:3px">📌 Test exhaustif recommandé — N='+popN+'</div>';
+          html += 'La population est trop petite pour faire du sampling statistique avec tes paramètres. <strong>Teste 100% des éléments</strong> ('+popN+' / '+popN+').';
+          html += '</div>';
+        } else {
+          html += '<div style="background:#fff;border:.5px solid var(--border);border-radius:3px;padding:9px 11px">';
+          html += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.3px;font-weight:500;margin-bottom:3px">Taille d\'échantillon recommandée</div>';
+          html += '<div style="font-size:18px;font-weight:600;color:#3C3489">'+recommended.n+'</div>';
+          html += '<div style="font-size:10px;color:var(--text-3);font-style:italic;margin-top:2px">sur '+popN+' éléments · '+((recommended.n/popN)*100).toFixed(1)+'% de couverture · formule binomiale avec correction petite population</div>';
+          html += '</div>';
+        }
+      } else if (popN === 0) {
+        html += '<div style="font-size:10px;color:var(--text-3);font-style:italic;padding:6px 0">Saisis d\'abord la taille de la population (ci-dessous) pour calculer la taille d\'échantillon recommandée.</div>';
+      } else if (recommended && recommended.note) {
+        html += '<div style="font-size:10px;color:#854F0B;padding:6px 0">'+recommended.note+'</div>';
+      }
     }
     html += '</div>';
 
