@@ -192,7 +192,13 @@ async function generateAuditReportPptx(auditId, options) {
 
   // Récupérer les auditeurs
   const auditeurIds = Array.isArray(ap.auditeurs) ? ap.auditeurs : [];
-  const auditeurs = auditeurIds.map(id => {
+  // v77.6 : inclure automatiquement les Directors (rôle = 'Director')
+  const directorIds = _TM ? Object.keys(_TM).filter(id => {
+    const tm = _TM[id];
+    return tm && tm.role && /director/i.test(tm.role);
+  }) : [];
+  const allTeamIds = directorIds.concat(auditeurIds.filter(id => directorIds.indexOf(id) < 0));
+  const auditeurs = allTeamIds.map(id => {
     const tm = _TM && _TM[id];
     return tm ? {name: tm.name, role: tm.role || 'Auditor'} : null;
   }).filter(Boolean);

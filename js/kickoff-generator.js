@@ -156,7 +156,15 @@ async function generateKickoffPptx(auditId) {
 
   // Récupérer les auditeurs (TM est un objet {id: {name, role, photoFilename, experience, academics}})
   const auditeurIds = Array.isArray(ap.auditeurs) ? ap.auditeurs : [];
-  const auditeurs = auditeurIds.map(id => {
+  // v77.6 : inclure automatiquement TOUS les Directors (rôle = 'Director') même s'ils ne sont
+  // pas explicitement dans ap.auditeurs — ils supervisent tous les audits par défaut
+  const directorIds = _TM ? Object.keys(_TM).filter(id => {
+    const tm = _TM[id];
+    return tm && tm.role && /director/i.test(tm.role);
+  }) : [];
+  // Fusionner sans doublons, Directors en tête
+  const allTeamIds = directorIds.concat(auditeurIds.filter(id => directorIds.indexOf(id) < 0));
+  const auditeurs = allTeamIds.map(id => {
     const tm = _TM && _TM[id];
     return tm ? {
       name: tm.name,
