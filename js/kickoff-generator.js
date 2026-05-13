@@ -156,11 +156,11 @@ async function generateKickoffPptx(auditId) {
 
   // Récupérer les auditeurs (TM est un objet {id: {name, role, photoFilename, experience, academics}})
   const auditeurIds = Array.isArray(ap.auditeurs) ? ap.auditeurs : [];
-  // v77.6 : inclure automatiquement TOUS les Directors (rôle = 'Director') même s'ils ne sont
-  // pas explicitement dans ap.auditeurs — ils supervisent tous les audits par défaut
+  // v77.7 : inclure automatiquement les superviseurs (Director / Directeur / Admin / Administrateur)
+  // — ils supervisent tous les audits par défaut et doivent apparaître sur la slide Audit Team
   const directorIds = _TM ? Object.keys(_TM).filter(id => {
     const tm = _TM[id];
-    return tm && tm.role && /director/i.test(tm.role);
+    return tm && tm.role && /director|directeur|admin/i.test(tm.role);
   }) : [];
   // Fusionner sans doublons, Directors en tête
   const allTeamIds = directorIds.concat(auditeurIds.filter(id => directorIds.indexOf(id) < 0));
