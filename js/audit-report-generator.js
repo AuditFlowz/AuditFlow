@@ -193,10 +193,19 @@ async function generateAuditReportPptx(auditId, options) {
   // Récupérer les auditeurs
   const auditeurIds = Array.isArray(ap.auditeurs) ? ap.auditeurs : [];
   // v77.7 : inclure automatiquement les superviseurs (Director / Directeur / Admin / Administrateur)
-  const directorIds = _TM ? Object.keys(_TM).filter(id => {
+  // v77.8 : dédupliquer par préfixe email (un user peut avoir 2 alias = 2 entrées dans TM)
+  const directorIdsRaw = _TM ? Object.keys(_TM).filter(id => {
     const tm = _TM[id];
     return tm && tm.role && /director|directeur|admin/i.test(tm.role);
   }) : [];
+  const seenPrefixes = {};
+  const directorIds = [];
+  directorIdsRaw.forEach(id => {
+    const prefix = id.indexOf('em:') === 0 ? id.substring(3) : id;
+    if (seenPrefixes[prefix]) return;
+    seenPrefixes[prefix] = true;
+    directorIds.push(id);
+  });
   const allTeamIds = directorIds.concat(auditeurIds.filter(id => directorIds.indexOf(id) < 0));
   const auditeurs = allTeamIds.map(id => {
     const tm = _TM && _TM[id];
@@ -715,7 +724,7 @@ async function generateAuditReportPptx(auditId, options) {
   function _ar_modeLabel(mode) {
     if (mode === 'control') return 'Control';
     if (mode === 'substantive') return 'Substantive';
-    if (mode === 'analysis') return 'Analysis';
+    if (mode === 'analysis') return 'Consistency';
     return '—';
   }
   // Helper : couleur du mode
@@ -760,7 +769,7 @@ async function generateAuditReportPptx(auditId, options) {
 
   const sT = pres.addSlide();
   ar_addTitleBar(pres, sT, "Tests Performed", null);
-  sT.addText("Summary of all tests conducted during this audit (control testing, substantive testing and multi-attribute analyses).", {
+  sT.addText("Summary of all tests conducted during this audit (control testing, substantive testing and consistency tests).", {
     x: 0.5, y: 1.05, w: 12.3, h: 0.5,
     fontSize: 12, color: AR_COLORS.textDark, fontFace: "Calibri",
   });
@@ -1274,7 +1283,7 @@ function ar_addDetailedTestSlides(pres, test, numIdx, total) {
   let modeLabel = 'Test';
   if (mode === 'control') { modeBg = '3C3489'; modeLabel = '🎯 Control Testing'; }
   else if (mode === 'substantive') { modeBg = '085041'; modeLabel = '💰 Substantive Testing'; }
-  else if (mode === 'analysis') { modeBg = '854F0B'; modeLabel = '📊 Multi-Attribute Analysis'; }
+  else if (mode === 'analysis') { modeBg = '854F0B'; modeLabel = '🔗 Consistency Test'; }
 
   s.addShape(pres.ShapeType.rect, {
     x: 0.4, y: 1.55, w: 12.5, h: 0.4,

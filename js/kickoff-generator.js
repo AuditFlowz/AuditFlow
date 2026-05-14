@@ -158,10 +158,21 @@ async function generateKickoffPptx(auditId) {
   const auditeurIds = Array.isArray(ap.auditeurs) ? ap.auditeurs : [];
   // v77.7 : inclure automatiquement les superviseurs (Director / Directeur / Admin / Administrateur)
   // — ils supervisent tous les audits par défaut et doivent apparaître sur la slide Audit Team
-  const directorIds = _TM ? Object.keys(_TM).filter(id => {
+  // v77.8 : dédupliquer par préfixe email (un même user peut avoir 2 alias = 2 entrées dans TM)
+  const directorIdsRaw = _TM ? Object.keys(_TM).filter(id => {
     const tm = _TM[id];
     return tm && tm.role && /director|directeur|admin/i.test(tm.role);
   }) : [];
+  // Dédup : un seul ID retenu par préfixe email (format ID = "em:<prefix>")
+  const seenPrefixes = {};
+  const directorIds = [];
+  directorIdsRaw.forEach(id => {
+    // Extraire le préfixe : "em:pmassard" → "pmassard". Sinon fallback sur l'id complet.
+    const prefix = id.indexOf('em:') === 0 ? id.substring(3) : id;
+    if (seenPrefixes[prefix]) return;
+    seenPrefixes[prefix] = true;
+    directorIds.push(id);
+  });
   // Fusionner sans doublons, Directors en tête
   const allTeamIds = directorIds.concat(auditeurIds.filter(id => directorIds.indexOf(id) < 0));
   const auditeurs = allTeamIds.map(id => {

@@ -351,6 +351,147 @@ function _calcAnalysisResults(items, config) {
 // (pour éviter de passer t et globalIdx via DOM attributes)
 var _pendingAnalysisUpload = null;
 
+// ══════════════════════════════════════════════════════════════
+//  v77.9 : TEST EVIDENCE (preuves attachées aux tests)
+// ══════════════════════════════════════════════════════════════
+// Architecture : on réutilise d.docs[] (système Documents existant).
+// Les preuves de test sont taggées : doc.attachedToTestId = <testId>
+// et doc.isEvidence = true pour filtrer dans l'UI Documents.
+
+// Récupère les preuves attachées à un test donné
+function _getTestEvidence(testId) {
+  var d = getAudData(CA);
+  if (!Array.isArray(d.docs)) return [];
+  return d.docs.filter(function(doc){
+    return doc && doc.isEvidence && doc.attachedToTestId === testId;
+  });
+}
+
+// Identifie le testId selon le contexte
+// process : ctrl.id (l'id stable du contrôle)
+// bu : t.id (l'id stable du test)
+function _getTestStableId(context, idOrIdx, wppId) {
+  var d = getAudData(CA);
+  if (context === 'process') {
+    var ctrl = d.controls && d.controls[4] && d.controls[4][idOrIdx];
+    return ctrl ? ctrl.id : null;
+  } else {
+    var wp = (d.workProgramBU && d.workProgramBU.processes) || [];
+    var wpp = wp.find(function(x){return x.id===wppId;});
+    if (!wpp) return null;
+    var t = (wpp.tests||[]).find(function(x){return x.id===idOrIdx;});
+    return t ? t.id : null;
+  }
+}
+
+// Upload de preuves : trigger un file picker, push dans d.docs avec tags
+function attachTestEvidence(context, idOrIdx, wppId) {
+  var testId = _getTestStableId(context, idOrIdx, wppId);
+  if (!testId) { toast('Test introuvable'); return; }
+
+  var inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = '.pdf,.xlsx,.xls,.docx,.doc,.pptx,.ppt,.csv,.txt,.png,.jpg,.jpeg,.webp';
+  inp.multiple = true;
+  inp.onchange = async function(){
+    if (!inp.files.length) return;
+    var d = getAudData(CA);
+    if (!d.docs) d.docs = [];
+    var files = Array.from(inp.files);
+    toast('Upload preuve(s) en cours...');
+    for (var i=0; i<files.length; i++) {
+      var file = files[i];
+      var newDoc = null;
+      if (typeof uploadDoc === 'function') {
+        try {
+          newDoc = await uploadDoc(CA, file, CS, CU?CU.name:'Inconnu');
+        } catch(e){
+          console.warn('[Evidence] upload échoué:', e.message);
+        }
+      }
+      if (!newDoc) {
+        newDoc = {
+          id: 'doc_'+Date.now()+'_'+i,
+          name: file.name,
+          step: CS,
+          size: formatFileSize ? formatFileSize(file.size) : '—',
+          uploadedBy: CU ? CU.name : '—',
+          uploadedAt: new Date().toISOString(),
+          reviewStatus: 'none',
+        };
+      }
+      // v77.9 : marquer comme preuve attachée au test
+      newDoc.isEvidence = true;
+      newDoc.attachedToTestId = testId;
+      d.docs.push(newDoc);
+    }
+    await saveAuditData(CA);
+    document.getElementById('det-content').innerHTML = renderDetContent();
+    toast(files.length+' preuve(s) attachée(s) ✓');
+  };
+  inp.click();
+}
+
+// Supprime une preuve (du SharePoint et de d.docs)
+async function removeTestEvidence(docId) {
+  var d = getAudData(CA);
+  if (!Array.isArray(d.docs)) return;
+  var doc = d.docs.find(function(x){return x.id===docId;});
+  if (!doc) return;
+  if (!confirm('Supprimer la preuve "'+doc.name+'" ?')) return;
+  // Suppression du fichier SharePoint si possible
+  if (doc.itemId && typeof deleteDoc === 'function') {
+    try { await deleteDoc(CA, doc.itemId, doc.name); } catch(e){ console.warn('[Evidence] delete SP failed:', e); }
+  }
+  d.docs = d.docs.filter(function(x){return x.id!==docId;});
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+  toast('Preuve supprimée');
+}
+
+// Rendu de la section "Preuves" pour un test
+function _renderTestEvidenceSection(context, idOrIdx, wppId, dis) {
+  var testId = _getTestStableId(context, idOrIdx, wppId);
+  if (!testId) return '';
+  var evidence = _getTestEvidence(testId);
+
+  var h = '';
+  h += '<div style="background:#fafafa;border:.5px solid var(--border);border-radius:4px;padding:10px;margin-bottom:8px">';
+  h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:6px">';
+  h += '<div style="font-size:10px;font-weight:600;color:var(--text-2);text-transform:uppercase;letter-spacing:.4px">📎 Preuves attachées ('+evidence.length+')</div>';
+  if (!dis) {
+    var ctxArg = "'"+context+"'";
+    var idArg = (context === 'process') ? idOrIdx : "'"+_escJsArg(idOrIdx)+"'";
+    var wppArg = (context === 'bu') ? ",'"+_escJsArg(wppId)+"'" : ",null";
+    h += '<button onclick="attachTestEvidence('+ctxArg+','+idArg+wppArg+')" style="font-size:11px;padding:5px 11px;background:#3C3489;color:#fff;border:none;border-radius:3px;cursor:pointer;font-weight:500">+ Ajouter une preuve</button>';
+  }
+  h += '</div>';
+  if (!evidence.length) {
+    h += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:4px 0">Aucune preuve attachée. Utilise « + Ajouter une preuve » pour joindre des captures, extracts Excel, PDF, etc.</div>';
+  } else {
+    h += '<div style="display:flex;flex-direction:column;gap:4px">';
+    evidence.forEach(function(doc){
+      h += '<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:#fff;border:.5px solid var(--border);border-radius:3px;font-size:11px">';
+      h += '<span style="font-size:14px">📄</span>';
+      h += '<div style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">';
+      if (doc.url) {
+        h += '<a href="'+_escAttr(doc.url)+'" target="_blank" style="color:#3C3489;text-decoration:none;font-weight:500">'+_escAttr(doc.name)+'</a>';
+      } else {
+        h += '<span style="font-weight:500">'+_escAttr(doc.name)+'</span>';
+      }
+      h += '<span style="color:var(--text-3);font-size:10px;margin-left:8px">· '+_escAttr(doc.size||'')+'</span>';
+      h += '</div>';
+      if (!dis) {
+        h += '<button onclick="removeTestEvidence(\''+_escJsArg(doc.id)+'\')" style="font-size:11px;padding:2px 7px;background:#fff;color:#993C1D;border:.5px solid var(--border);border-radius:3px;cursor:pointer" title="Supprimer">×</button>';
+      }
+      h += '</div>';
+    });
+    h += '</div>';
+  }
+  h += '</div>';
+  return h;
+}
+
 // Rendu UI complet de la config Analysis pour un test
 // t : le test (Process ctrl ou BU test)
 // idOrIdx : globalIdx pour Process, t.id pour BU
@@ -4931,6 +5072,8 @@ function renderDocsPanelItem(doc, idx) {
   var meta = [];
   if (doc.uploadedBy) meta.push(doc.uploadedBy);
   if (doc.size) meta.push(doc.size);
+  // v77.9 : indicateur preuve de test
+  if (doc.isEvidence) meta.push('📎 preuve test');
 
   var canView = doc.driveId && doc.itemId;
   var clickAttr = canView ? 'onclick="openDocViewer(getAudData(CA).docs['+idx+'])" style="cursor:pointer"' : 'style="cursor:default;opacity:0.7"';
@@ -11766,13 +11909,13 @@ function renderTestingsBuTestRow(wppId, t, isPreparer) {
     h += '<div onclick="setBuTestModeField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'analysis\')" style="padding:8px 10px;border:1px solid '+(anaActive?'#854F0B':'var(--border)')+';border-radius:4px;background:'+(anaActive?'#FAEEDA':'#fff')+';cursor:pointer;box-sizing:border-box;min-width:0">';
     h += '<div style="display:flex;align-items:center;gap:7px;margin-bottom:2px">';
     h += '<input type="radio" name="test-mode-'+_escAttr(t.id)+'" '+(anaActive?'checked':'')+' onclick="event.stopPropagation();setBuTestModeField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'analysis\')" style="margin:0;width:auto;flex-shrink:0"/>';
-    h += '<span style="font-size:11px;font-weight:600;color:'+(anaActive?'#854F0B':'var(--text-2)')+'">📊 Analyse multi-attributs</span>';
+    h += '<span style="font-size:11px;font-weight:600;color:'+(anaActive?'#854F0B':'var(--text-2)')+'">🔗 Test de cohérence</span>';
     h += '</div>';
     h += '<div style="font-size:10px;color:var(--text-3);padding-left:22px">Compare attributs entre sources — import Excel</div>';
     h += '</div>';
   } else {
     h += '<div style="padding:8px 10px;border:1px solid '+(anaActive?'#854F0B':'var(--border)')+';border-radius:4px;background:'+(anaActive?'#FAEEDA':'#fff')+';opacity:'+(anaActive?'1':'.5')+'">';
-    h += '<span style="font-size:11px;font-weight:600">📊 Analyse multi-attributs</span>';
+    h += '<span style="font-size:11px;font-weight:600">🔗 Test de cohérence</span>';
     h += '</div>';
   }
   h += '</div>';
@@ -11969,6 +12112,9 @@ function renderTestingsBuTestRow(wppId, t, isPreparer) {
   }
   h += '</div>';
   } // end if (testMode !== 'analysis')
+
+  // v77.9 : Section preuves attachées au test
+  h += _renderTestEvidenceSection('bu', t.id, wppId, isPreparer ? '' : 'disabled');
 
   // Issue Description inline (remplace l'ancienne section "Observations" + modale Issue Operating)
   // Une issue Operating EST cette description sur un test. Si vide → pas d'issue.
@@ -13981,7 +14127,7 @@ async function createIssueFromAnalysis(/* context, ...args */) {
   var results = _calcAnalysisResults(data.items, cfg);
 
   // Construire description
-  var desc = 'Analyse multi-attributs sur '+results.totalItems+' items :\n';
+  var desc = 'Test de cohérence sur '+results.totalItems+' items :\n';
   desc += '• Sources comparées : '+cfg.sources.join(' vs ')+'\n';
   desc += '• Items avec divergence : '+results.itemsWithDivergence+'/'+results.totalItems+' ('+((results.itemsWithDivergence/results.totalItems)*100).toFixed(1)+'%)\n\n';
   desc += 'Divergences par attribut :\n';
@@ -14099,7 +14245,7 @@ function showSamplingHelpModal() {
 
   // ─── ANALYSIS (v77.4) ───
   body += '<div style="border:1.5px solid #854F0B;border-radius:6px;padding:14px;margin-top:14px;margin-bottom:14px;background:#FFFCF6">';
-  body += '<div style="font-size:14px;font-weight:600;color:#854F0B;margin-bottom:8px">📊 Analyse multi-attributs (Analysis)</div>';
+  body += '<div style="font-size:14px;font-weight:600;color:#854F0B;margin-bottom:8px">🔗 Test de cohérence (Analysis)</div>';
   body += '<div style="font-size:12px;color:var(--text-2);line-height:1.6;margin-bottom:10px">';
   body += '<strong>Objectif</strong> : comparer plusieurs attributs d\'un même item entre 2-3 sources de données. Détecte les incohérences entre systèmes.<br>';
   body += '<strong>Exemples</strong> : contrat vs ERP (date, valeur, devise), facture vs bon de commande vs réception (3-way match), créance comptable vs relevé client.';
@@ -14116,7 +14262,7 @@ function showSamplingHelpModal() {
   body += '</div>';
 
   body += '<div style="background:#FFFCF6;border:.5px solid #FAC775;border-radius:4px;padding:12px;margin-bottom:14px">';
-  body += '<div style="font-size:11px;font-weight:600;color:#854F0B;margin-bottom:4px">📊 Analyse — Cohérence des contrats avec le système</div>';
+  body += '<div style="font-size:11px;font-weight:600;color:#854F0B;margin-bottom:4px">🔗 Test de cohérence — Contrats avec le système</div>';
   body += '<div style="font-size:11px;color:var(--text-2);line-height:1.5">';
   body += '• Population : 1 200 contrats actifs · Sample binomial : 73 contrats<br>';
   body += '• Sources : <strong>Contrat papier</strong> vs <strong>ERP</strong> vs <strong>CRM</strong><br>';
@@ -14601,7 +14747,7 @@ function buildExecTable(kc){
     html += '<div onclick="setProcessTestModeField('+globalIdx+',\'analysis\')" style="padding:8px 10px;border:1px solid '+(anaActive?'#854F0B':'var(--border)')+';border-radius:4px;background:'+(anaActive?'#FAEEDA':'#fff')+';cursor:pointer;box-sizing:border-box;min-width:0">';
     html += '<div style="display:flex;align-items:center;gap:7px;margin-bottom:2px">';
     html += '<input type="radio" name="test-mode-'+globalIdx+'" '+(anaActive?'checked':'')+' onclick="event.stopPropagation();setProcessTestModeField('+globalIdx+',\'analysis\')" style="margin:0;width:auto;flex-shrink:0"/>';
-    html += '<span style="font-size:11px;font-weight:600;color:'+(anaActive?'#854F0B':'var(--text-2)')+'">📊 Analyse multi-attributs</span>';
+    html += '<span style="font-size:11px;font-weight:600;color:'+(anaActive?'#854F0B':'var(--text-2)')+'">🔗 Test de cohérence</span>';
     html += '</div>';
     html += '<div style="font-size:10px;color:var(--text-3);padding-left:22px">Compare plusieurs attributs entre 2-3 sources de données — import Excel</div>';
     html += '</div>';
@@ -14785,6 +14931,9 @@ function buildExecTable(kc){
     }
     html += '</div>';
     } // end if (testMode !== 'analysis')
+
+    // v77.9 : Section preuves attachées au test
+    html += _renderTestEvidenceSection('process', globalIdx, null, dis);
 
     // Issue description (remplace l'ancien Pass/Fail + commentaire)
     html += '<div style="margin-bottom:6px">';
