@@ -153,6 +153,18 @@ async function generateAuditReportPptx(auditId, options) {
   const d = AUD_DATA && AUD_DATA[auditId] ? AUD_DATA[auditId] : {};
   const prep = d.kickoffPrep || {};
   const interviews = Array.isArray(prep.interviews) ? prep.interviews : [];
+  // v77.11.3 : on a 2 systèmes d'interviews coexistants :
+  //   - d.kickoffPrep.interviews : ancien (kickoff planning) avec {dept, contact, email, timeslot}
+  //   - d.interviews : nouveau (bibliothèque ITW) avec {intervieweName, intervieweRole, interviewDate, ...}
+  // On fusionne les deux pour le rapport, en convertissant le nouveau format vers le format de la slide
+  const itwLibrary = Array.isArray(d.interviews) ? d.interviews : [];
+  const allInterviews = interviews.concat(itwLibrary.map(itv => ({
+    contact: itv.intervieweName || '',
+    dept: itv.intervieweRole || '',
+    email: '', // pas d'email dans le nouveau modèle
+    timeslot: itv.interviewDate || '',
+    _fromLibrary: true,
+  })));
   const planning = prep.planning || {};
   const findings = Array.isArray(d.findings) ? d.findings : [];
   const controls = (d.controls && d.controls[4]) || [];
@@ -472,8 +484,8 @@ async function generateAuditReportPptx(auditId, options) {
     {text: "Email", options: {bold: true, color: AR_COLORS.white, fill: {color: AR_COLORS.navy}, valign: "middle"}},
   ];
   let itwRows;
-  if (interviews.length) {
-    itwRows = [itwHeader].concat(interviews.map(itw => [
+  if (allInterviews.length) {
+    itwRows = [itwHeader].concat(allInterviews.map(itw => [
       {text: itw.contact || '—', options: {valign: "middle", color: AR_COLORS.textDark}},
       {text: itw.dept || '—', options: {valign: "middle", color: AR_COLORS.textDark}},
       {text: itw.email || '—', options: {valign: "middle", color: AR_COLORS.textDark, fontSize: 10}},
