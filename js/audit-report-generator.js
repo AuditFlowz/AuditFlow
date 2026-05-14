@@ -611,56 +611,94 @@ async function generateAuditReportPptx(auditId, options) {
   ar_addFooter(pres, s7);
 
   // ════════════════════════════════════════════════════════════════════
-  // SLIDES 8...N — DETAILED FINDINGS
-  // Pour audits Process : 1 slide par finding (existant)
-  // Pour audits BU : 1 slide par Process avec ses findings + issues groupés
+  // SLIDES 8...N — DETAILED FINDINGS (v77.10b : structuré par sous-processus)
+  //
+  // 1. Slide "Findings Map by Sub-Process" (tableau récap)
+  // 2. Pour chaque sub-process : slide séparateur + findings detail du SP
+  // 3. Si BU : on garde l'ancienne logique BU (déjà groupée par process)
   // ════════════════════════════════════════════════════════════════════
   if (isBU) {
     ar_addBuFindingsByProcessSlides(pres, findings, issues, workProgramBU,
       _ar_getWppProcName, _ar_getTestCode, _ar_getIssuesForFinding);
-  } else {
-    findings.forEach((f, i) => {
-      const sf = pres.addSlide();
-      ar_addTitleBar(pres, sf, "Findings", (i+1) + " – " + (f.title || 'Finding'));
+  } else if (findings.length > 0) {
+    // v77.10b : construire la structure SP AVANT d'itérer
+    // Note : on a besoin de allTests construit plus bas, donc on la construit maintenant
+    // (on déplace temporairement la logique de construction allTests)
+    const _allTestsForStructure = [];
+    controls.forEach(c => {
+      if (c.clef && c.design === 'existing') {
+        _allTestsForStructure.push({
+          name: c.name || '—',
+          mode: c.testMode || '',
+          population: c.population || {count:'', value:''},
+          sample: c.sample || {count:'', value:''},
+          anomalies: c.anomalies || {count:'', value:''},
+          samplingPlan: c.samplingPlan || {},
+          analysisConfig: c.analysisConfig || null,
+          analysisData: c.analysisData || null,
+          result: c.result,
+          finalized: c.finalized,
+          raw: c,
+          type: 'process',
+        });
+      }
+    });
 
-      // Bandeau violet décoratif (comme dans le template)
-      sf.addShape(pres.ShapeType.rect, {
-        x: 0.4, y: 1.55, w: 12.5, h: 0.18,
-        fill: {color: AR_COLORS.purple}, line: {type: "none"},
+    const spBuckets = _ar_buildSpStructure(d, findings, controls, _allTestsForStructure, issues, false, [], _PROCESSES);
+    const spBucketsWithContent = spBuckets.filter(b => b.findings.length > 0); // pour la pagination
+
+    // 1) Slide récap "Findings Map by Sub-Process"
+    ar_addFindingsMapSlide(pres, spBuckets, findings);
+
+    // 2) Pour chaque SP avec des findings : séparateur + findings detail
+    spBucketsWithContent.forEach((bucket, bIdx) => {
+      // Slide séparateur
+      ar_addSpSeparatorSlide(pres, bucket, bIdx + 1, spBucketsWithContent.length);
+
+      // Findings detail du SP
+      bucket.findings.forEach((f) => {
+        const i = findings.indexOf(f); // index global pour numérotation
+        const sf = pres.addSlide();
+        ar_addTitleBar(pres, sf, "Findings — " + bucket.name, (i+1) + " – " + (f.title || 'Finding'));
+
+        // Bandeau violet décoratif
+        sf.addShape(pres.ShapeType.rect, {
+          x: 0.4, y: 1.55, w: 12.5, h: 0.18,
+          fill: {color: AR_COLORS.purple}, line: {type: "none"},
+        });
+
+        const findingDetailRows = [
+          [
+            {text: "Finding", options: {bold: true, color: AR_COLORS.textDark, fill: {color: AR_COLORS.grayLight}, valign: "top"}},
+            {text: [
+              {text: (f.title||'') + '\n', options: {bold: true, fontSize: 13, color: AR_COLORS.textDark, fontFace: "Calibri"}},
+              {text: f.descDetailed || f.desc || '—', options: {fontSize: 11, color: AR_COLORS.textDark, fontFace: "Calibri"}},
+             ], options: {valign: "top"}},
+          ],
+          [
+            {text: "Potential Risk", options: {bold: true, color: AR_COLORS.textDark, fill: {color: AR_COLORS.grayLight}, valign: "top"}},
+            {text: f.potentialRisk || '—', options: {valign: "top", color: AR_COLORS.textDark, fontSize: 11}},
+          ],
+          [
+            {text: "Owner", options: {bold: true, color: AR_COLORS.textDark, fill: {color: AR_COLORS.grayLight}, valign: "top"}},
+            {text: f.owner || '—', options: {valign: "top", color: AR_COLORS.textDark, fontSize: 11}},
+          ],
+          [
+            {text: "Risk Level", options: {bold: true, color: AR_COLORS.textDark, fill: {color: AR_COLORS.grayLight}, valign: "top"}},
+            {text: ar_riskLabel(f.probability, f.impact),
+             options: {valign: "top", color: AR_COLORS.textDark, fontSize: 11, fill: {color: ar_riskColor(f.probability, f.impact)}}},
+          ],
+        ];
+        sf.addTable(findingDetailRows, {
+          x: 0.4, y: 1.85, w: 12.5,
+          fontSize: 11, fontFace: "Calibri",
+          border: {type: "solid", pt: 0.5, color: AR_COLORS.grayMed},
+          rowH: [2.5, 0.8, 0.5, 0.5],
+          colW: [1.7, 10.8],
+        });
+
+        ar_addFooter(pres, sf);
       });
-
-      // Tableau de détails du finding
-      const findingDetailRows = [
-        [
-          {text: "Finding", options: {bold: true, color: AR_COLORS.textDark, fill: {color: AR_COLORS.grayLight}, valign: "top"}},
-          {text: [
-            {text: (f.title||'') + '\n', options: {bold: true, fontSize: 13, color: AR_COLORS.textDark, fontFace: "Calibri"}},
-            {text: f.descDetailed || f.desc || '—', options: {fontSize: 11, color: AR_COLORS.textDark, fontFace: "Calibri"}},
-           ], options: {valign: "top"}},
-        ],
-        [
-          {text: "Potential Risk", options: {bold: true, color: AR_COLORS.textDark, fill: {color: AR_COLORS.grayLight}, valign: "top"}},
-          {text: f.potentialRisk || '—', options: {valign: "top", color: AR_COLORS.textDark, fontSize: 11}},
-        ],
-        [
-          {text: "Owner", options: {bold: true, color: AR_COLORS.textDark, fill: {color: AR_COLORS.grayLight}, valign: "top"}},
-          {text: f.owner || '—', options: {valign: "top", color: AR_COLORS.textDark, fontSize: 11}},
-        ],
-        [
-          {text: "Risk Level", options: {bold: true, color: AR_COLORS.textDark, fill: {color: AR_COLORS.grayLight}, valign: "top"}},
-          {text: ar_riskLabel(f.probability, f.impact),
-           options: {valign: "top", color: AR_COLORS.textDark, fontSize: 11, fill: {color: ar_riskColor(f.probability, f.impact)}}},
-        ],
-      ];
-      sf.addTable(findingDetailRows, {
-        x: 0.4, y: 1.85, w: 12.5,
-        fontSize: 11, fontFace: "Calibri",
-        border: {type: "solid", pt: 0.5, color: AR_COLORS.grayMed},
-        rowH: [2.5, 0.8, 0.5, 0.5],
-        colW: [1.7, 10.8],
-      });
-
-      ar_addFooter(pres, sf);
     });
   }
 
@@ -822,12 +860,60 @@ async function generateAuditReportPptx(auditId, options) {
   ar_addFooter(pres, sT);
 
   // ════════════════════════════════════════════════════════════════════
-  // SLIDES — 1 SLIDE PAR TEST (DÉTAIL)
-  // v77.5 : pour chaque test, slide(s) avec détail selon le mode
+  // SLIDES — TESTS DÉTAILLÉS (v77.10b : groupés par sous-processus)
+  // Synthèse globale = slide sT ci-dessus (inchangée)
+  // Détail = 1 slide par test, groupés par SP avec séparateur
   // ════════════════════════════════════════════════════════════════════
-  allTests.forEach((tst, idx) => {
-    ar_addDetailedTestSlides(pres, tst, idx + 1, allTests.length);
-  });
+  if (allTests.length > 0) {
+    // Construction structure SP pour les tests (réutilise le helper)
+    const testSpBuckets = _ar_buildSpStructure(d, findings, controls, allTests, issues, isBU, workProgramBU, _PROCESSES);
+    const testBucketsWithContent = testSpBuckets.filter(b => b.tests.length > 0);
+
+    let testGlobalIdx = 0; // numérotation continue à travers tous les buckets
+    testBucketsWithContent.forEach((bucket, bIdx) => {
+      // Slide séparateur (différent format pour distinguer du séparateur Findings)
+      const sSep = pres.addSlide();
+      sSep.background = {color: 'FFFCF6'};
+      sSep.addShape(pres.ShapeType.rect, {
+        x: 0, y: 3.0, w: 13.33, h: 1.5,
+        fill: {color: '854F0B'}, line: {type: "none"},
+      });
+      sSep.addText("Tests — Sub-Process " + (bIdx + 1) + " / " + testBucketsWithContent.length, {
+        x: 0.5, y: 3.1, w: 12.3, h: 0.4,
+        fontSize: 14, color: 'FAEEDA', fontFace: "Calibri", align: "center",
+      });
+      sSep.addText(bucket.name, {
+        x: 0.5, y: 3.55, w: 12.3, h: 0.8,
+        fontSize: 28, bold: true, color: AR_COLORS.white,
+        fontFace: "Calibri", align: "center", valign: "middle",
+      });
+      sSep.addText(bucket.tests.length + ' test' + (bucket.tests.length > 1 ? 's' : ''), {
+        x: 0.5, y: 4.7, w: 12.3, h: 0.4,
+        fontSize: 12, color: AR_COLORS.textDark, fontFace: "Calibri",
+        align: "center", italic: true,
+      });
+      if (bucket.source === 'discovered') {
+        sSep.addText("(Sub-process discovered during the audit)", {
+          x: 0.5, y: 5.2, w: 12.3, h: 0.3,
+          fontSize: 10, color: AR_COLORS.textGray, fontFace: "Calibri",
+          align: "center", italic: true,
+        });
+      } else if (bucket.source === 'fallback') {
+        sSep.addText("(Tests not linked to a specific sub-process)", {
+          x: 0.5, y: 5.2, w: 12.3, h: 0.3,
+          fontSize: 10, color: AR_COLORS.textGray, fontFace: "Calibri",
+          align: "center", italic: true,
+        });
+      }
+      ar_addFooter(pres, sSep);
+
+      // Slides détails des tests du SP (numérotation globale conservée)
+      bucket.tests.forEach((tst) => {
+        testGlobalIdx++;
+        ar_addDetailedTestSlides(pres, tst, testGlobalIdx, allTests.length);
+      });
+    });
+  }
 
   // ════════════════════════════════════════════════════════════════════
   // SLIDE — APPENDIX DIVIDER
@@ -1264,6 +1350,297 @@ function ar_addBuProcessFindingsSlide(pres, procName, procFindings, allIssues, g
 
     ar_addFooter(pres, s);
   });
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// v77.10b : STRUCTURATION PAR SOUS-PROCESSUS (Option C)
+// ══════════════════════════════════════════════════════════════════════
+//
+// Construit une liste ordonnée de "buckets SP" pour grouper findings,
+// design issues et tests. Logique hybride :
+//   1. Source primaire : d.kickoffPrep.subProcesses (ordre saisi)
+//   2. Source secondaire : sections du narratif consolidé (## [Nom])
+//      qui ne sont pas déjà dans kickoffPrep → ajoutées à la fin
+//      avec flag "discovered"
+//   3. Bucket fallback "Transverse / Sans sous-processus" pour les
+//      éléments non rattachables à un SP
+//
+// Retourne : tableau de buckets dans l'ordre d'affichage
+//   [
+//     {id, name, source: 'kickoff'|'discovered'|'fallback',
+//      findings: [...], designIssues: [...], tests: [...]}
+//   ]
+function _ar_buildSpStructure(d, findings, controls, allTests, issues, isBU, workProgramBU, _PROCESSES) {
+  // ── Étape 1 : liste maîtresse des SP ──
+  const buckets = [];
+  const seenIds = {};
+
+  if (!isBU) {
+    // Process : SPs viennent de kickoffPrep.subProcesses
+    const sps = (d.kickoffPrep && Array.isArray(d.kickoffPrep.subProcesses))
+      ? d.kickoffPrep.subProcesses : [];
+    sps.forEach(sp => {
+      if (!sp || !sp.id || seenIds[sp.id]) return;
+      seenIds[sp.id] = true;
+      buckets.push({
+        id: sp.id,
+        name: sp.name || '(sans nom)',
+        source: 'kickoff',
+        findings: [],
+        designIssues: [],
+        tests: [],
+      });
+    });
+
+    // Étape 2 : parser le narratif pour trouver des SP "découverts"
+    const narrative = d.consolidatedNarrative || '';
+    const sectionRegex = /^##\s+(.+)$/gm;
+    let m;
+    while ((m = sectionRegex.exec(narrative)) !== null) {
+      const sectionName = (m[1] || '').trim();
+      if (!sectionName) continue;
+      // Vérifier si ce nom matche déjà un SP existant
+      const matchedSp = buckets.find(b => b.name.toLowerCase() === sectionName.toLowerCase());
+      if (matchedSp) continue; // déjà couvert
+      // Sinon, ajouter comme "découvert"
+      const discoveredId = 'sp_discovered_' + buckets.length;
+      buckets.push({
+        id: discoveredId,
+        name: sectionName,
+        source: 'discovered',
+        findings: [],
+        designIssues: [],
+        tests: [],
+      });
+    }
+  } else {
+    // BU : SPs viennent des Process couverts dans workProgramBU
+    workProgramBU.forEach(wpp => {
+      if (!wpp || !wpp.id || seenIds[wpp.id]) return;
+      seenIds[wpp.id] = true;
+      const p = _PROCESSES.find(x => x.id === wpp.auditProcessId);
+      buckets.push({
+        id: wpp.id,
+        name: p ? p.proc : '(Process inconnu)',
+        source: 'kickoff',
+        findings: [],
+        designIssues: [],
+        tests: [],
+      });
+    });
+  }
+
+  // ── Étape 3 : distribuer les éléments dans les buckets ──
+
+  // Bucket fallback pour les orphelins
+  const fallbackBucket = {
+    id: '__fallback',
+    name: 'Transverse / Sans sous-processus',
+    source: 'fallback',
+    findings: [],
+    designIssues: [],
+    tests: [],
+  };
+
+  // Helper : trouver le bucket d'un contrôle (Process) ou test (BU)
+  function _findBucketForCtrl(ctrl) {
+    if (!ctrl) return null;
+    if (!isBU) {
+      const spId = ctrl.subProcessId;
+      if (!spId) return null;
+      return buckets.find(b => b.id === spId) || null;
+    } else {
+      // BU : pas de subProcessId direct ; on regarde wppId via les tests
+      return null; // BU traité différemment plus bas
+    }
+  }
+  // Helper : trouver le bucket d'un finding via ses contrôles liés
+  function _findBucketForFinding(f) {
+    const ctrlIds = (f.controlIds || []);
+    for (const cId of ctrlIds) {
+      const ctrl = controls.find(c => c.id === cId);
+      const b = _findBucketForCtrl(ctrl);
+      if (b) return b;
+    }
+    // BU : findings rattachés via issueIds → testId → wppId
+    if (isBU) {
+      const issueIds = (f.issueIds || []);
+      for (const iId of issueIds) {
+        const iss = issues.find(x => x.id === iId);
+        if (iss && iss.processId) {
+          const b = buckets.find(x => x.id === iss.processId);
+          if (b) return b;
+        }
+      }
+    }
+    return null;
+  }
+
+  // Distribuer Design Issues
+  (issues || []).forEach(iss => {
+    if (iss.source !== 'design') return;
+    let bucket = null;
+    if (!isBU) {
+      // Process : design issues ont relatedSpId
+      if (iss.relatedSpId) {
+        bucket = buckets.find(b => b.id === iss.relatedSpId);
+      }
+    } else {
+      // BU : design issues ont processId (wpp.id)
+      if (iss.processId) {
+        bucket = buckets.find(b => b.id === iss.processId);
+      }
+    }
+    if (!bucket) bucket = fallbackBucket;
+    bucket.designIssues.push(iss);
+  });
+
+  // Distribuer Findings
+  (findings || []).forEach(f => {
+    const bucket = _findBucketForFinding(f) || fallbackBucket;
+    bucket.findings.push(f);
+  });
+
+  // Distribuer Tests
+  (allTests || []).forEach(t => {
+    let bucket = null;
+    if (!isBU) {
+      // Process : ctrl.subProcessId
+      const ctrl = t.raw;
+      if (ctrl && ctrl.subProcessId) {
+        bucket = buckets.find(b => b.id === ctrl.subProcessId);
+      }
+    } else {
+      // BU : t.wppId
+      if (t.wppId) {
+        bucket = buckets.find(b => b.id === t.wppId);
+      }
+    }
+    if (!bucket) bucket = fallbackBucket;
+    bucket.tests.push(t);
+  });
+
+  // Ajouter le bucket fallback uniquement s'il a du contenu
+  if (fallbackBucket.findings.length || fallbackBucket.designIssues.length || fallbackBucket.tests.length) {
+    buckets.push(fallbackBucket);
+  }
+
+  return buckets;
+}
+
+// v77.10b : slide de séparation entre groupes de findings par SP
+function ar_addSpSeparatorSlide(pres, bucket, idx, total) {
+  const s = pres.addSlide();
+  // Fond coloré pleine slide pour la séparation visuelle
+  s.background = {color: 'F5F4FE'};
+
+  // Bandeau central avec nom du SP
+  s.addShape(pres.ShapeType.rect, {
+    x: 0, y: 3.0, w: 13.33, h: 1.5,
+    fill: {color: AR_COLORS.navy}, line: {type: "none"},
+  });
+  s.addText("Sub-Process " + idx + " / " + total, {
+    x: 0.5, y: 3.1, w: 12.3, h: 0.4,
+    fontSize: 14, color: 'CECBF6', fontFace: "Calibri", align: "center",
+  });
+  s.addText(bucket.name, {
+    x: 0.5, y: 3.55, w: 12.3, h: 0.8,
+    fontSize: 28, bold: true, color: AR_COLORS.white,
+    fontFace: "Calibri", align: "center", valign: "middle",
+  });
+
+  // Métriques sous le bandeau
+  const metrics = [];
+  if (bucket.findings.length) metrics.push(bucket.findings.length + ' finding' + (bucket.findings.length > 1 ? 's' : ''));
+  if (bucket.designIssues.length) metrics.push(bucket.designIssues.length + ' design issue' + (bucket.designIssues.length > 1 ? 's' : ''));
+  if (bucket.tests.length) metrics.push(bucket.tests.length + ' test' + (bucket.tests.length > 1 ? 's' : ''));
+  if (metrics.length) {
+    s.addText(metrics.join(' · '), {
+      x: 0.5, y: 4.7, w: 12.3, h: 0.4,
+      fontSize: 12, color: AR_COLORS.textDark, fontFace: "Calibri",
+      align: "center", italic: true,
+    });
+  }
+
+  if (bucket.source === 'discovered') {
+    s.addText("(Sub-process discovered during the audit)", {
+      x: 0.5, y: 5.2, w: 12.3, h: 0.3,
+      fontSize: 10, color: AR_COLORS.textGray, fontFace: "Calibri",
+      align: "center", italic: true,
+    });
+  } else if (bucket.source === 'fallback') {
+    s.addText("(Items not linked to a specific sub-process)", {
+      x: 0.5, y: 5.2, w: 12.3, h: 0.3,
+      fontSize: 10, color: AR_COLORS.textGray, fontFace: "Calibri",
+      align: "center", italic: true,
+    });
+  }
+
+  ar_addFooter(pres, s);
+}
+
+// v77.10b : slide "Findings Map by Sub-Process" (tableau récap)
+function ar_addFindingsMapSlide(pres, spBuckets, findings) {
+  const s = pres.addSlide();
+  ar_addTitleBar(pres, s, "Findings Map by Sub-Process", null);
+  s.addText("Synthetic view of the findings, design issues and tests grouped by sub-process.", {
+    x: 0.5, y: 1.05, w: 12.3, h: 0.5,
+    fontSize: 12, color: AR_COLORS.textDark, fontFace: "Calibri",
+  });
+
+  const header = [
+    {text: "Sub-Process", options: {bold: true, color: AR_COLORS.white, fill: {color: AR_COLORS.navy}, valign: "middle"}},
+    {text: "Design Issues", options: {bold: true, color: AR_COLORS.white, fill: {color: AR_COLORS.navy}, valign: "middle", align: "center"}},
+    {text: "Tests", options: {bold: true, color: AR_COLORS.white, fill: {color: AR_COLORS.navy}, valign: "middle", align: "center"}},
+    {text: "Failed", options: {bold: true, color: AR_COLORS.white, fill: {color: AR_COLORS.navy}, valign: "middle", align: "center"}},
+    {text: "Findings", options: {bold: true, color: AR_COLORS.white, fill: {color: AR_COLORS.navy}, valign: "middle"}},
+  ];
+
+  const rows = [header];
+  spBuckets.forEach(b => {
+    const failedTests = b.tests.filter(t => {
+      const aCount = Number((t.anomalies || {}).count) || 0;
+      return aCount > 0 || t.result === 'fail';
+    }).length;
+    const findingsIdx = b.findings.map(f => 'F' + (findings.indexOf(f) + 1)).join(', ');
+    rows.push([
+      {text: b.name + (b.source === 'discovered' ? ' *' : '') + (b.source === 'fallback' ? ' †' : ''),
+       options: {bold: true, color: AR_COLORS.textDark, fontSize: 11, valign: "middle"}},
+      {text: b.designIssues.length.toString(),
+       options: {align: "center", color: b.designIssues.length ? AR_COLORS.red : AR_COLORS.textGray,
+                 fontSize: 11, bold: b.designIssues.length > 0, valign: "middle"}},
+      {text: b.tests.length.toString(),
+       options: {align: "center", color: AR_COLORS.textDark, fontSize: 11, valign: "middle"}},
+      {text: failedTests.toString(),
+       options: {align: "center", color: failedTests ? AR_COLORS.red : '548235',
+                 fontSize: 11, bold: failedTests > 0, valign: "middle"}},
+      {text: findingsIdx || '—',
+       options: {color: AR_COLORS.textGray, fontSize: 10, valign: "middle"}},
+    ]);
+  });
+
+  s.addTable(rows, {
+    x: 0.4, y: 1.7, w: 12.5,
+    fontSize: 11, fontFace: "Calibri",
+    border: {type: "solid", pt: 0.5, color: AR_COLORS.grayMed},
+    rowH: spBuckets.length > 6 ? 0.4 : 0.5,
+    colW: [4.5, 1.8, 1.2, 1.5, 3.5],
+  });
+
+  // Légende
+  const hasDiscovered = spBuckets.some(b => b.source === 'discovered');
+  const hasFallback = spBuckets.some(b => b.source === 'fallback');
+  if (hasDiscovered || hasFallback) {
+    const legendParts = [];
+    if (hasDiscovered) legendParts.push("* discovered during the audit");
+    if (hasFallback) legendParts.push("† transverse / not linked to a specific sub-process");
+    s.addText(legendParts.join("   ·   "), {
+      x: 0.4, y: 6.8, w: 12.5, h: 0.3,
+      fontSize: 9, italic: true, color: AR_COLORS.textGray, fontFace: "Calibri",
+    });
+  }
+
+  ar_addFooter(pres, s);
 }
 
 // v77.5 : génère 1 (ou plusieurs) slide(s) de détail pour un test
