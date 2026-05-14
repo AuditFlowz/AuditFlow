@@ -644,8 +644,19 @@ async function generateAuditReportPptx(auditId, options) {
 
     // v77.11 : rattacher chaque finding à un SP via :
     //   1. f.subProcessId si défini explicitement
-    //   2. Sinon : SP majoritaire parmi ses contrôles liés (.controlIds → ctrl.subProcessId)
+    //   2. Sinon : SP majoritaire parmi ses contrôles liés (ctrl → wcgw → subProcessId)
     //   3. Sinon : __transverse
+    // v77.11 fix : les contrôles n'ont pas de subProcessId direct, on passe par leur WCGW
+    const _wcgwList = (d.wcgw && d.wcgw[4]) || [];
+    function _ctrlSpId(ctrl) {
+      if (!ctrl) return null;
+      if (ctrl.subProcessId) return ctrl.subProcessId;
+      if (ctrl.wcgwId) {
+        const wcgw = _wcgwList.find(w => w.id === ctrl.wcgwId);
+        if (wcgw && wcgw.subProcessId) return wcgw.subProcessId;
+      }
+      return null;
+    }
     function _findingSpId(f) {
       if (f.subProcessId) return f.subProcessId; // explicite (y compris '__transverse')
       // Auto : compter les SP des contrôles liés
@@ -653,8 +664,9 @@ async function generateAuditReportPptx(auditId, options) {
       const spCount = {};
       ctrlIds.forEach(cId => {
         const ctrl = controls.find(c => c.id === cId);
-        if (ctrl && ctrl.subProcessId) {
-          spCount[ctrl.subProcessId] = (spCount[ctrl.subProcessId] || 0) + 1;
+        const spId = _ctrlSpId(ctrl);
+        if (spId) {
+          spCount[spId] = (spCount[spId] || 0) + 1;
         }
       });
       // SP avec le plus de contrôles (premier en cas d'égalité)
@@ -1402,10 +1414,21 @@ function _ar_buildSpStructure(d, findings, controls, allTests, issues, isBU, wor
   };
 
   // Helper : trouver le bucket d'un contrôle (Process) ou test (BU)
+  // v77.11 fix : ctrl → spId via wcgw (les contrôles n'ont pas de subProcessId direct)
+  const _wcgwListForBuckets = (d && d.wcgw && d.wcgw[4]) || [];
+  function _ctrlSpIdHelper(ctrl) {
+    if (!ctrl) return null;
+    if (ctrl.subProcessId) return ctrl.subProcessId;
+    if (ctrl.wcgwId) {
+      const w = _wcgwListForBuckets.find(x => x.id === ctrl.wcgwId);
+      if (w && w.subProcessId) return w.subProcessId;
+    }
+    return null;
+  }
   function _findBucketForCtrl(ctrl) {
     if (!ctrl) return null;
     if (!isBU) {
-      const spId = ctrl.subProcessId;
+      const spId = _ctrlSpIdHelper(ctrl);
       if (!spId) return null;
       return buckets.find(b => b.id === spId) || null;
     } else {
@@ -1464,10 +1487,11 @@ function _ar_buildSpStructure(d, findings, controls, allTests, issues, isBU, wor
   (allTests || []).forEach(t => {
     let bucket = null;
     if (!isBU) {
-      // Process : ctrl.subProcessId
+      // Process : ctrl → spId via WCGW
       const ctrl = t.raw;
-      if (ctrl && ctrl.subProcessId) {
-        bucket = buckets.find(b => b.id === ctrl.subProcessId);
+      const spId = _ctrlSpIdHelper(ctrl);
+      if (spId) {
+        bucket = buckets.find(b => b.id === spId);
       }
     } else {
       // BU : t.wppId

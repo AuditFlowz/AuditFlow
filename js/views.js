@@ -14434,11 +14434,22 @@ function showFindingModal(existing) {
   }
 
   // v77.11 : Auto-coche des design issues du SP si nouveau finding ET un SP est déjà déterminé
-  // (par exemple si le contrôle déjà coché a un subProcessId, on prend ce SP)
+  // v77.11 fix : ctrl → spId via wcgw (pas directement ctrl.subProcessId)
+  var wcgwListForFinding = (d.wcgw && d.wcgw[4]) || [];
+  function _ctrlSpIdInModal(ctrl) {
+    if (!ctrl) return null;
+    if (ctrl.subProcessId) return ctrl.subProcessId;
+    if (ctrl.wcgwId) {
+      var w = wcgwListForFinding.find(function(x){return x.id === ctrl.wcgwId;});
+      if (w && w.subProcessId) return w.subProcessId;
+    }
+    return null;
+  }
   if (!existing) {
     var firstCtrl = step5c.find(function(c){return currentCtrlIds.indexOf(c.id) >= 0;});
-    if (firstCtrl && firstCtrl.subProcessId) {
-      currentSubProcessId = firstCtrl.subProcessId;
+    var firstCtrlSpId = _ctrlSpIdInModal(firstCtrl);
+    if (firstCtrlSpId) {
+      currentSubProcessId = firstCtrlSpId;
       // Pré-cocher les design issues de ce SP
       var autoDesignIssues = designIssues.filter(function(iss){return iss.relatedSpId === currentSubProcessId;});
       currentDesignIssueIds = autoDesignIssues.map(function(iss){return iss.id;});
@@ -14825,9 +14836,20 @@ function buildExecTable(kc){
   }
 
   // Grouper kc par subProcessId
+  // v77.11 fix : les contrôles n'ont pas de subProcessId direct, ils sont liés via leur WCGW
+  // ctrl.wcgwId → wcgw.subProcessId → SP
   var ctrlsBySpId = {};
   kc.forEach(function(ctrl){
-    var spId = ctrl.subProcessId || '__transverse';
+    var spId = null;
+    // 1. subProcessId direct sur ctrl (si jamais ajouté plus tard)
+    if (ctrl.subProcessId) {
+      spId = ctrl.subProcessId;
+    } else if (ctrl.wcgwId) {
+      // 2. Via WCGW lié
+      var wcgw = wcgwList.find(function(w){return w.id === ctrl.wcgwId;});
+      if (wcgw && wcgw.subProcessId) spId = wcgw.subProcessId;
+    }
+    if (!spId) spId = '__transverse';
     if (!ctrlsBySpId[spId]) ctrlsBySpId[spId] = [];
     ctrlsBySpId[spId].push(ctrl);
   });
@@ -14979,7 +15001,7 @@ function _buildSingleProcessTestCard(ctrl, globalIdx, allCtrls, wcgwList, d) {
     // v77.10 : Bloc déplié (caché si !isOpen)
     if (!isOpen) {
       html += '</div>'; // fermer la card
-      return; // skip tout le détail
+      return html; // v77.11 fix : retourner html (pas return undefined)
     }
 
     html += '<div style="padding:12px;border-top:.5px solid var(--border)">';
