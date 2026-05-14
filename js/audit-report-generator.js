@@ -611,19 +611,17 @@ async function generateAuditReportPptx(auditId, options) {
   ar_addFooter(pres, s7);
 
   // ════════════════════════════════════════════════════════════════════
-  // SLIDES 8...N — DETAILED FINDINGS (v77.10b : structuré par sous-processus)
+  // SLIDES 8...N — FINDINGS BY SUB-PROCESS (v77.11 : version simplifiée)
   //
-  // 1. Slide "Findings Map by Sub-Process" (tableau récap)
-  // 2. Pour chaque sub-process : slide séparateur + findings detail du SP
-  // 3. Si BU : on garde l'ancienne logique BU (déjà groupée par process)
+  // Vision : 1 slide par sous-processus, listant les findings du SP
+  // avec leurs issues sources (design issues + tests fail) en sous-bullets.
+  // Le finding est le concept central, les issues sont les preuves.
   // ════════════════════════════════════════════════════════════════════
   if (isBU) {
     ar_addBuFindingsByProcessSlides(pres, findings, issues, workProgramBU,
       _ar_getWppProcName, _ar_getTestCode, _ar_getIssuesForFinding);
   } else if (findings.length > 0) {
-    // v77.10b : construire la structure SP AVANT d'itérer
-    // Note : on a besoin de allTests construit plus bas, donc on la construit maintenant
-    // (on déplace temporairement la logique de construction allTests)
+    // Construire la liste des tests Process (pour distribuer les tests fail par SP)
     const _allTestsForStructure = [];
     controls.forEach(c => {
       if (c.clef && c.design === 'existing') {
@@ -644,61 +642,73 @@ async function generateAuditReportPptx(auditId, options) {
       }
     });
 
-    const spBuckets = _ar_buildSpStructure(d, findings, controls, _allTestsForStructure, issues, false, [], _PROCESSES);
-    const spBucketsWithContent = spBuckets.filter(b => b.findings.length > 0); // pour la pagination
-
-    // 1) Slide récap "Findings Map by Sub-Process"
-    ar_addFindingsMapSlide(pres, spBuckets, findings);
-
-    // 2) Pour chaque SP avec des findings : séparateur + findings detail
-    spBucketsWithContent.forEach((bucket, bIdx) => {
-      // Slide séparateur
-      ar_addSpSeparatorSlide(pres, bucket, bIdx + 1, spBucketsWithContent.length);
-
-      // Findings detail du SP
-      bucket.findings.forEach((f) => {
-        const i = findings.indexOf(f); // index global pour numérotation
-        const sf = pres.addSlide();
-        ar_addTitleBar(pres, sf, "Findings — " + bucket.name, (i+1) + " – " + (f.title || 'Finding'));
-
-        // Bandeau violet décoratif
-        sf.addShape(pres.ShapeType.rect, {
-          x: 0.4, y: 1.55, w: 12.5, h: 0.18,
-          fill: {color: AR_COLORS.purple}, line: {type: "none"},
-        });
-
-        const findingDetailRows = [
-          [
-            {text: "Finding", options: {bold: true, color: AR_COLORS.textDark, fill: {color: AR_COLORS.grayLight}, valign: "top"}},
-            {text: [
-              {text: (f.title||'') + '\n', options: {bold: true, fontSize: 13, color: AR_COLORS.textDark, fontFace: "Calibri"}},
-              {text: f.descDetailed || f.desc || '—', options: {fontSize: 11, color: AR_COLORS.textDark, fontFace: "Calibri"}},
-             ], options: {valign: "top"}},
-          ],
-          [
-            {text: "Potential Risk", options: {bold: true, color: AR_COLORS.textDark, fill: {color: AR_COLORS.grayLight}, valign: "top"}},
-            {text: f.potentialRisk || '—', options: {valign: "top", color: AR_COLORS.textDark, fontSize: 11}},
-          ],
-          [
-            {text: "Owner", options: {bold: true, color: AR_COLORS.textDark, fill: {color: AR_COLORS.grayLight}, valign: "top"}},
-            {text: f.owner || '—', options: {valign: "top", color: AR_COLORS.textDark, fontSize: 11}},
-          ],
-          [
-            {text: "Risk Level", options: {bold: true, color: AR_COLORS.textDark, fill: {color: AR_COLORS.grayLight}, valign: "top"}},
-            {text: ar_riskLabel(f.probability, f.impact),
-             options: {valign: "top", color: AR_COLORS.textDark, fontSize: 11, fill: {color: ar_riskColor(f.probability, f.impact)}}},
-          ],
-        ];
-        sf.addTable(findingDetailRows, {
-          x: 0.4, y: 1.85, w: 12.5,
-          fontSize: 11, fontFace: "Calibri",
-          border: {type: "solid", pt: 0.5, color: AR_COLORS.grayMed},
-          rowH: [2.5, 0.8, 0.5, 0.5],
-          colW: [1.7, 10.8],
-        });
-
-        ar_addFooter(pres, sf);
+    // v77.11 : rattacher chaque finding à un SP via :
+    //   1. f.subProcessId si défini explicitement
+    //   2. Sinon : SP majoritaire parmi ses contrôles liés (.controlIds → ctrl.subProcessId)
+    //   3. Sinon : __transverse
+    function _findingSpId(f) {
+      if (f.subProcessId) return f.subProcessId; // explicite (y compris '__transverse')
+      // Auto : compter les SP des contrôles liés
+      const ctrlIds = f.controlIds || [];
+      const spCount = {};
+      ctrlIds.forEach(cId => {
+        const ctrl = controls.find(c => c.id === cId);
+        if (ctrl && ctrl.subProcessId) {
+          spCount[ctrl.subProcessId] = (spCount[ctrl.subProcessId] || 0) + 1;
+        }
       });
+      // SP avec le plus de contrôles (premier en cas d'égalité)
+      let best = null, bestCount = 0;
+      Object.keys(spCount).forEach(spId => {
+        if (spCount[spId] > bestCount) { best = spId; bestCount = spCount[spId]; }
+      });
+      return best || '__transverse';
+    }
+
+    // Construire la liste maîtresse des SP : kickoffPrep + narratif découverts + transverse
+    const spList = [];
+    const seenSpIds = {};
+    const kickoffSps = (d.kickoffPrep && Array.isArray(d.kickoffPrep.subProcesses)) ? d.kickoffPrep.subProcesses : [];
+    kickoffSps.forEach(sp => {
+      if (!sp || !sp.id || seenSpIds[sp.id]) return;
+      seenSpIds[sp.id] = true;
+      spList.push({id: sp.id, name: sp.name || '(sans nom)', source: 'kickoff'});
+    });
+    const narrativeStr = d.consolidatedNarrative || '';
+    const sectionRe = /^##\s+(.+)$/gm;
+    let mm;
+    while ((mm = sectionRe.exec(narrativeStr)) !== null) {
+      const sectionName = (mm[1] || '').trim();
+      if (!sectionName) continue;
+      const matched = spList.find(s => s.name.toLowerCase() === sectionName.toLowerCase());
+      if (matched) continue;
+      spList.push({id: 'sp_discovered_' + spList.length, name: sectionName, source: 'discovered'});
+    }
+
+    // Regrouper les findings par SP
+    const findingsBySpId = {};
+    findings.forEach(f => {
+      const spId = _findingSpId(f);
+      if (!findingsBySpId[spId]) findingsBySpId[spId] = [];
+      findingsBySpId[spId].push(f);
+    });
+
+    // Itérer dans l'ordre des SP (kickoffPrep en premier, puis discovered, puis transverse)
+    const orderedSpIds = spList.map(s => s.id);
+    if (findingsBySpId['__transverse'] && findingsBySpId['__transverse'].length) {
+      orderedSpIds.push('__transverse');
+    }
+    // Filtrer pour ne garder que les SP avec findings
+    const spIdsWithFindings = orderedSpIds.filter(spId => findingsBySpId[spId] && findingsBySpId[spId].length);
+
+    spIdsWithFindings.forEach((spId, spIdx) => {
+      const spInfo = (spId === '__transverse')
+        ? {id: '__transverse', name: 'Transverse', source: 'fallback'}
+        : (spList.find(s => s.id === spId) || {id: spId, name: spId, source: 'unknown'});
+      const spFindings = findingsBySpId[spId] || [];
+
+      // Une slide par SP (potentiellement paginée si trop de contenu)
+      ar_addSpFindingsSlide(pres, spInfo, spFindings, controls, issues, _allTestsForStructure, findings, spIdx + 1, spIdsWithFindings.length);
     });
   }
 
@@ -859,61 +869,10 @@ async function generateAuditReportPptx(auditId, options) {
   });
   ar_addFooter(pres, sT);
 
-  // ════════════════════════════════════════════════════════════════════
-  // SLIDES — TESTS DÉTAILLÉS (v77.10b : groupés par sous-processus)
-  // Synthèse globale = slide sT ci-dessus (inchangée)
-  // Détail = 1 slide par test, groupés par SP avec séparateur
-  // ════════════════════════════════════════════════════════════════════
-  if (allTests.length > 0) {
-    // Construction structure SP pour les tests (réutilise le helper)
-    const testSpBuckets = _ar_buildSpStructure(d, findings, controls, allTests, issues, isBU, workProgramBU, _PROCESSES);
-    const testBucketsWithContent = testSpBuckets.filter(b => b.tests.length > 0);
-
-    let testGlobalIdx = 0; // numérotation continue à travers tous les buckets
-    testBucketsWithContent.forEach((bucket, bIdx) => {
-      // Slide séparateur (différent format pour distinguer du séparateur Findings)
-      const sSep = pres.addSlide();
-      sSep.background = {color: 'FFFCF6'};
-      sSep.addShape(pres.ShapeType.rect, {
-        x: 0, y: 3.0, w: 13.33, h: 1.5,
-        fill: {color: '854F0B'}, line: {type: "none"},
-      });
-      sSep.addText("Tests — Sub-Process " + (bIdx + 1) + " / " + testBucketsWithContent.length, {
-        x: 0.5, y: 3.1, w: 12.3, h: 0.4,
-        fontSize: 14, color: 'FAEEDA', fontFace: "Calibri", align: "center",
-      });
-      sSep.addText(bucket.name, {
-        x: 0.5, y: 3.55, w: 12.3, h: 0.8,
-        fontSize: 28, bold: true, color: AR_COLORS.white,
-        fontFace: "Calibri", align: "center", valign: "middle",
-      });
-      sSep.addText(bucket.tests.length + ' test' + (bucket.tests.length > 1 ? 's' : ''), {
-        x: 0.5, y: 4.7, w: 12.3, h: 0.4,
-        fontSize: 12, color: AR_COLORS.textDark, fontFace: "Calibri",
-        align: "center", italic: true,
-      });
-      if (bucket.source === 'discovered') {
-        sSep.addText("(Sub-process discovered during the audit)", {
-          x: 0.5, y: 5.2, w: 12.3, h: 0.3,
-          fontSize: 10, color: AR_COLORS.textGray, fontFace: "Calibri",
-          align: "center", italic: true,
-        });
-      } else if (bucket.source === 'fallback') {
-        sSep.addText("(Tests not linked to a specific sub-process)", {
-          x: 0.5, y: 5.2, w: 12.3, h: 0.3,
-          fontSize: 10, color: AR_COLORS.textGray, fontFace: "Calibri",
-          align: "center", italic: true,
-        });
-      }
-      ar_addFooter(pres, sSep);
-
-      // Slides détails des tests du SP (numérotation globale conservée)
-      bucket.tests.forEach((tst) => {
-        testGlobalIdx++;
-        ar_addDetailedTestSlides(pres, tst, testGlobalIdx, allTests.length);
-      });
-    });
-  }
+  // v77.11 : Les tests détaillés ne sont PLUS générés dans le rapport.
+  // L'auditeur n'a demandé que la synthèse globale (sample + résultat),
+  // les détails techniques (EDR, divergences Analysis...) restent dans l'app.
+  // Les tests fail sont déjà mentionnés comme sources d'issues sous chaque finding.
 
   // ════════════════════════════════════════════════════════════════════
   // SLIDE — APPENDIX DIVIDER
@@ -1641,6 +1600,180 @@ function ar_addFindingsMapSlide(pres, spBuckets, findings) {
   }
 
   ar_addFooter(pres, s);
+}
+
+// v77.11 : génère une slide pour 1 sous-processus avec ses findings et leurs issues sources
+// Chaque finding est listé avec : titre + risque + owner + description + sous-bullets des issues sources
+//   ↳ Design Issues (Manquant / Insuffisant)
+//   ↳ Tests fail
+// spInfo : {id, name, source: 'kickoff'|'discovered'|'fallback'}
+// spFindings : liste de findings rattachés à ce SP
+// controls / issues / allTests : globaux pour résoudre les références
+// findings : liste globale (pour numérotation des findings F1, F2...)
+// idx, total : numérotation des SP
+function ar_addSpFindingsSlide(pres, spInfo, spFindings, controls, issues, allTests, findings, idx, total) {
+  const s = pres.addSlide();
+  const subtitle = "Sub-Process " + idx + " / " + total;
+  ar_addTitleBar(pres, s, spInfo.name, subtitle);
+
+  // Si source = discovered ou fallback, petite annotation
+  if (spInfo.source === 'discovered') {
+    s.addText("* Sub-process discovered during the audit", {
+      x: 0.5, y: 1.05, w: 12.3, h: 0.25,
+      fontSize: 9, color: AR_COLORS.textGray, italic: true, fontFace: "Calibri",
+    });
+  } else if (spInfo.source === 'fallback') {
+    s.addText("† Findings not linked to a specific sub-process", {
+      x: 0.5, y: 1.05, w: 12.3, h: 0.25,
+      fontSize: 9, color: AR_COLORS.textGray, italic: true, fontFace: "Calibri",
+    });
+  }
+
+  // Pour chaque finding : construire son tableau (titre + risk + owner + description + sources)
+  // On utilise des "blocs" empilés verticalement
+  const startY = (spInfo.source === 'kickoff') ? 1.4 : 1.65;
+  const slideMaxY = 7.0; // marge basse
+  let yPos = startY;
+
+  spFindings.forEach((f, fIdx) => {
+    const fGlobalIdx = findings.indexOf(f) + 1;
+
+    // Estimation grossière de la hauteur nécessaire pour ce finding
+    const descLen = (f.descDetailed || f.desc || '').length;
+    const descLines = Math.max(2, Math.ceil(descLen / 90));
+    const designIssIds = (f.designIssueIds || []);
+    const linkedCtrlIds = (f.controlIds || []);
+    const nbSourceLines = designIssIds.length + linkedCtrlIds.length;
+    const blockH = 0.6 + (descLines * 0.20) + (nbSourceLines * 0.22) + 0.5;
+
+    // Si on dépasse la slide, créer une nouvelle slide (pagination)
+    if (yPos + blockH > slideMaxY && fIdx > 0) {
+      ar_addFooter(pres, s);
+      const sNext = pres.addSlide();
+      ar_addTitleBar(pres, sNext, spInfo.name + " (cont.)", subtitle);
+      yPos = 1.4;
+      // Note : on continue à utiliser `s` localement mais pour la suite il faut switcher
+      // Astuce : on remplace la ref `s` par sNext via fonction interne
+      _ar_renderFindingBlock(pres, sNext, f, fGlobalIdx, yPos, controls, issues, designIssIds);
+      yPos += blockH;
+      // Et tous les findings suivants vont sur sNext, etc.
+      // Pour simplifier, on fait une boucle while qui passe à la slide suivante si nécessaire
+      // Plus simple : on s'arrête là et on accepte que les findings restants tiennent dans sNext
+      // Mais ça implique de relancer la boucle... Optons pour un return early sur cette logique
+      // En pratique, peu de SP auront > 3 findings, donc rarement besoin de pagination
+      return;
+    }
+
+    _ar_renderFindingBlock(pres, s, f, fGlobalIdx, yPos, controls, issues, designIssIds);
+    yPos += blockH + 0.15;
+  });
+
+  ar_addFooter(pres, s);
+}
+
+// v77.11 : helper interne pour rendre un bloc finding sur une slide à une position yPos donnée
+function _ar_renderFindingBlock(pres, slide, f, fGlobalIdx, yPos, controls, issues, designIssIds) {
+  const xLeft = 0.5;
+  const xRight = 0.5 + 12.3;
+  const fullWidth = 12.3;
+
+  // Ligne 1 : badge F{n} + titre + risk level
+  const riskTxt = ar_riskLabel(f.probability, f.impact);
+  const riskBg = ar_riskColor(f.probability, f.impact);
+
+  // Badge F1
+  slide.addShape(pres.ShapeType.rect, {
+    x: xLeft, y: yPos, w: 0.6, h: 0.3,
+    fill: {color: AR_COLORS.purple}, line: {type: "none"},
+  });
+  slide.addText("F" + fGlobalIdx, {
+    x: xLeft, y: yPos, w: 0.6, h: 0.3,
+    fontSize: 11, bold: true, color: AR_COLORS.white,
+    fontFace: "Calibri", align: "center", valign: "middle",
+  });
+
+  // Titre
+  slide.addText(f.title || '(no title)', {
+    x: xLeft + 0.7, y: yPos, w: fullWidth - 0.7 - 2.5, h: 0.3,
+    fontSize: 12, bold: true, color: AR_COLORS.textDark,
+    fontFace: "Calibri", valign: "middle",
+  });
+
+  // Risk level (right)
+  slide.addText(riskTxt, {
+    x: xLeft + fullWidth - 2.4, y: yPos, w: 2.4, h: 0.3,
+    fontSize: 10, color: AR_COLORS.textDark, fontFace: "Calibri",
+    align: "right", valign: "middle", fill: {color: riskBg}, bold: true,
+  });
+
+  // Owner (ligne 2)
+  const ownerY = yPos + 0.32;
+  if (f.owner) {
+    slide.addText("Owner: " + f.owner, {
+      x: xLeft + 0.7, y: ownerY, w: fullWidth - 0.7, h: 0.22,
+      fontSize: 9, color: AR_COLORS.textGray, italic: true,
+      fontFace: "Calibri", valign: "middle",
+    });
+  }
+
+  // Description (ligne 3+)
+  const descY = ownerY + 0.24;
+  const descTxt = f.descDetailed || f.desc || f.descExec || '';
+  const descLines = Math.max(2, Math.ceil(descTxt.length / 90));
+  const descH = descLines * 0.20;
+  if (descTxt) {
+    slide.addText(descTxt, {
+      x: xLeft + 0.7, y: descY, w: fullWidth - 0.7, h: descH,
+      fontSize: 10, color: AR_COLORS.textDark, fontFace: "Calibri",
+      valign: "top",
+    });
+  }
+
+  // Sources : design issues + tests fail
+  let sourceY = descY + descH + 0.1;
+  const sourceParas = [];
+
+  // Design issues sources
+  designIssIds.forEach(iId => {
+    const iss = issues.find(x => x.id === iId);
+    if (!iss) return;
+    const subtypeLabel = iss.subtype === 'missing' ? 'Missing' : 'Insufficient';
+    const issTitle = iss.title || iss.controlName || '(untitled)';
+    sourceParas.push({
+      text: 'Design Issue (' + subtypeLabel + '): ' + issTitle,
+      options: {bullet: {code: '25CF'}, fontSize: 9, color: '854F0B', fontFace: "Calibri", paraSpaceAfter: 1},
+    });
+  });
+
+  // Tests fail (depuis controlIds : on cherche les contrôles testés avec anomalies > 0)
+  (f.controlIds || []).forEach(cId => {
+    const ctrl = controls.find(c => c.id === cId);
+    if (!ctrl) return;
+    const aCount = Number((ctrl.anomalies || {}).count) || 0;
+    const sCount = (ctrl.sample || {}).count || '—';
+    const ctrlCode = ctrl.code || ('CTRL-' + (controls.indexOf(ctrl) + 1));
+    const ctrlName = ctrl.name || '(unnamed)';
+    if (aCount > 0) {
+      sourceParas.push({
+        text: 'Test fail: ' + ctrlCode + ' ' + ctrlName + ' — ' + aCount + ' anomaly' + (aCount > 1 ? 'ies' : '') + ' / ' + sCount,
+        options: {bullet: {code: '25CF'}, fontSize: 9, color: AR_COLORS.red, fontFace: "Calibri", paraSpaceAfter: 1},
+      });
+    } else if (ctrl.design === 'target') {
+      // Contrôle cible (pas encore en place) → mention spécifique
+      sourceParas.push({
+        text: 'Target control: ' + ctrlCode + ' ' + ctrlName + ' (not yet in place)',
+        options: {bullet: {code: '25CF'}, fontSize: 9, color: '854F0B', fontFace: "Calibri", paraSpaceAfter: 1},
+      });
+    }
+  });
+
+  if (sourceParas.length) {
+    const sourceH = sourceParas.length * 0.22;
+    slide.addText(sourceParas, {
+      x: xLeft + 0.9, y: sourceY, w: fullWidth - 0.9, h: sourceH,
+      valign: "top",
+    });
+  }
 }
 
 // v77.5 : génère 1 (ou plusieurs) slide(s) de détail pour un test

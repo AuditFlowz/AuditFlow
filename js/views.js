@@ -14405,8 +14405,47 @@ function showFindingModal(existing) {
 
   var f = existing ? existing.finding : {};
   var currentCtrlIds = (f.controlIds || []);
+  var currentDesignIssueIds = (f.designIssueIds || []);
+  var currentSubProcessId = f.subProcessId || '';
 
-  // Construire la liste des checkboxes
+  // v77.11 : Liste des design issues disponibles (issues.source === 'design')
+  var allIssues = Array.isArray(d.issues) ? d.issues : [];
+  var designIssues = allIssues.filter(function(iss){return iss.source === 'design';});
+
+  // v77.11 : Liste maître des sous-processus (kickoffPrep + narratif découverts)
+  var spList = [];
+  var seenSpIds = {};
+  var kickoffSps = (d.kickoffPrep && Array.isArray(d.kickoffPrep.subProcesses)) ? d.kickoffPrep.subProcesses : [];
+  kickoffSps.forEach(function(sp){
+    if (!sp || !sp.id || seenSpIds[sp.id]) return;
+    seenSpIds[sp.id] = true;
+    spList.push({id: sp.id, name: sp.name || '(sans nom)', source: 'kickoff'});
+  });
+  // Sections du narratif non couvertes
+  var narrative = d.consolidatedNarrative || '';
+  var sectionRegex = /^##\s+(.+)$/gm;
+  var m;
+  while ((m = sectionRegex.exec(narrative)) !== null) {
+    var sectionName = (m[1] || '').trim();
+    if (!sectionName) continue;
+    var matched = spList.find(function(s){return s.name.toLowerCase() === sectionName.toLowerCase();});
+    if (matched) continue;
+    spList.push({id: 'sp_discovered_'+spList.length, name: sectionName, source: 'discovered'});
+  }
+
+  // v77.11 : Auto-coche des design issues du SP si nouveau finding ET un SP est déjà déterminé
+  // (par exemple si le contrôle déjà coché a un subProcessId, on prend ce SP)
+  if (!existing) {
+    var firstCtrl = step5c.find(function(c){return currentCtrlIds.indexOf(c.id) >= 0;});
+    if (firstCtrl && firstCtrl.subProcessId) {
+      currentSubProcessId = firstCtrl.subProcessId;
+      // Pré-cocher les design issues de ce SP
+      var autoDesignIssues = designIssues.filter(function(iss){return iss.relatedSpId === currentSubProcessId;});
+      currentDesignIssueIds = autoDesignIssues.map(function(iss){return iss.id;});
+    }
+  }
+
+  // Construire la liste des contrôles à cocher
   var ctrlsHtml = '';
   if (!problematicCtrls.length) {
     ctrlsHtml = '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:8px">Aucun contrôle fail ni target dans cet audit. Vous pouvez quand même créer un finding sans contrôle lié.</div>';
@@ -14434,6 +14473,35 @@ function showFindingModal(existing) {
     }).join('');
   }
 
+  // v77.11 : Construire la liste des design issues à cocher
+  var designIssuesHtml = '';
+  if (!designIssues.length) {
+    designIssuesHtml = '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:8px">Aucune design issue dans cet audit.</div>';
+  } else {
+    designIssuesHtml = designIssues.map(function(iss){
+      var checked = currentDesignIssueIds.indexOf(iss.id) >= 0 ? 'checked' : '';
+      var subtypeLabel = iss.subtype === 'missing'
+        ? '<span class="badge" style="background:#FCEBEB;color:#A32D2D;font-size:9px;padding:1px 5px;border-radius:3px">⚠ Manquant</span>'
+        : '<span class="badge" style="background:#FAEEDA;color:#854F0B;font-size:9px;padding:1px 5px;border-radius:3px">⚠ Insuffisant</span>';
+      var spName = '';
+      if (iss.relatedSpId) {
+        var sp = spList.find(function(s){return s.id === iss.relatedSpId;});
+        if (sp) spName = '<span style="font-size:10px;color:var(--text-3);font-style:italic">· '+(sp.name||'').replace(/</g,'&lt;')+'</span>';
+      }
+      var issTitle = iss.title || iss.controlName || '(sans titre)';
+      return '<label style="display:flex;align-items:flex-start;gap:8px;padding:6px 8px;border-bottom:.5px solid var(--border);cursor:pointer">'
+        + '<input type="checkbox" class="f-di-cb" value="'+iss.id+'" '+checked+' style="margin-top:3px"/>'
+        + '<div style="flex:1">'
+        + '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">'
+        + subtypeLabel
+        + '<span style="font-size:11px;font-weight:500">'+(''+issTitle).replace(/</g,'&lt;')+'</span>'
+        + spName
+        + '</div>'
+        + '</div>'
+        + '</label>';
+    }).join('');
+  }
+
   // v77.10 : modale compacte (gaps réduits, line-height tassée, modèle de saisie côte-à-côte)
   var compactStyle = 'margin-bottom:8px';
   var labelStyle = 'font-size:11px;color:var(--text-2);display:block;margin-bottom:3px;font-weight:500';
@@ -14441,8 +14509,20 @@ function showFindingModal(existing) {
   var inputStyle = 'width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box';
   var taStyle = inputStyle + ';font-family:inherit;resize:vertical';
 
+  // v77.11 : select SP en haut de la modale
+  var spOptions = '<option value=""'+(!currentSubProcessId?' selected':'')+'>— Auto (sera déterminé par la majorité des contrôles) —</option>';
+  spList.forEach(function(sp){
+    spOptions += '<option value="'+sp.id+'"'+(currentSubProcessId===sp.id?' selected':'')+'>'+(''+sp.name).replace(/</g,'&lt;')+(sp.source==='discovered'?' *':'')+'</option>';
+  });
+  spOptions += '<option value="__transverse"'+(currentSubProcessId==='__transverse'?' selected':'')+'>Transverse (sans SP spécifique)</option>';
+
   var body = '<div style="'+compactStyle+'"><label style="'+labelStyle+'">Titre du finding <span style="color:var(--red)">*</span></label>'
     + '<input id="f-title" value="'+(f.title||'').replace(/"/g,'&quot;')+'" placeholder="ex : Ségrégation des tâches insuffisante en P2P" style="'+inputStyle+'"/></div>'
+    + '<div style="'+compactStyle+'"><label style="'+labelStyle+'">Sous-processus de rattachement</label>'
+    + '<div style="'+helpStyle+'">Détermine où le finding apparaît dans le rapport. Laisser sur Auto pour déterminer selon la majorité des contrôles liés.</div>'
+    + '<select id="f-sp" style="'+inputStyle+'" onchange="_onFindingSpChange()">'
+    + spOptions
+    + '</select></div>'
     + '<div style="'+compactStyle+'"><label style="'+labelStyle+'">Description courte (Executive Summary)</label>'
     + '<div style="'+helpStyle+'">2-3 lignes. Apparaîtra en slide « Executive Summary - Findings ».</div>'
     + '<textarea id="f-desc-exec" style="'+taStyle+';min-height:45px" placeholder="ex : Process incomplet de tracking des opportunités de renouvellement dans SFDC.">'+((f.descExec || '')).replace(/</g,'&lt;')+'</textarea></div>'
@@ -14469,9 +14549,14 @@ function showFindingModal(existing) {
     + '<option value="severe"'+(f.impact==='severe'?' selected':'')+'>Severe</option>'
     + '</select></div>'
     + '</div>'
-    + '<div style="'+compactStyle+'"><label style="'+labelStyle+'">Contrôles liés <span style="font-weight:400;color:var(--text-3)">('+problematicCtrls.length+' candidats)</span></label>'
-    + '<div style="border:.5px solid var(--border);border-radius:3px;max-height:160px;overflow-y:auto;background:#fafafa">'
+    + '<div style="'+compactStyle+'"><label style="'+labelStyle+'">Contrôles testés liés <span style="font-weight:400;color:var(--text-3)">('+problematicCtrls.length+' candidats)</span></label>'
+    + '<div style="border:.5px solid var(--border);border-radius:3px;max-height:140px;overflow-y:auto;background:#fafafa">'
     + ctrlsHtml
+    + '</div></div>'
+    + '<div style="'+compactStyle+'"><label style="'+labelStyle+'">Design Issues liées <span style="font-weight:400;color:var(--text-3)">('+designIssues.length+' candidats)</span></label>'
+    + '<div style="'+helpStyle+'">Pré-cochées : design issues du SP du finding. Décoche celles qui ne s\'appliquent pas.</div>'
+    + '<div id="f-di-list" style="border:.5px solid var(--border);border-radius:3px;max-height:140px;overflow-y:auto;background:#fafafa">'
+    + designIssuesHtml
     + '</div></div>';
 
   openModal(existing ? 'Éditer le finding' : 'Nouveau finding', body, async function(){
@@ -14484,6 +14569,9 @@ function showFindingModal(existing) {
     var probability = document.getElementById('f-prob').value;
     var impact = document.getElementById('f-impact').value;
     var checkedIds = Array.from(document.querySelectorAll('.f-ctrl-cb:checked')).map(function(cb){return cb.value;});
+    // v77.11 : design issues + SP
+    var checkedDiIds = Array.from(document.querySelectorAll('.f-di-cb:checked')).map(function(cb){return cb.value;});
+    var subProcessId = (document.getElementById('f-sp') || {}).value || '';
 
     if (!d.findings) d.findings = [];
     if (existing) {
@@ -14497,6 +14585,8 @@ function showFindingModal(existing) {
         probability: probability,
         impact: impact,
         controlIds: checkedIds,
+        designIssueIds: checkedDiIds,
+        subProcessId: subProcessId,
       });
       addHist('edit', 'Finding "'+title+'" modifié');
     } else {
@@ -14511,6 +14601,8 @@ function showFindingModal(existing) {
         probability: probability,
         impact: impact,
         controlIds: checkedIds,
+        designIssueIds: checkedDiIds,
+        subProcessId: subProcessId,
         createdAt: new Date().toISOString(),
       });
       addHist('add', 'Finding "'+title+'" créé');
@@ -14518,6 +14610,23 @@ function showFindingModal(existing) {
     await saveAuditData(CA);
     document.getElementById('det-content').innerHTML = renderDetContent();
     toast('Finding '+(existing?'modifié':'ajouté')+' ✓');
+  });
+}
+
+// v77.11 : Quand le SP du finding change, re-cocher les design issues correspondantes
+function _onFindingSpChange() {
+  var sel = document.getElementById('f-sp');
+  if (!sel) return;
+  var newSpId = sel.value;
+  if (!newSpId || newSpId === '__transverse') return;
+  // Cocher uniquement les design issues du nouveau SP, décocher les autres
+  var d = getAudData(CA);
+  var allIssues = Array.isArray(d.issues) ? d.issues : [];
+  var matchingIssueIds = allIssues
+    .filter(function(iss){return iss.source === 'design' && iss.relatedSpId === newSpId;})
+    .map(function(iss){return iss.id;});
+  document.querySelectorAll('.f-di-cb').forEach(function(cb){
+    cb.checked = matchingIssueIds.indexOf(cb.value) >= 0;
   });
 }
 async function removeManualFinding(i){const d=getAudData(CA);d.findings.splice(i,1);await saveAuditData(CA);document.getElementById('det-content').innerHTML=renderDetContent();}
@@ -14693,10 +14802,87 @@ function buildExecTable(kc){
   var wcgwList = (d.wcgw && d.wcgw[4]) || [];
   // Liste des contrôles globaux pour retrouver le vrai index dans d.controls[4]
   var allCtrls = (d.controls && d.controls[4]) || [];
+
+  // v77.11 : Grouper les contrôles par sous-processus
+  // Liste maîtresse des SP (kickoffPrep + narratif découverts)
+  var spList = [];
+  var seenSpIds = {};
+  var kickoffSps = (d.kickoffPrep && Array.isArray(d.kickoffPrep.subProcesses)) ? d.kickoffPrep.subProcesses : [];
+  kickoffSps.forEach(function(sp){
+    if (!sp || !sp.id || seenSpIds[sp.id]) return;
+    seenSpIds[sp.id] = true;
+    spList.push({id: sp.id, name: sp.name || '(sans nom)', source: 'kickoff'});
+  });
+  var narrative = d.consolidatedNarrative || '';
+  var sectionRegex = /^##\s+(.+)$/gm;
+  var mm;
+  while ((mm = sectionRegex.exec(narrative)) !== null) {
+    var sectionName = (mm[1] || '').trim();
+    if (!sectionName) continue;
+    var matched = spList.find(function(s){return s.name.toLowerCase() === sectionName.toLowerCase();});
+    if (matched) continue;
+    spList.push({id: 'sp_discovered_'+spList.length, name: sectionName, source: 'discovered'});
+  }
+
+  // Grouper kc par subProcessId
+  var ctrlsBySpId = {};
+  kc.forEach(function(ctrl){
+    var spId = ctrl.subProcessId || '__transverse';
+    if (!ctrlsBySpId[spId]) ctrlsBySpId[spId] = [];
+    ctrlsBySpId[spId].push(ctrl);
+  });
+
+  // Ordre d'affichage : SP de spList puis transverse à la fin
+  var orderedSpIds = spList.map(function(s){return s.id;});
+  if (ctrlsBySpId['__transverse'] && ctrlsBySpId['__transverse'].length) {
+    orderedSpIds.push('__transverse');
+  }
+  var spIdsWithCtrls = orderedSpIds.filter(function(spId){return ctrlsBySpId[spId] && ctrlsBySpId[spId].length;});
+
+  // État d'ouverture des sections SP (init mémoire si pas déjà)
+  if (typeof _openTestingsSpSections === 'undefined') _openTestingsSpSections = {};
+
   var html = '';
-  kc.forEach(function(ctrl, displayIdx){
-    // Index global dans d.controls[4] (pour les setters existants)
-    var globalIdx = allCtrls.indexOf(ctrl);
+  spIdsWithCtrls.forEach(function(spId){
+    var spInfo = (spId === '__transverse')
+      ? {id:'__transverse', name:'Transverse / Sans sous-processus', source:'fallback'}
+      : (spList.find(function(s){return s.id === spId;}) || {id:spId, name:spId, source:'unknown'});
+    var spCtrls = ctrlsBySpId[spId] || [];
+    var nbInSp = spCtrls.length;
+    var nbFinalized = spCtrls.filter(function(c){return c.finalized;}).length;
+    var nbWithAnomalies = spCtrls.filter(function(c){return c.anomalies && Number(c.anomalies.count) > 0;}).length;
+    // Ouvert par défaut sauf si l'utilisateur a explicitement fermé
+    var isOpen = _openTestingsSpSections[spId] !== false;
+
+    // Section header
+    html += '<div style="margin-bottom:14px;border:.5px solid var(--border);border-radius:6px;overflow:hidden;background:#fff">';
+    html += '<div onclick="toggleTestingsSpSection(\''+_escJsArg(spId)+'\')" style="cursor:pointer;padding:10px 14px;background:#fafafa;border-bottom:'+(isOpen?'.5px solid var(--border)':'none')+';display:flex;align-items:center;gap:10px;user-select:none">';
+    html += '<span style="font-size:11px;color:var(--text-3);width:10px;flex-shrink:0;transition:transform .15s;transform:rotate('+(isOpen?'90':'0')+'deg)">▶</span>';
+    html += '<span style="font-size:13px;font-weight:600;color:var(--text-1);flex:1">'+(''+spInfo.name).replace(/</g,'&lt;');
+    if (spInfo.source === 'discovered') html += ' <span style="font-size:9px;color:var(--text-3);font-style:italic">(découvert via narratif)</span>';
+    html += '</span>';
+    html += '<span style="font-size:10px;color:var(--text-3);flex-shrink:0">'+nbFinalized+'/'+nbInSp+' finalisés</span>';
+    if (nbWithAnomalies) html += '<span style="background:#FCEBEB;color:#A32D2D;font-size:9px;padding:2px 7px;border-radius:3px;font-weight:500;flex-shrink:0">⚠ '+nbWithAnomalies+' anomalies</span>';
+    html += '</div>';
+
+    if (isOpen) {
+      html += '<div style="padding:10px 12px">';
+      // Pour chaque contrôle, on génère la card collapsible existante
+      spCtrls.forEach(function(ctrl){
+        var globalIdx = allCtrls.indexOf(ctrl);
+        html += _buildSingleProcessTestCard(ctrl, globalIdx, allCtrls, wcgwList, d);
+      });
+      html += '</div>';
+    }
+    html += '</div>';
+  });
+
+  return html;
+}
+
+// v77.11 : génère la card complète d'un seul contrôle testé (logique extraite de l'ancien buildExecTable)
+function _buildSingleProcessTestCard(ctrl, globalIdx, allCtrls, wcgwList, d) {
+  var html = '';
 
     var dis = ctrl.finalized ? 'disabled' : '';
     var ctrlCode = ctrl.code || ('CTRL-'+(globalIdx+1));
@@ -15088,8 +15274,24 @@ function buildExecTable(kc){
     }
     html += '</div>'; // v77.10 : fermer le bloc déplié
     html += '</div>'; // fermer la card
-  });
   return html;
+}
+
+// v77.11 : toggle d'une section SP dans Testings
+function toggleTestingsSpSection(spId) {
+  if (typeof _openTestingsSpSections === 'undefined') _openTestingsSpSections = {};
+  // Par défaut isOpen = true (val !== false). Donc on toggle entre true (undefined) et false
+  if (_openTestingsSpSections[spId] === false) {
+    delete _openTestingsSpSections[spId];
+  } else {
+    _openTestingsSpSections[spId] = false;
+  }
+  var scrollY = window.scrollY;
+  var detContent = document.getElementById('det-content');
+  if (detContent) {
+    detContent.innerHTML = renderDetContent();
+    setTimeout(function(){ window.scrollTo(0, scrollY); }, 0);
+  }
 }
 function buildDocList(docs){
   if(!docs||!docs.length) return '';
