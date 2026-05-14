@@ -5564,6 +5564,7 @@ function renderNotesSection() {
 }
 
 // ─── ÉTAPE 7 (CS=6) : Bandeau Audit Report (génération + draft + final) ─
+// v77.10 : version compacte
 function renderAuditReportGenerateBanner() {
   var d = getAudData(CA);
   var findings = Array.isArray(d.findings) ? d.findings : [];
@@ -5584,66 +5585,63 @@ function renderAuditReportGenerateBanner() {
   var hasDraft = !!(draftR && draftR.webUrl);
   var hasFinal = !!(finalR && finalR.webUrl);
 
-  var html = '<div class="card" style="margin-bottom:.75rem;background:linear-gradient(135deg,#FAEEDA 0%,#FFF4D9 100%);border:.5px solid #FAC775">';
+  var html = '<div class="card" style="margin-bottom:.75rem;background:linear-gradient(135deg,#FAEEDA 0%,#FFF4D9 100%);border:.5px solid #FAC775;padding:10px 14px">';
 
-  // En-tête + indicateurs de complétude
-  html += '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">';
-  html += '<div style="flex:1;min-width:200px">';
-  html += '<div style="font-size:14px;font-weight:600;color:#854F0B;margin-bottom:4px">📄 Audit Report</div>';
-  html += '<div style="font-size:11px;color:#BA7517;margin-bottom:8px">Génération du rapport d\'audit PowerPoint et publication sur SharePoint pour partage avec les parties prenantes.</div>';
-  html += '<div style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:#854F0B">';
-  html += '<span>'+(findingsCount?'✓':'○')+' Findings ('+findingsComplete+'/'+findingsCount+' complets)</span>';
-  html += '<span>'+(testedControls.length?'✓':'○')+' Tests ('+testedControls.length+')</span>';
+  // Ligne unique : titre + indicateurs inline + bouton principal
+  html += '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">';
+  html += '<div style="font-size:13px;font-weight:600;color:#854F0B;flex-shrink:0">📄 Audit Report</div>';
+  // Indicateurs compacts
+  html += '<div style="display:flex;gap:10px;font-size:10px;color:#854F0B;flex:1;min-width:0;flex-wrap:wrap">';
+  html += '<span>'+(findingsCount?'✓':'○')+' Findings '+findingsComplete+'/'+findingsCount+'</span>';
+  html += '<span>'+(testedControls.length?'✓':'○')+' Tests '+testedControls.length+'</span>';
   html += '<span>'+(maturityFilled?'✓':'○')+' Maturity</span>';
-  html += '<span>'+(mgtRespCount?'✓':'○')+' Mgt Responses ('+mgtRespCount+')</span>';
+  html += '<span>'+(mgtRespCount?'✓':'○')+' MR '+mgtRespCount+'</span>';
   html += '</div>';
-  html += '</div>';
-
-  // Boutons d'action principaux (génération initiale + alternatives upload)
-  html += '<div style="display:flex;gap:8px;flex-direction:column;align-items:stretch;min-width:220px">';
+  // Boutons inline
+  html += '<div style="display:flex;gap:6px;flex-shrink:0">';
   if (!hasDraft) {
-    // Pas encore de draft : 2 options principales
-    html += '<button class="bp" style="font-size:13px;padding:8px 16px;background:#854F0B;color:#fff;font-weight:500" onclick="publishReportRegenerate()" title="Générer le rapport et le publier comme draft sur SharePoint">⬇ Générer le rapport (draft)</button>';
-    html += '<button class="bs" style="font-size:11px;padding:5px 10px;border:.5px solid #854F0B;color:#854F0B" onclick="publishReportUpload()" title="Uploader un PPT existant comme draft (sans passer par la génération)">📁 Importer un PPT existant</button>';
+    html += '<button class="bp" style="font-size:11px;padding:5px 11px;background:#854F0B;color:#fff;font-weight:500" onclick="publishReportRegenerate()" title="Générer le rapport (draft)">⬇ Générer draft</button>';
+    html += '<button class="bs" style="font-size:11px;padding:5px 9px;border:.5px solid #854F0B;color:#854F0B" onclick="publishReportUpload()" title="Importer un PPT existant comme draft">📁 Importer</button>';
   } else {
-    // Draft existe → 2 options : régénérer ou remplacer
-    html += '<button class="bs" style="font-size:11px;padding:5px 10px;border:.5px solid #FAC775;color:#854F0B" onclick="publishReportRegenerate()" title="Régénérer le draft (écrase le draft mais pas le final)">🔄 Régénérer le draft</button>';
-    html += '<button class="bs" style="font-size:11px;padding:5px 10px;border:.5px solid #FAC775;color:#854F0B" onclick="publishReportUpload()" title="Remplacer le draft par un fichier Office">📁 Remplacer le draft</button>';
+    html += '<button class="bs" style="font-size:11px;padding:5px 9px;border:.5px solid #FAC775;color:#854F0B" onclick="publishReportRegenerate()" title="Régénérer le draft">🔄 Régénérer</button>';
+    html += '<button class="bs" style="font-size:11px;padding:5px 9px;border:.5px solid #FAC775;color:#854F0B" onclick="publishReportUpload()" title="Remplacer le draft par un fichier">📁 Remplacer</button>';
   }
   html += '</div>';
   html += '</div>';
 
-  // Avertissements complétude
+  // Avertissements complétude (uniquement si problème)
   if (!findingsCount) {
-    html += '<div style="font-size:10px;color:#854F0B;margin-top:10px;padding:6px 10px;background:#FAEEDA;border-radius:4px;font-style:italic">⚠ Aucun finding défini. Le rapport sera généré sans détail de findings.</div>';
+    html += '<div style="font-size:10px;color:#854F0B;margin-top:8px;font-style:italic">⚠ Aucun finding défini.</div>';
   } else if (findingsComplete < findingsCount) {
-    html += '<div style="font-size:10px;color:#854F0B;margin-top:10px;padding:6px 10px;background:#FAEEDA;border-radius:4px;font-style:italic">ⓘ '+(findingsCount-findingsComplete)+' finding(s) incomplet(s) (Potential Risk, Owner ou Risk Level manquant). Ils apparaîtront avec « — » dans le rapport.</div>';
+    html += '<div style="font-size:10px;color:#854F0B;margin-top:8px;font-style:italic">ⓘ '+(findingsCount-findingsComplete)+' finding(s) incomplet(s) — apparaîtront avec « — » dans le rapport.</div>';
   }
 
-  // Bandeaux draft / final si dispo
+  // Bandeaux draft / final (compacts sur 1 ligne)
   if (hasDraft || hasFinal) {
-    html += '<div style="display:flex;flex-direction:column;gap:6px;margin-top:10px">';
+    html += '<div style="display:flex;flex-direction:column;gap:4px;margin-top:8px">';
     if (hasDraft) {
       var draftDate = (draftR.uploadedAt||'').slice(0,10);
       var draftEditUrl = toEditableOfficeUrl(draftR.webUrl);
-      html += '<div style="font-size:11px;color:#854F0B;padding:7px 10px;background:#FFF4D9;border:.5px solid #FAC775;border-radius:4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
-      html += '<span>📝</span>';
-      html += '<span style="flex:1;min-width:160px"><strong style="font-weight:500">Draft</strong> · publié le '+draftDate+(draftR.uploadedBy?' par '+draftR.uploadedBy.replace(/</g,'&lt;'):'')+'</span>';
-      html += '<a href="'+draftEditUrl.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener" style="font-size:10px;padding:3px 8px;background:#854F0B;color:#fff;border:.5px solid #854F0B;border-radius:3px;text-decoration:none;font-weight:500">✏ Modifier draft</a>';
-      html += '<button class="bp" style="font-size:10px;padding:3px 8px;background:#3C3489;color:#fff;border:.5px solid #3C3489;border-radius:3px;font-weight:500" onclick="finalizeReport()" title="Copier le draft actuel comme version finale (la version qui sera partagée)">📌 Marquer comme version finale</button>';
+      html += '<div style="font-size:10px;color:#854F0B;padding:5px 10px;background:#FFF4D9;border:.5px solid #FAC775;border-radius:3px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">';
+      html += '<span>📝 <strong style="font-weight:500">Draft</strong> · '+draftDate+(draftR.uploadedBy?' · '+draftR.uploadedBy.replace(/</g,'&lt;'):'')+'</span>';
+      html += '<span style="flex:1"></span>';
+      html += '<a href="'+draftEditUrl.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener" style="font-size:10px;padding:2px 7px;background:#854F0B;color:#fff;border:.5px solid #854F0B;border-radius:3px;text-decoration:none;font-weight:500">✏ Modifier</a>';
+      if (!hasFinal) {
+        html += '<button class="bp" style="font-size:10px;padding:2px 7px;background:#3C3489;color:#fff;border:none;border-radius:3px;font-weight:500" onclick="finalizeReport()" title="Marquer comme version finale">📌 Marquer final</button>';
+      }
       html += '</div>';
     }
     if (hasFinal) {
       var finalDate = (finalR.finalizedAt||'').slice(0,10);
       var finalEditUrl = toEditableOfficeUrl(finalR.webUrl);
-      html += '<div style="font-size:11px;color:#085041;padding:7px 10px;background:#E1F5EE;border:.5px solid #A6E2CD;border-radius:4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
-      html += '<span>📌</span>';
-      html += '<span style="flex:1;min-width:160px"><strong style="font-weight:500">Version finale</strong> · figée le '+finalDate+(finalR.finalizedBy?' par '+finalR.finalizedBy.replace(/</g,'&lt;'):'')+' &middot; <em>Lien envoyé dans la demande MR (étape suivante)</em></span>';
-      html += '<a href="'+finalEditUrl.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener" style="font-size:10px;padding:3px 8px;background:#3C3489;color:#fff;border:.5px solid #3C3489;border-radius:3px;text-decoration:none;font-weight:500">✏ Modifier final</a>';
-      html += '<a href="'+finalR.webUrl.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener" style="font-size:10px;padding:3px 8px;background:#fff;color:#085041;border:.5px solid #A6E2CD;border-radius:3px;text-decoration:none">Ouvrir →</a>';
+      html += '<div style="font-size:10px;color:#085041;padding:5px 10px;background:#E1F5EE;border:.5px solid #A6E2CD;border-radius:3px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">';
+      html += '<span>📌 <strong style="font-weight:500">Final</strong> · '+finalDate+(finalR.finalizedBy?' · '+finalR.finalizedBy.replace(/</g,'&lt;'):'')+'</span>';
+      html += '<span style="flex:1"></span>';
+      html += '<a href="'+finalEditUrl.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener" style="font-size:10px;padding:2px 7px;background:#3C3489;color:#fff;border:.5px solid #3C3489;border-radius:3px;text-decoration:none;font-weight:500">✏ Modifier</a>';
+      html += '<a href="'+finalR.webUrl.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener" style="font-size:10px;padding:2px 7px;background:#fff;color:#085041;border:.5px solid #A6E2CD;border-radius:3px;text-decoration:none">Ouvrir →</a>';
       html += '</div>';
     } else if (hasDraft) {
-      html += '<div style="font-size:10px;color:#BA7517;font-style:italic;padding:3px 10px">Aucune version finale — la demande MR (étape suivante) ne pourra être envoyée qu\'après le marquage final.</div>';
+      html += '<div style="font-size:9px;color:#BA7517;font-style:italic;padding:2px 10px">Pas de version finale — la demande MR ne pourra être envoyée qu\'après marquage final.</div>';
     }
     html += '</div>';
   }
@@ -11801,7 +11799,7 @@ function renderTestingsBuTestRow(wppId, t, isPreparer) {
   var hasAnomalies = (t.anomalies.count !== '' && Number(t.anomalies.count) > 0);
   var rowBorder = hasAnomalies ? 'border:1px solid #E24B4A' : 'border:.5px solid var(--border)';
 
-  // Issue operating inline pour ce test (au plus 1 par test dans le nouveau modèle)
+  // Issue operating inline pour ce test
   var d = getAudData(CA);
   var issue = (d.issues||[]).find(function(iss){
     return iss.source==='operating' && iss.processId===wppId && iss.testId===t.id;
@@ -11810,25 +11808,80 @@ function renderTestingsBuTestRow(wppId, t, isPreparer) {
 
   var extrap = _computeExtrapolation(t);
 
-  var h = '';
-  h += '<div style="'+rowBorder+';border-radius:5px;padding:10px 12px;margin-bottom:8px;background:'+(hasAnomalies?'#FFF8F8':'#fff')+'">';
+  // v77.10 : pré-calcul des variables pour le header collapsible
+  if (!t.samplingPlan) t.samplingPlan = {confidence:95, EDR:5, TDR:5, freqId:'', confLevel:'high'};
+  var sp = t.samplingPlan;
+  if (!sp.freqId) sp.freqId = '';
+  if (!sp.confLevel) sp.confLevel = 'high';
+  var testMode = t.testMode || '';
+  var popN = Number(t.population.count) || 0;
 
-  h += '<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap">';
-  h += '<span style="background:var(--purple);color:#fff;font-size:9px;padding:2px 7px;border-radius:3px;font-family:monospace;letter-spacing:.4px">'+(t.code||'').replace(/</g,'&lt;')+'</span>';
-  h += '<span style="background:#FAEEDA;color:#854F0B;font-size:9px;padding:2px 7px;border-radius:3px">'+(t.testType||'').replace(/</g,'&lt;')+'</span>';
-  h += '<span style="background:'+statusBg+';color:'+statusColor+';font-size:9px;padding:2px 7px;border-radius:3px;font-weight:500">'+status+'</span>';
-  if (hasAnomalies) {
-    h += '<span style="background:#FCEBEB;color:#A32D2D;font-size:9px;padding:2px 7px;border-radius:3px;font-weight:500">⚠ ANOMALIES</span>';
+  // État ouverture
+  if (typeof _openTestCards === 'undefined') _openTestCards = {};
+  var cardOpenKey = 'bu:'+wppId+':'+t.id;
+  var isOpen = !!_openTestCards[cardOpenKey];
+
+  // Indicateurs synthétiques pour le header
+  var sampleHeader = '';
+  if (testMode === 'control' && sp.freqId) {
+    var fr = CONTROL_FREQ_TABLE.find(function(f){return f.id===sp.freqId;});
+    if (fr) {
+      var nrec = (sp.confLevel === 'low') ? fr.low : fr.high;
+      sampleHeader = (t.sample.count||'0')+'/'+nrec;
+    }
+  } else if (testMode === 'substantive' || testMode === 'analysis') {
+    sampleHeader = (t.sample.count||'—')+'/'+(t.population.count||'—');
   }
-  if (hasIssue) {
-    h += '<span style="background:#EEEDFE;color:#3C3489;font-size:9px;padding:2px 7px;border-radius:3px;font-weight:500">ISSUE</span>';
+  var nbEvidence = _getTestEvidence(t.id).length;
+  var modeBadge = testMode === 'control' ? '<span style="font-size:9px;color:#3C3489;font-weight:600">🎯</span>'
+                : testMode === 'substantive' ? '<span style="font-size:9px;color:#085041;font-weight:600">💰</span>'
+                : testMode === 'analysis' ? '<span style="font-size:9px;color:#854F0B;font-weight:600">🔗</span>'
+                : '<span style="font-size:9px;color:var(--text-3)">—</span>';
+
+  var h = '';
+  h += '<div style="'+rowBorder+';border-radius:5px;margin-bottom:8px;background:'+(hasAnomalies?'#FFF8F8':'#fff')+';overflow:hidden">';
+
+  // v77.10 : Header collapsible (1 ligne)
+  h += '<div onclick="toggleTestCard(\''+_escJsArg(cardOpenKey)+'\')" style="cursor:pointer;padding:8px 12px;display:flex;align-items:center;gap:10px;user-select:none;background:'+(isOpen?'#fafafa':'transparent')+'">';
+  h += '<span style="font-size:11px;color:var(--text-3);width:10px;flex-shrink:0;transition:transform .15s;transform:rotate('+(isOpen?'90':'0')+'deg)">▶</span>';
+  h += '<span style="background:var(--purple);color:#fff;font-size:9px;padding:2px 7px;border-radius:3px;font-family:monospace;letter-spacing:.4px;flex-shrink:0">'+(t.code||'').replace(/</g,'&lt;')+'</span>';
+  h += '<span style="font-size:11px;font-weight:500;color:var(--text-1);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(''+(t.statement||'(sans énoncé)')).replace(/</g,'&lt;')+'</span>';
+  h += '<span style="flex-shrink:0">'+modeBadge+'</span>';
+  if (sampleHeader) {
+    h += '<span style="font-size:10px;color:var(--text-3);font-family:monospace;flex-shrink:0">'+sampleHeader+'</span>';
   }
+  h += '<span style="background:'+statusBg+';color:'+statusColor+';font-size:9px;padding:2px 7px;border-radius:3px;font-weight:500;flex-shrink:0">'+status+'</span>';
+  if (hasAnomalies) h += '<span style="background:#FCEBEB;color:#A32D2D;font-size:9px;padding:2px 7px;border-radius:3px;font-weight:500;flex-shrink:0">⚠ '+t.anomalies.count+'</span>';
+  if (hasIssue) h += '<span style="background:#EEEDFE;color:#3C3489;font-size:9px;padding:2px 7px;border-radius:3px;font-weight:500;flex-shrink:0" title="Issue Operating renseignée">📝</span>';
+  if (nbEvidence) h += '<span style="font-size:9px;color:var(--text-3);flex-shrink:0" title="'+nbEvidence+' preuve(s)">📎 '+nbEvidence+'</span>';
   h += '</div>';
 
-  h += '<div style="font-size:11px;font-weight:500;margin-bottom:4px">'+(''+(t.statement||'(sans énoncé)')).replace(/</g,'&lt;')+'</div>';
-  if (t.objective) h += '<div style="font-size:10px;color:var(--text-3);font-style:italic;margin-bottom:6px">Objectif : '+(''+t.objective).replace(/</g,'&lt;')+'</div>';
+  // v77.10 : Si fermé, on s'arrête là
+  if (!isOpen) {
+    h += '</div>'; // fermer card
+    return h;
+  }
 
-  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">';
+  // v77.10 : Bloc déplié
+  h += '<div style="padding:10px 12px;border-top:.5px solid var(--border)">';
+
+  // testType badge + objectif (s'il y en a)
+  if (t.testType || t.objective) {
+    h += '<div style="margin-bottom:8px">';
+    if (t.testType) {
+      h += '<span style="background:#FAEEDA;color:#854F0B;font-size:9px;padding:2px 7px;border-radius:3px">'+(t.testType||'').replace(/</g,'&lt;')+'</span>';
+    }
+    if (t.objective) h += '<div style="font-size:10px;color:var(--text-3);font-style:italic;margin-top:4px">Objectif : '+(''+t.objective).replace(/</g,'&lt;')+'</div>';
+    h += '</div>';
+  }
+
+  // v77.10 : Méthode de sélection masquée sauf substantive
+  var showSelectionMethod = (testMode === 'substantive');
+  if (showSelectionMethod) {
+    h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">';
+  } else {
+    h += '<div style="margin-bottom:8px">';
+  }
   h += '<div>';
   h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Statut du test</label>';
   if (isPreparer) {
@@ -11841,28 +11894,25 @@ function renderTestingsBuTestRow(wppId, t, isPreparer) {
     h += '<div style="font-size:11px;padding:5px 8px">'+t.testStatus+'</div>';
   }
   h += '</div>';
-  h += '<div>';
-  h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Méthode de sélection</label>';
-  if (isPreparer) {
-    h += '<select onchange="setTestingsBuField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'selectionMethod\',this.value)" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;background:#fff">';
-    h += '<option value=""'+(!t.selectionMethod?' selected':'')+'>— Choisir —</option>';
-    h += '<option'+(t.selectionMethod==='Coverage'?' selected':'')+'>Coverage</option>';
-    h += '<option'+(t.selectionMethod==='Aléatoire'?' selected':'')+'>Aléatoire</option>';
-    h += '<option'+(t.selectionMethod==='Mix'?' selected':'')+'>Mix</option>';
-    h += '</select>';
-  } else {
-    h += '<div style="font-size:11px;padding:5px 8px">'+(t.selectionMethod||'—')+'</div>';
+  if (showSelectionMethod) {
+    h += '<div>';
+    h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Méthode de sélection <span style="cursor:help;color:#3C3489" title="Coverage = top N par valeur (pas d\'extrapolation possible). Aléatoire = sample stat (extrapolation possible). Mix = combinaison.">ⓘ</span></label>';
+    if (isPreparer) {
+      h += '<select onchange="setTestingsBuField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'selectionMethod\',this.value)" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;background:#fff">';
+      h += '<option value=""'+(!t.selectionMethod?' selected':'')+'>— Choisir —</option>';
+      h += '<option'+(t.selectionMethod==='Coverage'?' selected':'')+'>Coverage</option>';
+      h += '<option'+(t.selectionMethod==='Aléatoire'?' selected':'')+'>Aléatoire</option>';
+      h += '<option'+(t.selectionMethod==='Mix'?' selected':'')+'>Mix</option>';
+      h += '</select>';
+    } else {
+      h += '<div style="font-size:11px;padding:5px 8px">'+(t.selectionMethod||'—')+'</div>';
+    }
+    h += '</div>';
   }
-  h += '</div>';
   h += '</div>';
 
   // v77.3 : Section Sample Sizing — choix Control vs Substantive testing (BU)
-  if (!t.samplingPlan) t.samplingPlan = {confidence:95, EDR:5, TDR:5, freqId:'', confLevel:'high'};
-  var sp = t.samplingPlan;
-  if (!sp.freqId) sp.freqId = '';
-  if (!sp.confLevel) sp.confLevel = 'high';
-  var testMode = t.testMode || ''; // 'control' | 'substantive' | ''
-  var popN = Number(t.population.count) || 0;
+  // (variables sp / testMode / popN déjà déclarées plus haut en v77.10)
 
   h += '<div style="background:#fafafa;border:.5px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px">';
   h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px">';
@@ -12133,7 +12183,9 @@ function renderTestingsBuTestRow(wppId, t, isPreparer) {
     h += '<div style="font-size:11px;padding:5px 8px;background:#fafafa;border-radius:3px;margin-bottom:4px;white-space:pre-wrap">'+(issueDesc||'—').replace(/</g,'&lt;')+'</div>';
   }
 
-  h += '</div>';
+  h += '</div>'; // fin issue description
+  h += '</div>'; // v77.10 : fin bloc déplié
+  h += '</div>'; // fin card
   return h;
 }
 
@@ -13908,6 +13960,21 @@ async function setProcessTestModeField(i, mode) {
   document.getElementById('det-content').innerHTML = renderDetContent();
 }
 
+// v77.10 : toggle ouverture/fermeture d'une carte de test
+// Stocke l'état en mémoire (pas persisté côté serveur, juste pendant la session)
+var _openTestCards = {};
+function toggleTestCard(key) {
+  if (_openTestCards[key]) delete _openTestCards[key];
+  else _openTestCards[key] = true;
+  // Re-render léger : on garde la position de scroll
+  var scrollY = window.scrollY;
+  var detContent = document.getElementById('det-content');
+  if (detContent) {
+    detContent.innerHTML = renderDetContent();
+    setTimeout(function(){ window.scrollTo(0, scrollY); }, 0);
+  }
+}
+
 // ══════════════════════════════════════════════════════════════
 //  v77.4 : Setters & handlers ANALYSIS MODE
 // ══════════════════════════════════════════════════════════════
@@ -14367,36 +14434,43 @@ function showFindingModal(existing) {
     }).join('');
   }
 
-  var body = '<div><label>Titre du finding <span style="color:var(--red)">*</span></label>'
-    + '<input id="f-title" value="'+(f.title||'').replace(/"/g,'&quot;')+'" placeholder="ex : Ségrégation des tâches insuffisante en P2P"/></div>'
-    + '<div><label>Description courte (Executive Summary)</label>'
-    + '<div style="font-size:10px;color:var(--text-3);font-style:italic;margin-bottom:3px">2-3 lignes maximum. Apparaîtra en slide « Executive Summary - Findings ».</div>'
-    + '<textarea id="f-desc-exec" style="width:100%;min-height:50px" placeholder="ex : Process incomplet de tracking des opportunités de renouvellement dans SFDC.">'+((f.descExec || '')).replace(/</g,'&lt;')+'</textarea></div>'
-    + '<div><label>Description détaillée</label>'
-    + '<div style="font-size:10px;color:var(--text-3);font-style:italic;margin-bottom:3px">Constat complet, contexte, lien avec les contrôles failed. Apparaîtra en slide détaillée du finding.</div>'
-    + '<textarea id="f-desc-detail" style="width:100%;min-height:80px" placeholder="Description complète, références aux contrôles fail, contexte business...">'+(f.descDetailed || f.desc || '').replace(/</g,'&lt;')+'</textarea></div>'
-    + '<div><label>Potential Risk</label>'
-    + '<textarea id="f-risk" style="width:100%;min-height:50px" placeholder="ex : Missed renewals, lost revenue opportunities, contract leakage...">'+(f.potentialRisk||'').replace(/</g,'&lt;')+'</textarea></div>'
-    + '<div class="g2" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">'
-    + '<div><label>Owner</label>'
-    + '<input id="f-owner" value="'+(f.owner||'').replace(/"/g,'&quot;')+'" placeholder="ex : Sales Ops Director"/></div>'
-    + '<div><label>Probability</label>'
-    + '<select id="f-prob"><option value="">— Choose —</option>'
+  // v77.10 : modale compacte (gaps réduits, line-height tassée, modèle de saisie côte-à-côte)
+  var compactStyle = 'margin-bottom:8px';
+  var labelStyle = 'font-size:11px;color:var(--text-2);display:block;margin-bottom:3px;font-weight:500';
+  var helpStyle = 'font-size:10px;color:var(--text-3);font-style:italic;margin-bottom:3px';
+  var inputStyle = 'width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box';
+  var taStyle = inputStyle + ';font-family:inherit;resize:vertical';
+
+  var body = '<div style="'+compactStyle+'"><label style="'+labelStyle+'">Titre du finding <span style="color:var(--red)">*</span></label>'
+    + '<input id="f-title" value="'+(f.title||'').replace(/"/g,'&quot;')+'" placeholder="ex : Ségrégation des tâches insuffisante en P2P" style="'+inputStyle+'"/></div>'
+    + '<div style="'+compactStyle+'"><label style="'+labelStyle+'">Description courte (Executive Summary)</label>'
+    + '<div style="'+helpStyle+'">2-3 lignes. Apparaîtra en slide « Executive Summary - Findings ».</div>'
+    + '<textarea id="f-desc-exec" style="'+taStyle+';min-height:45px" placeholder="ex : Process incomplet de tracking des opportunités de renouvellement dans SFDC.">'+((f.descExec || '')).replace(/</g,'&lt;')+'</textarea></div>'
+    + '<div style="'+compactStyle+'"><label style="'+labelStyle+'">Description détaillée</label>'
+    + '<div style="'+helpStyle+'">Constat complet, contexte, contrôles failed. Apparaîtra en slide détaillée du finding.</div>'
+    + '<textarea id="f-desc-detail" style="'+taStyle+';min-height:65px" placeholder="Description complète, références aux contrôles fail, contexte business...">'+(f.descDetailed || f.desc || '').replace(/</g,'&lt;')+'</textarea></div>'
+    + '<div style="'+compactStyle+'"><label style="'+labelStyle+'">Potential Risk</label>'
+    + '<textarea id="f-risk" style="'+taStyle+';min-height:45px" placeholder="ex : Missed renewals, lost revenue opportunities, contract leakage...">'+(f.potentialRisk||'').replace(/</g,'&lt;')+'</textarea></div>'
+    + '<div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px;'+compactStyle+'">'
+    + '<div><label style="'+labelStyle+'">Owner</label>'
+    + '<input id="f-owner" value="'+(f.owner||'').replace(/"/g,'&quot;')+'" placeholder="ex : Sales Ops Director" style="'+inputStyle+'"/></div>'
+    + '<div><label style="'+labelStyle+'">Probability</label>'
+    + '<select id="f-prob" style="'+inputStyle+'"><option value="">— Choose —</option>'
     + '<option value="rare"'+(f.probability==='rare'?' selected':'')+'>Rare</option>'
     + '<option value="unlikely"'+(f.probability==='unlikely'?' selected':'')+'>Unlikely</option>'
     + '<option value="possible"'+(f.probability==='possible'?' selected':'')+'>Possible</option>'
     + '<option value="probable"'+(f.probability==='probable'?' selected':'')+'>Probable</option>'
     + '</select></div>'
-    + '<div><label>Impact</label>'
-    + '<select id="f-impact"><option value="">— Choose —</option>'
+    + '<div><label style="'+labelStyle+'">Impact</label>'
+    + '<select id="f-impact" style="'+inputStyle+'"><option value="">— Choose —</option>'
     + '<option value="minor"'+(f.impact==='minor'?' selected':'')+'>Minor</option>'
     + '<option value="limited"'+(f.impact==='limited'?' selected':'')+'>Limited</option>'
     + '<option value="major"'+(f.impact==='major'?' selected':'')+'>Major</option>'
     + '<option value="severe"'+(f.impact==='severe'?' selected':'')+'>Severe</option>'
     + '</select></div>'
     + '</div>'
-    + '<div><label>Contrôles liés ('+problematicCtrls.length+' candidats)</label>'
-    + '<div style="border:.5px solid var(--border);border-radius:4px;max-height:200px;overflow-y:auto;background:#fafafa">'
+    + '<div style="'+compactStyle+'"><label style="'+labelStyle+'">Contrôles liés <span style="font-weight:400;color:var(--text-3)">('+problematicCtrls.length+' candidats)</span></label>'
+    + '<div style="border:.5px solid var(--border);border-radius:3px;max-height:160px;overflow-y:auto;background:#fafafa">'
     + ctrlsHtml
     + '</div></div>';
 
@@ -14658,29 +14732,88 @@ function buildExecTable(kc){
 
     var extrap = _computeExtrapolation(ctrl);
 
-    html += '<div style="'+rowBorder+';border-radius:6px;padding:12px;margin-bottom:10px;background:'+(hasAnomalies?'#FFF8F8':(ctrl.finalized?'#fafafa':'#fff'))+'">';
+    // v77.10 : pré-calcul des variables utilisées dans le header collapsible
+    if (!ctrl.samplingPlan) ctrl.samplingPlan = {confidence:95, EDR:5, TDR:5, freqId:'', confLevel:'high'};
+    var sp = ctrl.samplingPlan;
+    if (!sp.freqId) sp.freqId = '';
+    if (!sp.confLevel) sp.confLevel = 'high';
+    var testMode = ctrl.testMode || '';
+    var popN = Number(ctrl.population.count) || 0;
 
-    // En-tête : code + nom + WCGW lié + badges
-    html += '<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:8px">';
-    html += '<div style="flex:1">';
-    html += '<div style="display:flex;gap:6px;align-items:center;margin-bottom:4px;flex-wrap:wrap">';
-    html += '<span style="background:#EEEDFE;color:#3C3489;font-size:9px;padding:2px 7px;border-radius:3px;font-family:monospace;letter-spacing:.4px">'+ctrlCode+'</span>';
-    html += '<span style="background:'+statusBg+';color:'+statusColor+';font-size:9px;padding:2px 7px;border-radius:3px;font-weight:500">'+status+'</span>';
-    if (hasAnomalies) html += '<span style="background:#FCEBEB;color:#A32D2D;font-size:9px;padding:2px 7px;border-radius:3px;font-weight:500">⚠ ANOMALIES</span>';
-    if (hasIssue) html += '<span style="background:#EEEDFE;color:#3C3489;font-size:9px;padding:2px 7px;border-radius:3px;font-weight:500">ISSUE</span>';
-    if (ctrl.finalized) html += '<span class="badge bdn" style="font-size:9px;padding:2px 7px;border-radius:3px">Finalisé</span>';
+    html += '<div style="'+rowBorder+';border-radius:6px;margin-bottom:10px;background:'+(hasAnomalies?'#FFF8F8':(ctrl.finalized?'#fafafa':'#fff'))+';overflow:hidden">';
+
+    // v77.10 : Header collapsible compact (1 ligne)
+    // État d'ouverture mémorisé entre les re-renders
+    if (typeof _openTestCards === 'undefined') _openTestCards = {};
+    var cardOpenKey = 'proc:'+ctrl.id;
+    var isOpen = !!_openTestCards[cardOpenKey];
+
+    // Indicateurs synthétiques pour le header
+    var sampleHeader = '';
+    if (testMode === 'control' && ctrl.samplingPlan && ctrl.samplingPlan.freqId) {
+      var fr = CONTROL_FREQ_TABLE.find(function(f){return f.id===ctrl.samplingPlan.freqId;});
+      if (fr) {
+        var nrec = (ctrl.samplingPlan.confLevel === 'low') ? fr.low : fr.high;
+        sampleHeader = (ctrl.sample.count||'0')+'/'+nrec;
+      }
+    } else if (testMode === 'substantive' || testMode === 'analysis') {
+      sampleHeader = (ctrl.sample.count||'—')+'/'+(ctrl.population.count||'—');
+    }
+    var nbEvidence = _getTestEvidence(ctrl.id).length;
+    var modeBadge = testMode === 'control' ? '<span style="font-size:9px;color:#3C3489;font-weight:600">🎯</span>'
+                  : testMode === 'substantive' ? '<span style="font-size:9px;color:#085041;font-weight:600">💰</span>'
+                  : testMode === 'analysis' ? '<span style="font-size:9px;color:#854F0B;font-weight:600">🔗</span>'
+                  : '<span style="font-size:9px;color:var(--text-3)">—</span>';
+
+    html += '<div onclick="toggleTestCard(\''+_escJsArg(cardOpenKey)+'\')" style="cursor:pointer;padding:10px 12px;display:flex;align-items:center;gap:10px;user-select:none;background:'+(isOpen?'#fafafa':'transparent')+'">';
+    // Caret
+    html += '<span style="font-size:11px;color:var(--text-3);width:10px;flex-shrink:0;transition:transform .15s;transform:rotate('+(isOpen?'90':'0')+'deg)">▶</span>';
+    // Code
+    html += '<span style="background:#EEEDFE;color:#3C3489;font-size:9px;padding:2px 7px;border-radius:3px;font-family:monospace;letter-spacing:.4px;flex-shrink:0">'+ctrlCode+'</span>';
+    // Nom
+    html += '<span style="font-size:12px;font-weight:500;color:var(--text-1);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(''+(ctrl.name||'(sans nom)')).replace(/</g,'&lt;')+'</span>';
+    // Mode
+    html += '<span style="flex-shrink:0">'+modeBadge+'</span>';
+    // Sample
+    if (sampleHeader) {
+      html += '<span style="font-size:10px;color:var(--text-3);font-family:monospace;flex-shrink:0" title="Échantillon / recommandé ou population">'+sampleHeader+'</span>';
+    }
+    // Statut
+    html += '<span style="background:'+statusBg+';color:'+statusColor+';font-size:9px;padding:2px 7px;border-radius:3px;font-weight:500;flex-shrink:0">'+status+'</span>';
+    // Anomalies
+    if (hasAnomalies) html += '<span style="background:#FCEBEB;color:#A32D2D;font-size:9px;padding:2px 7px;border-radius:3px;font-weight:500;flex-shrink:0">⚠ '+ctrl.anomalies.count+' anomalie'+(Number(ctrl.anomalies.count)>1?'s':'')+'</span>';
+    // Issue
+    if (hasIssue) html += '<span style="background:#EEEDFE;color:#3C3489;font-size:9px;padding:2px 7px;border-radius:3px;font-weight:500;flex-shrink:0" title="Issue Operating renseignée">📝</span>';
+    // Preuves
+    if (nbEvidence) html += '<span style="font-size:9px;color:var(--text-3);flex-shrink:0" title="'+nbEvidence+' preuve(s)">📎 '+nbEvidence+'</span>';
+    // Finalisé
+    if (ctrl.finalized) html += '<span class="badge bdn" style="font-size:9px;padding:2px 7px;border-radius:3px;flex-shrink:0">Finalisé</span>';
     html += '</div>';
-    html += '<div style="font-size:12px;font-weight:500">'+(''+(ctrl.name||'')).replace(/</g,'&lt;')+'</div>';
-    if (ctrl.description) html += '<div style="font-size:10px;color:var(--text-3);margin-top:2px;font-style:italic">'+(''+ctrl.description).replace(/</g,'&lt;')+'</div>';
-    html += '<div style="font-size:10px;color:var(--text-2);margin-top:4px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">';
+
+    // v77.10 : Bloc déplié (caché si !isOpen)
+    if (!isOpen) {
+      html += '</div>'; // fermer la card
+      return; // skip tout le détail
+    }
+
+    html += '<div style="padding:12px;border-top:.5px solid var(--border)">';
+
+    // En-tête détaillé : WCGW + meta
+    html += '<div style="margin-bottom:10px">';
+    if (ctrl.description) html += '<div style="font-size:11px;color:var(--text-2);margin-bottom:6px;font-style:italic">'+(''+ctrl.description).replace(/</g,'&lt;')+'</div>';
+    html += '<div style="font-size:10px;color:var(--text-2);display:flex;gap:8px;flex-wrap:wrap;align-items:center">';
     html += wcgwBadge;
     if (details.length) html += '<span>·</span><span>'+details.join(' · ')+'</span>';
     html += '</div>';
     html += '</div>';
-    html += '</div>';
 
-    // Statut + Méthode de sélection
-    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">';
+    // v77.10 : Statut détaillé + Méthode (Méthode masquée sauf substantive)
+    var showSelectionMethod = (testMode === 'substantive');
+    if (showSelectionMethod) {
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">';
+    } else {
+      html += '<div style="margin-bottom:8px">';
+    }
     html += '<div>';
     html += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Statut du test</label>';
     html += '<select onchange="setProcessTestField('+globalIdx+',\'testStatus\',this.value)" '+dis+' style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;background:'+statusBg+';color:'+statusColor+';font-weight:500">';
@@ -14689,15 +14822,17 @@ function buildExecTable(kc){
     });
     html += '</select>';
     html += '</div>';
-    html += '<div>';
-    html += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Méthode de sélection</label>';
-    html += '<select onchange="setProcessTestField('+globalIdx+',\'selectionMethod\',this.value)" '+dis+' style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;background:#fff">';
-    html += '<option value=""'+(!ctrl.selectionMethod?' selected':'')+'>— Choisir —</option>';
-    html += '<option'+(ctrl.selectionMethod==='Coverage'?' selected':'')+'>Coverage</option>';
-    html += '<option'+(ctrl.selectionMethod==='Aléatoire'?' selected':'')+'>Aléatoire</option>';
-    html += '<option'+(ctrl.selectionMethod==='Mix'?' selected':'')+'>Mix</option>';
-    html += '</select>';
-    html += '</div>';
+    if (showSelectionMethod) {
+      html += '<div>';
+      html += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Méthode de sélection <span style="cursor:help;color:#3C3489" title="Coverage = top N par valeur (pas d\'extrapolation possible). Aléatoire = sample stat (extrapolation possible). Mix = combinaison.">ⓘ</span></label>';
+      html += '<select onchange="setProcessTestField('+globalIdx+',\'selectionMethod\',this.value)" '+dis+' style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;background:#fff">';
+      html += '<option value=""'+(!ctrl.selectionMethod?' selected':'')+'>— Choisir —</option>';
+      html += '<option'+(ctrl.selectionMethod==='Coverage'?' selected':'')+'>Coverage</option>';
+      html += '<option'+(ctrl.selectionMethod==='Aléatoire'?' selected':'')+'>Aléatoire</option>';
+      html += '<option'+(ctrl.selectionMethod==='Mix'?' selected':'')+'>Mix</option>';
+      html += '</select>';
+      html += '</div>';
+    }
     html += '</div>';
 
     // Procédure de test (testNature)
@@ -14707,12 +14842,7 @@ function buildExecTable(kc){
     html += '</div>';
 
     // v77.3 : Section Sample Sizing — choix Control vs Substantive testing
-    if (!ctrl.samplingPlan) ctrl.samplingPlan = {confidence:95, EDR:5, TDR:5, freqId:'', confLevel:'high'};
-    var sp = ctrl.samplingPlan;
-    if (!sp.freqId) sp.freqId = '';
-    if (!sp.confLevel) sp.confLevel = 'high';
-    var testMode = ctrl.testMode || ''; // 'control' | 'substantive' | ''
-    var popN = Number(ctrl.population.count) || 0;
+    // (variables sp / testMode / popN déjà déclarées plus haut en v77.10)
 
     html += '<div style="background:#fafafa;border:.5px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px">';
     // Header avec aide
@@ -14956,7 +15086,8 @@ function buildExecTable(kc){
       html += '<button class="bs" style="font-size:11px;padding:5px 12px" onclick="unfinalizeTest('+globalIdx+')">Rouvrir</button>';
       html += '</div>';
     }
-    html += '</div>';
+    html += '</div>'; // v77.10 : fermer le bloc déplié
+    html += '</div>'; // fermer la card
   });
   return html;
 }
