@@ -528,29 +528,91 @@ async function generateAuditReportPptx(auditId, options) {
   });
 
   // Tableau des findings
-  // Pour les audits BU : ajouter une colonne "Process" en première position pour identifier
-  // à quel Process appartient chaque finding (utile quand plusieurs Process couverts).
-  const fHeader = isBU ? [
-    {text: "Process", options: {bold: true, color: AR_COLORS.white, fill: {color: AR_COLORS.grayMed}, valign: "middle"}},
-    {text: "Finding", options: {bold: true, color: AR_COLORS.white, fill: {color: AR_COLORS.grayMed}, valign: "middle"}},
-    {text: "Associated Risk", options: {bold: true, color: AR_COLORS.white, fill: {color: AR_COLORS.grayMed}, valign: "middle"}},
-    {text: "Risk Level", options: {bold: true, color: AR_COLORS.white, fill: {color: AR_COLORS.grayMed}, valign: "middle"}},
-  ] : [
+  // v77.11.4 : ajouter colonne "Sub-Process" / "Process" en première position
+  //   - BU : colonne "Process" (workProgramBU)
+  //   - Process : colonne "Sub-Process" (kickoffPrep + narratif découverts)
+  const fHeader = [
+    {text: isBU ? "Process" : "Sub-Process", options: {bold: true, color: AR_COLORS.white, fill: {color: AR_COLORS.grayMed}, valign: "middle"}},
     {text: "Finding", options: {bold: true, color: AR_COLORS.white, fill: {color: AR_COLORS.grayMed}, valign: "middle"}},
     {text: "Associated Risk", options: {bold: true, color: AR_COLORS.white, fill: {color: AR_COLORS.grayMed}, valign: "middle"}},
     {text: "Risk Level", options: {bold: true, color: AR_COLORS.white, fill: {color: AR_COLORS.grayMed}, valign: "middle"}},
   ];
+
+  // Pour Process : construire la liste des SP + helper de résolution ctrl → sp via WCGW
+  // (réplique de la logique utilisée dans la section Findings detail)
+  let _execSpList = [];
+  let _execSeenSpIds = {};
+  let _execWcgwList = [];
+  if (!isBU) {
+    _execWcgwList = (d.wcgw && d.wcgw[4]) || [];
+    const _execKickoffSps = (d.kickoffPrep && Array.isArray(d.kickoffPrep.subProcesses)) ? d.kickoffPrep.subProcesses : [];
+    _execKickoffSps.forEach(sp => {
+      if (!sp || !sp.id || _execSeenSpIds[sp.id]) return;
+      _execSeenSpIds[sp.id] = true;
+      _execSpList.push({id: sp.id, name: sp.name || '(sans nom)'});
+    });
+    const _execNarrative = d.consolidatedNarrative || '';
+    const _execSectionRe = /^##\s+(.+)$/gm;
+    let _execMM;
+    while ((_execMM = _execSectionRe.exec(_execNarrative)) !== null) {
+      const sectionName = (_execMM[1] || '').trim();
+      if (!sectionName) continue;
+      const matched = _execSpList.find(s => s.name.toLowerCase() === sectionName.toLowerCase());
+      if (matched) continue;
+      _execSpList.push({id: 'sp_discovered_' + _execSpList.length, name: sectionName});
+    }
+  }
+  function _execFindingSpName(f) {
+    if (isBU) {
+      return (f.processId && _ar_getWppProcName(f.processId)) || 'Transverse';
+    }
+    // Process : utiliser f.subProcessId si défini, sinon SP majoritaire via WCGW
+    let spId = f.subProcessId;
+    if (!spId || spId === '__transverse') {
+      const ctrlIds = f.controlIds || [];
+      const spCount = {};
+      ctrlIds.forEach(cId => {
+        const ctrl = controls.find(c => c.id === cId);
+        if (!ctrl) return;
+        let cSpId = ctrl.subProcessId;
+        if (!cSpId && ctrl.wcgwId) {
+          const w = _execWcgwList.find(x => x.id === ctrl.wcgwId);
+          if (w && w.subProcessId) cSpId = w.subProcessId;
+        }
+        if (cSpId) spCount[cSpId] = (spCount[cSpId] || 0) + 1;
+      });
+      let best = null, bestCount = 0;
+      Object.keys(spCount).forEach(s => {
+        if (spCount[s] > bestCount) { best = s; bestCount = spCount[s]; }
+      });
+      spId = f.subProcessId === '__transverse' ? '__transverse' : (best || '__transverse');
+    }
+    if (spId === '__transverse') return 'Transverse';
+    const sp = _execSpList.find(x => x.id === spId);
+    return sp ? sp.name : 'Transverse';
+  }
+
   let fRows;
   if (findings.length) {
-    // Pour BU : trier les findings par Process (ordre du Work Program)
-    let orderedFindings = findings;
+    // Trier les findings par SP/Process pour grouper visuellement
+    let orderedFindings = findings.slice();
     if (isBU) {
       const procOrder = workProgramBU.map(wpp => wpp.id);
-      orderedFindings = findings.slice().sort((a, b) => {
+      orderedFindings.sort((a, b) => {
         const aIdx = procOrder.indexOf(a.processId || '');
         const bIdx = procOrder.indexOf(b.processId || '');
         if (aIdx !== bIdx) return (aIdx < 0 ? 999 : aIdx) - (bIdx < 0 ? 999 : bIdx);
         return 0;
+      });
+    } else {
+      // Process : trier par index dans _execSpList (transverse à la fin)
+      const spOrder = _execSpList.map(s => s.name.toLowerCase());
+      orderedFindings.sort((a, b) => {
+        const aName = _execFindingSpName(a).toLowerCase();
+        const bName = _execFindingSpName(b).toLowerCase();
+        const aIdx = aName === 'transverse' ? 999 : spOrder.indexOf(aName);
+        const bIdx = bName === 'transverse' ? 999 : spOrder.indexOf(bName);
+        return (aIdx < 0 ? 998 : aIdx) - (bIdx < 0 ? 998 : bIdx);
       });
     }
     fRows = [fHeader].concat(orderedFindings.map((f, i) => {
@@ -565,26 +627,21 @@ async function generateAuditReportPptx(auditId, options) {
         text: ar_riskLabel(f.probability, f.impact),
         options: {valign: "middle", align: "center", color: AR_COLORS.textDark, fontSize: 10, bold: true, fill: {color: fillColor}},
       };
-      if (isBU) {
-        const procName = (f.processId && _ar_getWppProcName(f.processId)) || '—';
-        return [
-          {text: procName, options: {valign: "middle", color: AR_COLORS.navy, fontSize: 10, bold: true}},
-          findingCell, riskCell, riskLevelCell,
-        ];
-      }
-      return [findingCell, riskCell, riskLevelCell];
+      const spName = _execFindingSpName(f);
+      return [
+        {text: spName, options: {valign: "middle", color: AR_COLORS.navy, fontSize: 10, bold: true}},
+        findingCell, riskCell, riskLevelCell,
+      ];
     }));
   } else {
-    fRows = isBU
-      ? [fHeader, [{text:'—'},{text: 'No finding identified'}, {text: '—'}, {text: '—'}]]
-      : [fHeader, [{text: 'No finding identified'}, {text: '—'}, {text: '—'}]];
+    fRows = [fHeader, [{text:'—'},{text: 'No finding identified'}, {text: '—'}, {text: '—'}]];
   }
   s6.addTable(fRows, {
     x: 0.5, y: 2.1, w: 12.3,
     fontSize: 11, fontFace: "Calibri",
     border: {type: "solid", pt: 0.5, color: AR_COLORS.grayMed},
     rowH: findings.length > 4 ? 0.6 : 0.85,
-    colW: isBU ? [2.0, 5.0, 3.5, 1.8] : [6.0, 4.3, 2.0],
+    colW: [2.2, 5.0, 3.3, 1.8],
   });
   ar_addFooter(pres, s6);
 
@@ -1717,8 +1774,8 @@ function ar_addFindingsMapSlide(pres, spBuckets, findings) {
 // idx, total : numérotation des SP
 function ar_addSpFindingsSlide(pres, spInfo, spFindings, spDesignIssues, controls, issues, allTests, findings, idx, total) {
   const s = pres.addSlide();
-  const subtitle = "Sub-Process " + idx + " / " + total;
-  ar_addTitleBar(pres, s, spInfo.name, subtitle);
+  // v77.11.4 : pas de sous-titre redondant ("Sub-Process X/Y") — le nom du SP est déjà dans le bandeau
+  ar_addTitleBar(pres, s, spInfo.name, null);
 
   // Si source = discovered ou fallback, petite annotation
   let topY = 1.05;
@@ -1791,7 +1848,7 @@ function ar_addSpFindingsSlide(pres, spInfo, spFindings, spDesignIssues, control
     if (yPos + blockH > slideMaxY && fIdx > 0) {
       ar_addFooter(pres, s);
       const sNext = pres.addSlide();
-      ar_addTitleBar(pres, sNext, spInfo.name + " (cont.)", subtitle);
+      ar_addTitleBar(pres, sNext, spInfo.name + " (cont.)", null);
       yPos = 1.4;
       _ar_renderFindingBlock(pres, sNext, f, fGlobalIdx, yPos, controls, issues, designIssIds);
       yPos += blockH;
