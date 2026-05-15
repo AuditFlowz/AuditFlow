@@ -13624,7 +13624,18 @@ function renderMgtRespSection() {
         quarter: r.quarter || 'Q1',
         deadlineHistory: [],
       }];
-      // Garder action/owner/year/quarter pour rétrocompat avec pushAllMgtResp, mais marquer comme migré
+      // v77.13.1 fix : reset pushed=true sur MR migrées car les actions correspondantes
+      // ne sont peut-être pas vraiment sur SharePoint (bug ancien : pas de saveAction)
+      // L'auditeur pourra re-pousser pour s'assurer que c'est persisté
+      if (r.pushed) {
+        // Vérifier si l'action correspondante existe vraiment dans ACTIONS
+        var existsInActions = ACTIONS.some(function(ac){
+          return ac.findingId === r.findingId && ac.title === r.action;
+        });
+        if (!existsInActions) {
+          r.pushed = false; // Re-permettre le push
+        }
+      }
       r._migrated = true;
     }
     if (!Array.isArray(r.actions)) r.actions = [];
@@ -15057,19 +15068,21 @@ function pushAllMgtResp(){
   const d=getAudData(CA);
   const ap=AUDIT_PLAN.find(a=>a.id===CA);
   // v77.13 : itérer sur toutes les MR, et pour chaque MR sur ses actions
+  // v77.13.1 fix : appeler saveAction() pour persister + saveAuditData() pour le flag pushed
   var pushed = [];
+  var newActions = [];
   d.mgtResp.forEach(function(r){
     if (r.pushed) return;
     var f = (d.findings||[]).find(function(x,i){return (x.id||('f_'+i))===r.findingId;});
     if (!f) return;
-    // Pour chaque action complète (avec un libellé et un owner), pousser un plan d'action
+    var actionsForThisMr = [];
     (r.actions || []).forEach(function(a){
       if (!a.action || !a.owner) return;
-      ACTIONS.unshift({
-        id: 'ac'+Date.now()+Math.random(),
+      var newAc = {
+        id: 'ac'+Date.now()+Math.random().toString(36).slice(2,7),
         title: a.action,
         audit: ap?.titre || '—',
-        auditId: CA, // v77.14 : pour filtrer par audit dans page Plans d'action
+        auditId: CA,
         auditYear: ap?.year || null,
         resp: CU?.name || '—',
         dept: a.owner,
@@ -15086,17 +15099,38 @@ function pushAllMgtResp(){
         mrResponseText: r.responseText,
         mrResponseOwner: r.responseOwner,
         deadlineHistory: (a.deadlineHistory || []).slice(),
-      });
+      };
+      newActions.push(newAc);
+      actionsForThisMr.push(newAc);
       pushed.push(a);
     });
-    if (pushed.length > 0) r.pushed = true;
+    // Marquer la MR comme pushed seulement si elle a poussé au moins 1 action
+    if (actionsForThisMr.length > 0) r.pushed = true;
   });
   if (!pushed.length) { toast('Aucun plan d\'action complet à envoyer'); return; }
-  pushed.forEach(function(a){
-    addHist('add', `Plan d'action créé "${a.action}"`);
-  });
-  document.getElementById('det-content').innerHTML = renderDetContent();
-  toast(pushed.length+' plan(s) d\'action créé(s) ✓');
+
+  // v77.13.1 : pousser en async et persister via saveAction()
+  (async function() {
+    // Ajouter dans la liste mémoire
+    newActions.forEach(function(ac){
+      ACTIONS.unshift(ac);
+    });
+    // Persister sur SharePoint (en parallèle)
+    try {
+      await Promise.all(newActions.map(function(ac){return saveAction(ac);}));
+    } catch(e) {
+      console.error('Erreur sauvegarde actions:', e);
+      toast('Erreur sauvegarde — les actions sont créées localement mais pas sur SharePoint');
+    }
+    // Persister le flag pushed sur les MR
+    await saveAuditData(CA);
+    // Historique
+    newActions.forEach(function(ac){
+      addHist('add', `Plan d'action créé "${ac.title}"`);
+    });
+    document.getElementById('det-content').innerHTML = renderDetContent();
+    toast(newActions.length+' plan(s) d\'action créé(s) et sauvegardé(s) ✓');
+  })();
 }
 async function addFakeDoc(){
   // Étape 1 : sélection du fichier
