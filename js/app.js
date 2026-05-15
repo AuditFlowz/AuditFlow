@@ -55,14 +55,6 @@ async function bootstrapApp() {
     showLoadingScreen('Connexion à SharePoint...');
     var token = await getGraphToken();
 
-    // Si getGraphToken a lancé une redirection vers Microsoft, la page est en
-    // train de partir — on ne fait rien de plus, on attend que ça charge.
-    if (sessionStorage.getItem('af_graph_redirect_pending') === '1' && !token) {
-      // La redirection est en cours, ne rien faire
-      showLoadingScreen('Redirection vers Microsoft...');
-      return;
-    }
-
     if (!token) {
       showErrorScreen(
         'Impossible de se connecter à SharePoint',
@@ -72,8 +64,6 @@ async function bootstrapApp() {
       return;
     }
 
-    // Nettoyer le flag de redirection si on a un token
-    sessionStorage.removeItem('af_graph_redirect_pending');
     console.log('[App] Token Graph prêt ✓');
 
     // 2. Charger la liste des utilisateurs autorisés
@@ -242,12 +232,12 @@ async function launchApp() {
   document.getElementById('app').style.display = 'flex';
 
   var app = document.getElementById('app');
-  app.classList.remove('is-admin', 'is-superadmin');
+  app.classList.remove('is-admin', 'is-superadmin', 'is-viewer');
   if (CU.role === 'admin')  app.classList.add('is-admin');
   if (CU.role === 'viewer') app.classList.add('is-viewer');
 
   // Avatar
-  var initials = CU.initials || CU.name.split(' ').map(function(w){return w[0];}).join('').toUpperCase().slice(0,2);
+  var initials = CU.initials || (CU.name || '').split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2) || '?';
   document.getElementById('uav').textContent = initials;
   document.getElementById('uname').textContent = CU.name;
   document.getElementById('urole').textContent =
