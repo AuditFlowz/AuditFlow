@@ -456,7 +456,7 @@ var LIST_SCHEMAS = {
     {name:'sub_processes_json',text:{}},
   ],
   AF_Actions: [
-    {name:'af_id',text:{}},{name:'title',text:{}},{name:'audit',text:{}},
+    {name:'af_id',text:{}},{name:'audit',text:{}},
     {name:'resp',text:{}},{name:'dept',text:{}},{name:'ent',text:{}},
     {name:'year',number:{}},{name:'quarter',text:{}},{name:'status',text:{}},
     {name:'pct',number:{}},{name:'from_finding',boolean:{}},{name:'finding_title',text:{}},
@@ -892,8 +892,10 @@ async function saveAuditPlan(ap) {
 }
 
 async function saveAction(ac) {
+  // v77.13.2 fix : SharePoint refuse le champ 'title' (non reconnu).
+  // On utilise uniquement 'Title' qui est le champ natif SP.
   await spUpsert('AF_Actions', ac.id, {
-    title:ac.title, audit:ac.audit, resp:ac.resp, dept:ac.dept, ent:ac.ent,
+    audit:ac.audit, resp:ac.resp, dept:ac.dept, ent:ac.ent,
     year:ac.year, quarter:ac.quarter, status:ac.status, pct:ac.pct,
     from_finding:ac.fromFinding||false, finding_title:ac.findingTitle||'', Title:ac.title,
   });
