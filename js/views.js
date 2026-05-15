@@ -13607,6 +13607,33 @@ function renderMgtRespSection() {
   var step5c = d.controls[4]||[];
   function getCtrl(id) { return step5c.find(function(c){return c.id === id;}); }
 
+  // v77.13 : migration ancien modèle → nouveau modèle
+  // Ancien : {findingId, action, owner, year, quarter, pushed}
+  // Nouveau : {id, findingId, responseText, responseOwner, actions:[{id,action,owner,year,quarter,deadlineHistory:[]}], pushed}
+  d.mgtResp.forEach(function(r){
+    if (!r.id) r.id = 'mr_' + Date.now() + '_' + Math.random().toString(36).slice(2,7);
+    if (typeof r.responseText === 'undefined' && typeof r.action !== 'undefined') {
+      // Migration : on transforme l'action+deadline en 1 action dans actions[]
+      r.responseText = '';
+      r.responseOwner = r.owner || '';
+      r.actions = [{
+        id: 'ac_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
+        action: r.action || '',
+        owner: r.owner || '',
+        year: r.year || 2026,
+        quarter: r.quarter || 'Q1',
+        deadlineHistory: [],
+      }];
+      // Garder action/owner/year/quarter pour rétrocompat avec pushAllMgtResp, mais marquer comme migré
+      r._migrated = true;
+    }
+    if (!Array.isArray(r.actions)) r.actions = [];
+    r.actions.forEach(function(a){
+      if (!a.id) a.id = 'ac_' + Date.now() + '_' + Math.random().toString(36).slice(2,7);
+      if (!Array.isArray(a.deadlineHistory)) a.deadlineHistory = [];
+    });
+  });
+
   // Source unique : les findings rédigés à l'étape Report
   var allFindings = d.findings.map(function(f, i){
     var fid = f.id || ('f_'+i);
@@ -13614,10 +13641,25 @@ function renderMgtRespSection() {
     return {id: fid, title: f.title, desc: f.desc, type: 'finding', controls: linkedCtrls};
   });
 
-  // S'assurer qu'une mgtResp existe pour chaque finding
+  // Assurer 1 MR par défaut pour chaque finding (mais permettre d'en ajouter d'autres)
   allFindings.forEach(function(f){
-    if (!d.mgtResp.find(function(r){return r.findingId===f.id;})) {
-      d.mgtResp.push({findingId:f.id, action:'', owner:'', year:2026, quarter:'Q1', pushed:false});
+    var existing = d.mgtResp.filter(function(r){return r.findingId===f.id;});
+    if (existing.length === 0) {
+      d.mgtResp.push({
+        id: 'mr_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
+        findingId: f.id,
+        responseText: '',
+        responseOwner: '',
+        actions: [{
+          id: 'ac_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
+          action: '',
+          owner: '',
+          year: 2026,
+          quarter: 'Q1',
+          deadlineHistory: [],
+        }],
+        pushed: false,
+      });
     }
   });
 
@@ -13630,41 +13672,122 @@ function renderMgtRespSection() {
     html += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:.5rem">Aucun finding identifié. Rédigez les findings à l\'étape Report.</div>';
   } else {
     allFindings.forEach(function(f){
-      var resp = d.mgtResp.find(function(r){return r.findingId===f.id;}) || {};
-      html += '<div class="mr-row">';
-      html += '<div class="mr-hdr"><span class="badge bpc">Finding</span><div class="mr-title">'+f.title+'</div>'+(resp.pushed?'<span class="tag-new">✓ Envoyé</span>':'')+'</div>';
-      if (f.desc) html += '<div style="font-size:11px;color:var(--text-2);margin-bottom:.5rem;white-space:pre-wrap">'+f.desc+'</div>';
-      // Liste compact des contrôles liés
+      var responses = d.mgtResp.filter(function(r){return r.findingId===f.id;});
+
+      // Card du finding (un seul wrapper, contient toutes les MR)
+      html += '<div class="mr-row" style="margin-bottom:14px;border:.5px solid var(--border);border-radius:6px;background:#fff;padding:12px">';
+      html += '<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:8px">';
+      html += '<span class="badge bpc" style="flex-shrink:0">Finding</span>';
+      html += '<div style="flex:1">';
+      html += '<div style="font-size:13px;font-weight:600">'+(''+f.title).replace(/</g,'&lt;')+'</div>';
+      if (f.desc) html += '<div style="font-size:11px;color:var(--text-2);margin-top:4px;white-space:pre-wrap">'+(''+f.desc).replace(/</g,'&lt;')+'</div>';
       if (f.controls.length) {
-        html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:.5rem">Contrôles concernés : ';
+        html += '<div style="font-size:10px;color:var(--text-3);margin-top:4px">Contrôles concernés : ';
         html += f.controls.map(function(c){
           var typeLabel = c.design === 'target' ? '🎯' : '❌';
-          return typeLabel+' '+(c.code||c.id)+' '+c.name;
+          return typeLabel+' '+(c.code||c.id)+' '+(''+c.name).replace(/</g,'&lt;');
         }).join(' · ');
         html += '</div>';
       }
-      html += '<div class="mr-fields">';
-      html += '<div><label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:3px">Action</label><input style="font-size:11px" placeholder="Action corrective..." value="'+(resp.action||'').replace(/"/g,'&quot;')+'" onchange="setMgtResp(\''+f.id+'\',\'action\',this.value)"/></div>';
-      html += '<div><label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:3px">Owner</label><input style="font-size:11px" placeholder="ex: Finance, IT..." value="'+(resp.owner||'').replace(/"/g,'&quot;')+'" onchange="setMgtResp(\''+f.id+'\',\'owner\',this.value)"/></div>';
-      html += '<div><label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:3px">Deadline</label><div style="display:flex;gap:4px">';
-      html += '<select style="font-size:11px" onchange="setMgtResp(\''+f.id+'\',\'year\',parseInt(this.value))">';
-      html += '<option '+(resp.year===2025?'selected':'')+'>2025</option>';
-      html += '<option '+(resp.year===2026?'selected':'')+'>2026</option>';
-      html += '<option '+(resp.year===2027?'selected':'')+'>2027</option>';
-      html += '<option '+(resp.year===2028?'selected':'')+'>2028</option>';
-      html += '</select>';
-      html += '<select style="font-size:11px" onchange="setMgtResp(\''+f.id+'\',\'quarter\',this.value)">';
-      html += '<option '+(resp.quarter==='Q1'?'selected':'')+'>Q1</option>';
-      html += '<option '+(resp.quarter==='Q2'?'selected':'')+'>Q2</option>';
-      html += '<option '+(resp.quarter==='Q3'?'selected':'')+'>Q3</option>';
-      html += '<option '+(resp.quarter==='Q4'?'selected':'')+'>Q4</option>';
-      html += '</select>';
-      html += '</div></div>';
       html += '</div>';
+      html += '</div>';
+
+      // Toutes les MR de ce finding
+      responses.forEach(function(resp, respIdx){
+        html += _renderSingleMgtResp(f, resp, respIdx, responses.length);
+      });
+
+      // Bouton "Ajouter une MR" pour ce finding
+      html += '<div style="display:flex;justify-content:flex-end;margin-top:8px">';
+      html += '<button class="bs" style="font-size:10px;padding:3px 9px" onclick="addMgtRespForFinding(\''+_escJsArg(f.id)+'\')">+ Ajouter une Management Response</button>';
+      html += '</div>';
+
       html += '</div>';
     });
   }
   html += '</div>';
+  return html;
+}
+
+// v77.13 : rendu d'une seule Management Response avec ses N plans d'action
+function _renderSingleMgtResp(f, resp, respIdx, totalResp) {
+  var html = '';
+  html += '<div style="border:.5px solid #CECBF6;border-radius:5px;padding:10px;background:#FAFAFE;margin-bottom:8px">';
+
+  // Header MR
+  html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">';
+  html += '<span class="badge" style="background:#EEEDFE;color:#3C3489;font-size:9px">MR'+(totalResp>1?' '+(respIdx+1):'')+'</span>';
+  html += '<span style="font-size:11px;font-weight:600;color:var(--text-2)">Management Response</span>';
+  if (resp.pushed) html += '<span class="tag-new" style="font-size:9px">✓ Envoyé</span>';
+  html += '<span style="flex:1"></span>';
+  if (totalResp > 1) {
+    html += '<button class="bs" style="font-size:9px;padding:2px 6px;color:#993C1D" onclick="removeMgtResp(\''+_escJsArg(resp.id)+'\')" title="Supprimer cette MR">🗑</button>';
+  }
+  html += '</div>';
+
+  // Champs MR : texte + owner
+  html += '<div style="display:grid;grid-template-columns:3fr 1fr;gap:8px;margin-bottom:10px">';
+  html += '<div><label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:3px">Réponse du management</label>';
+  html += '<textarea style="font-size:11px;width:100%;min-height:50px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;font-family:inherit;resize:vertical" placeholder="Le management s\'engage à ..." onchange="setMgtRespField(\''+_escJsArg(resp.id)+'\',\'responseText\',this.value)">'+(resp.responseText||'').replace(/</g,'&lt;')+'</textarea></div>';
+  html += '<div><label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:3px">Owner de la MR</label>';
+  html += '<input style="font-size:11px;width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box" placeholder="ex: Director Finance" value="'+(resp.responseOwner||'').replace(/"/g,'&quot;')+'" onchange="setMgtRespField(\''+_escJsArg(resp.id)+'\',\'responseOwner\',this.value)"/></div>';
+  html += '</div>';
+
+  // Section "Plans d'action"
+  html += '<div style="border-top:.5px dashed #CECBF6;padding-top:8px">';
+  html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">';
+  html += '<span style="font-size:10px;font-weight:600;color:var(--text-2)">📋 Plans d\'action</span>';
+  html += '<span style="font-size:9px;color:var(--text-3)">('+(resp.actions||[]).length+')</span>';
+  html += '</div>';
+
+  // Actions
+  (resp.actions || []).forEach(function(a, aIdx){
+    html += _renderSingleAction(resp, a, aIdx);
+  });
+
+  // Bouton "Ajouter action"
+  html += '<button class="bs" style="font-size:10px;padding:3px 9px;margin-top:4px" onclick="addActionToMgtResp(\''+_escJsArg(resp.id)+'\')">+ Ajouter un plan d\'action</button>';
+
+  html += '</div>'; // border-top
+  html += '</div>'; // mr container
+  return html;
+}
+
+// v77.13 : rendu d'un seul plan d'action
+function _renderSingleAction(resp, a, aIdx) {
+  var html = '';
+  html += '<div style="background:#fff;border:.5px solid var(--border);border-radius:4px;padding:8px;margin-bottom:5px">';
+  html += '<div style="display:grid;grid-template-columns:3fr 1.2fr 1.5fr auto;gap:6px;align-items:flex-start">';
+
+  // Action
+  html += '<div><label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Action #'+(aIdx+1)+'</label>';
+  html += '<input style="font-size:11px;width:100%;padding:4px 7px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box" placeholder="Action corrective..." value="'+(a.action||'').replace(/"/g,'&quot;')+'" onchange="setActionField(\''+_escJsArg(resp.id)+'\',\''+_escJsArg(a.id)+'\',\'action\',this.value)"/></div>';
+
+  // Owner
+  html += '<div><label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Owner</label>';
+  html += '<input style="font-size:11px;width:100%;padding:4px 7px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box" placeholder="ex: Finance, IT..." value="'+(a.owner||'').replace(/"/g,'&quot;')+'" onchange="setActionField(\''+_escJsArg(resp.id)+'\',\''+_escJsArg(a.id)+'\',\'owner\',this.value)"/></div>';
+
+  // Deadline
+  html += '<div><label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Deadline</label>';
+  html += '<div style="display:flex;gap:3px">';
+  html += '<select style="font-size:11px;padding:4px 4px;border:1px solid var(--border);border-radius:3px" onchange="setActionField(\''+_escJsArg(resp.id)+'\',\''+_escJsArg(a.id)+'\',\'year\',parseInt(this.value))">';
+  [2025,2026,2027,2028].forEach(function(y){
+    html += '<option '+(a.year===y?'selected':'')+'>'+y+'</option>';
+  });
+  html += '</select>';
+  html += '<select style="font-size:11px;padding:4px 4px;border:1px solid var(--border);border-radius:3px" onchange="setActionField(\''+_escJsArg(resp.id)+'\',\''+_escJsArg(a.id)+'\',\'quarter\',this.value)">';
+  ['Q1','Q2','Q3','Q4'].forEach(function(q){
+    html += '<option '+(a.quarter===q?'selected':'')+'>'+q+'</option>';
+  });
+  html += '</select>';
+  html += '</div></div>';
+
+  // Suppression de cette action
+  html += '<div style="display:flex;align-items:flex-end;height:100%"><button class="bs" style="font-size:9px;padding:3px 6px;color:#993C1D" onclick="removeActionFromMgtResp(\''+_escJsArg(resp.id)+'\',\''+_escJsArg(a.id)+'\')" title="Supprimer ce plan d\'action">🗑</button></div>';
+
+  html += '</div>'; // grid
+  html += '</div>'; // wrapper
+
   return html;
 }
 
@@ -14735,12 +14858,12 @@ function showFindingModal(existing) {
     + '</div>'
     + '<div style="'+compactStyle+'"><label style="'+labelStyle+'">Contrôles testés liés <span style="font-weight:400;color:var(--text-3)">('+problematicCtrls.length+' candidats)</span></label>'
     + '<div style="'+helpStyle+'">Coche les Tests fail et Targets manquants à inclure dans ce finding.</div>'
-    + '<div style="max-height:200px;overflow-y:auto;padding:2px">'
+    + '<div style="padding:2px">'
     + ctrlsHtml
     + '</div></div>'
     + '<div style="'+compactStyle+'"><label style="'+labelStyle+'">Design Issues liées <span style="font-weight:400;color:var(--text-3)">('+designIssues.length+' candidats)</span></label>'
     + '<div style="'+helpStyle+'">Coche les défaillances de design à inclure dans ce finding.</div>'
-    + '<div id="f-di-list" style="max-height:200px;overflow-y:auto;padding:2px">'
+    + '<div id="f-di-list" style="padding:2px">'
     + designIssuesHtml
     + '</div></div>';
 
@@ -14828,33 +14951,151 @@ function _toggleFindingModalFullscreen() {
 }
 
 async function removeManualFinding(i){const d=getAudData(CA);d.findings.splice(i,1);await saveAuditData(CA);document.getElementById('det-content').innerHTML=renderDetContent();}
-async function setMgtResp(findingId,field,val){const d=getAudData(CA);const r=d.mgtResp.find(x=>x.findingId===findingId);if(r){r[field]=val;await saveAuditData(CA);}}
+// v77.13 : setter sur un champ de Management Response
+async function setMgtRespField(respId, field, val) {
+  var d = getAudData(CA);
+  var r = d.mgtResp.find(function(x){return x.id === respId;});
+  if (!r) return;
+  r[field] = val;
+  await saveAuditData(CA);
+}
+
+// v77.13 : setter sur un champ d'une action (gère l'historique des deadlines)
+async function setActionField(respId, actionId, field, val) {
+  var d = getAudData(CA);
+  var r = d.mgtResp.find(function(x){return x.id === respId;});
+  if (!r) return;
+  var a = (r.actions || []).find(function(x){return x.id === actionId;});
+  if (!a) return;
+
+  // v77.13 : pour year/quarter, on archive l'ancien dans deadlineHistory si la valeur change
+  if ((field === 'year' || field === 'quarter') && a[field] !== val) {
+    if (!Array.isArray(a.deadlineHistory)) a.deadlineHistory = [];
+    a.deadlineHistory.push({
+      year: a.year, quarter: a.quarter,
+      changedAt: new Date().toISOString(),
+      changedBy: (CU ? CU.name : '—'),
+    });
+  }
+  a[field] = val;
+  await saveAuditData(CA);
+  // Re-render pour mettre à jour le tooltip d'historique
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+// v77.13 : ajouter une nouvelle MR à un finding
+async function addMgtRespForFinding(findingId) {
+  var d = getAudData(CA);
+  if (!d.mgtResp) d.mgtResp = [];
+  d.mgtResp.push({
+    id: 'mr_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
+    findingId: findingId,
+    responseText: '',
+    responseOwner: '',
+    actions: [{
+      id: 'ac_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
+      action: '',
+      owner: '',
+      year: 2026,
+      quarter: 'Q1',
+      deadlineHistory: [],
+    }],
+    pushed: false,
+  });
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+// v77.13 : supprimer une MR
+async function removeMgtResp(respId) {
+  if (!confirm('Supprimer cette Management Response et tous ses plans d\'action ?')) return;
+  var d = getAudData(CA);
+  if (!d.mgtResp) return;
+  d.mgtResp = d.mgtResp.filter(function(r){return r.id !== respId;});
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+// v77.13 : ajouter un plan d'action à une MR
+async function addActionToMgtResp(respId) {
+  var d = getAudData(CA);
+  var r = d.mgtResp.find(function(x){return x.id === respId;});
+  if (!r) return;
+  if (!Array.isArray(r.actions)) r.actions = [];
+  r.actions.push({
+    id: 'ac_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
+    action: '',
+    owner: '',
+    year: 2026,
+    quarter: 'Q1',
+    deadlineHistory: [],
+  });
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+// v77.13 : supprimer un plan d'action d'une MR
+async function removeActionFromMgtResp(respId, actionId) {
+  var d = getAudData(CA);
+  var r = d.mgtResp.find(function(x){return x.id === respId;});
+  if (!r || !Array.isArray(r.actions)) return;
+  // Empêcher de supprimer la dernière action (sinon plus rien à pousser)
+  if (r.actions.length <= 1) { toast('Au moins un plan d\'action est requis'); return; }
+  r.actions = r.actions.filter(function(a){return a.id !== actionId;});
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+// v77.13 : backward compat — l'ancien setMgtResp continue de marcher (au cas où)
+async function setMgtResp(findingId, field, val) {
+  const d = getAudData(CA);
+  const r = d.mgtResp.find(function(x){return x.findingId === findingId;});
+  if (r) { r[field] = val; await saveAuditData(CA); }
+}
+
 function pushAllMgtResp(){
   const d=getAudData(CA);
   const ap=AUDIT_PLAN.find(a=>a.id===CA);
-  const pushed=d.mgtResp.filter(r=>r.action&&r.owner&&!r.pushed);
-  if(!pushed.length){toast('Aucune réponse complète à envoyer');return;}
-  pushed.forEach(r=>{
-    const f=(d.findings||[]).find((x,i)=>(x.id||('f_'+i))===r.findingId);
-    if(!f)return;
-    ACTIONS.unshift({
-      id:'ac'+Date.now()+Math.random(),
-      title:r.action,
-      audit:ap?.titre||'—',
-      resp:CU?.name||'—',
-      dept:r.owner,
-      ent:ap?.type==='BU'?ap.entite:'Groupe',
-      year:r.year,
-      quarter:r.quarter,
-      status:'Non démarré',
-      pct:0,
-      fromFinding:true,
-      findingTitle:f.title
+  // v77.13 : itérer sur toutes les MR, et pour chaque MR sur ses actions
+  var pushed = [];
+  d.mgtResp.forEach(function(r){
+    if (r.pushed) return;
+    var f = (d.findings||[]).find(function(x,i){return (x.id||('f_'+i))===r.findingId;});
+    if (!f) return;
+    // Pour chaque action complète (avec un libellé et un owner), pousser un plan d'action
+    (r.actions || []).forEach(function(a){
+      if (!a.action || !a.owner) return;
+      ACTIONS.unshift({
+        id: 'ac'+Date.now()+Math.random(),
+        title: a.action,
+        audit: ap?.titre || '—',
+        auditId: CA, // v77.14 : pour filtrer par audit dans page Plans d'action
+        auditYear: ap?.year || null,
+        resp: CU?.name || '—',
+        dept: a.owner,
+        ent: ap?.type==='BU' ? ap.entite : 'Groupe',
+        year: a.year,
+        quarter: a.quarter,
+        status: 'Non démarré',
+        pct: 0,
+        fromFinding: true,
+        findingTitle: f.title,
+        findingId: f.id,
+        mgtRespId: r.id,
+        actionId: a.id,
+        mrResponseText: r.responseText,
+        mrResponseOwner: r.responseOwner,
+        deadlineHistory: (a.deadlineHistory || []).slice(),
+      });
+      pushed.push(a);
     });
-    r.pushed=true;
-    addHist('add',`Plan d'action créé depuis finding "${f.title}"`);
+    if (pushed.length > 0) r.pushed = true;
   });
-  document.getElementById('det-content').innerHTML=renderDetContent();
+  if (!pushed.length) { toast('Aucun plan d\'action complet à envoyer'); return; }
+  pushed.forEach(function(a){
+    addHist('add', `Plan d'action créé "${a.action}"`);
+  });
+  document.getElementById('det-content').innerHTML = renderDetContent();
   toast(pushed.length+' plan(s) d\'action créé(s) ✓');
 }
 async function addFakeDoc(){
