@@ -13207,29 +13207,33 @@ function renderHeaderAndMaturitySection() {
     {key:'effective',label:'Effective',color:'#3B6D11',bg:'#EAF3DE'},
   ];
 
-  var html = '<div class="card" style="margin-bottom:.75rem">';
-  html += '<div style="display:grid;grid-template-columns:1.6fr 1fr;gap:14px">';
+  // v77.12.1 : version compacte — moitié de la hauteur précédente
+  var html = '<div class="card" style="margin-bottom:.75rem;padding:10px 12px">';
+  html += '<div style="display:grid;grid-template-columns:1.6fr 1fr;gap:12px">';
 
   // ─── Colonne gauche : Header de l'Executive Summary ────────
   html += '<div>';
-  html += '<div style="font-size:12px;font-weight:600;color:var(--text-2);margin-bottom:4px">Executive Summary — Header</div>';
-  html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:8px;font-style:italic">Texte d\'introduction qui apparaîtra en haut de la slide « Executive Summary - Findings ». La maturité est ajoutée automatiquement à la fin.</div>';
-  html += '<textarea id="exec-summary-header" placeholder="ex : The audit of the Renewals process identified improvement opportunities in operational efficiency. These weaknesses elevate the risk of missed renewals and lost revenue opportunities..." style="width:100%;min-height:160px;font-size:12px;padding:8px;border:1px solid var(--border);border-radius:4px;resize:vertical" onchange="setExecSummaryHeader(this.value)">'+(d.execSummaryHeader||'').replace(/</g,'&lt;')+'</textarea>';
+  html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px">';
+  html += '<div style="font-size:11px;font-weight:600;color:var(--text-2)">Exec Summary — Header</div>';
+  html += '<span style="font-size:9px;color:var(--text-3);font-style:italic">Maturité ajoutée auto en fin</span>';
+  html += '</div>';
+  html += '<textarea id="exec-summary-header" placeholder="ex : The audit of the Renewals process identified improvement opportunities in operational efficiency..." style="width:100%;min-height:80px;font-size:11px;padding:6px 8px;border:1px solid var(--border);border-radius:3px;resize:vertical;line-height:1.4" onchange="setExecSummaryHeader(this.value)">'+(d.execSummaryHeader||'').replace(/</g,'&lt;')+'</textarea>';
   html += '</div>';
 
   // ─── Colonne droite : Maturity compacte ─────────────────────
   html += '<div>';
-  html += '<div style="font-size:12px;font-weight:600;color:var(--text-2);margin-bottom:4px">Overall Process Maturity'+(d.maturity.saved?' <span class="tag-new" style="font-size:9px;margin-left:6px">✓</span>':'')+'</div>';
-  html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:8px;font-style:italic">Niveau global du process audité.</div>';
-  // Grid 2x2 des niveaux
-  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px">';
+  html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px">';
+  html += '<div style="font-size:11px;font-weight:600;color:var(--text-2)">Overall Process Maturity'+(d.maturity.saved?' <span style="color:#1D6B45;font-size:9px">✓</span>':'')+'</div>';
+  html += '<button class="bp" style="font-size:10px;padding:2px 8px" onclick="saveMaturity()">Save</button>';
+  html += '</div>';
+  // Grid 2x2 plus tassée
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:4px">';
   MLEVELS.forEach(function(l){
     var sel = d.maturity.level === l.key;
-    html += '<div onclick="setMaturity(\''+l.key+'\')" style="border:1.5px solid '+(sel?l.color:'var(--border)')+';border-radius:5px;padding:8px 10px;cursor:pointer;background:'+(sel?l.bg:'var(--bg-card)')+';font-size:11px;text-align:center;transition:all 0.15s"><strong style="color:'+l.color+'">'+l.label+'</strong></div>';
+    html += '<div onclick="setMaturity(\''+l.key+'\')" style="border:1.5px solid '+(sel?l.color:'var(--border)')+';border-radius:3px;padding:4px 6px;cursor:pointer;background:'+(sel?l.bg:'var(--bg-card)')+';font-size:10px;text-align:center;transition:all 0.15s"><strong style="color:'+l.color+'">'+l.label+'</strong></div>';
   });
   html += '</div>';
-  html += '<textarea id="maturity-notes" style="width:100%;min-height:60px;resize:vertical;font-size:11px;padding:6px;border:1px solid var(--border);border-radius:4px" placeholder="Justification (optionnel)...">'+(d.maturity.notes||'')+'</textarea>';
-  html += '<div style="display:flex;justify-content:flex-end;margin-top:6px"><button class="bp" style="font-size:11px;padding:4px 10px" onclick="saveMaturity()">Sauvegarder</button></div>';
+  html += '<textarea id="maturity-notes" style="width:100%;min-height:38px;resize:vertical;font-size:10px;padding:4px 6px;border:1px solid var(--border);border-radius:3px;line-height:1.3" placeholder="Justification (optionnel)...">'+(d.maturity.notes||'')+'</textarea>';
   html += '</div>';
 
   html += '</div>'; // grid
@@ -14586,6 +14590,8 @@ function showFindingModal(existing) {
   var designIssues = allIssues.filter(function(iss){return iss.source === 'design';});
 
   // v77.11 : Liste maître des sous-processus (kickoffPrep + narratif découverts)
+  // Utilisé pour résoudre les noms (le champ SP a été supprimé en v77.12.2 mais on garde
+  // la résolution pour afficher le SP de chaque issue dans les listes)
   var spList = [];
   var seenSpIds = {};
   var kickoffSps = (d.kickoffPrep && Array.isArray(d.kickoffPrep.subProcesses)) ? d.kickoffPrep.subProcesses : [];
@@ -14594,7 +14600,6 @@ function showFindingModal(existing) {
     seenSpIds[sp.id] = true;
     spList.push({id: sp.id, name: sp.name || '(sans nom)', source: 'kickoff'});
   });
-  // Sections du narratif non couvertes
   var narrative = d.consolidatedNarrative || '';
   var sectionRegex = /^##\s+(.+)$/gm;
   var m;
@@ -14606,115 +14611,110 @@ function showFindingModal(existing) {
     spList.push({id: 'sp_discovered_'+spList.length, name: sectionName, source: 'discovered'});
   }
 
-  // v77.11 : Auto-coche des design issues du SP si nouveau finding ET un SP est déjà déterminé
-  // v77.11 fix : ctrl → spId via wcgw (pas directement ctrl.subProcessId)
+  // v77.12.2 : résoudre le SP d'un contrôle via WCGW (pour affichage dans la liste)
   var wcgwListForFinding = (d.wcgw && d.wcgw[4]) || [];
-  function _ctrlSpIdInModal(ctrl) {
-    if (!ctrl) return null;
-    if (ctrl.subProcessId) return ctrl.subProcessId;
-    if (ctrl.wcgwId) {
+  function _ctrlSpNameInModal(ctrl) {
+    if (!ctrl) return '';
+    var spId = ctrl.subProcessId;
+    if (!spId && ctrl.wcgwId) {
       var w = wcgwListForFinding.find(function(x){return x.id === ctrl.wcgwId;});
-      if (w && w.subProcessId) return w.subProcessId;
+      if (w && w.subProcessId) spId = w.subProcessId;
     }
-    return null;
+    if (!spId) return '';
+    var sp = spList.find(function(s){return s.id === spId;});
+    return sp ? sp.name : '';
   }
-  if (!existing) {
-    var firstCtrl = step5c.find(function(c){return currentCtrlIds.indexOf(c.id) >= 0;});
-    var firstCtrlSpId = _ctrlSpIdInModal(firstCtrl);
-    if (firstCtrlSpId) {
-      currentSubProcessId = firstCtrlSpId;
-      // Pré-cocher les design issues de ce SP
-      var autoDesignIssues = designIssues.filter(function(iss){return iss.relatedSpId === currentSubProcessId;});
-      currentDesignIssueIds = autoDesignIssues.map(function(iss){return iss.id;});
-    }
+  function _diSpName(iss) {
+    if (!iss || !iss.relatedSpId) return '';
+    var sp = spList.find(function(s){return s.id === iss.relatedSpId;});
+    return sp ? sp.name : '';
   }
 
-  // Construire la liste des contrôles à cocher
+  // v77.12.2 : Liste contrôles avec le même style que la vue étape 7
   var ctrlsHtml = '';
   if (!problematicCtrls.length) {
-    ctrlsHtml = '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:8px">Aucun contrôle fail ni target dans cet audit. Vous pouvez quand même créer un finding sans contrôle lié.</div>';
+    ctrlsHtml = '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:8px">Aucun contrôle fail ni target dans cet audit.</div>';
   } else {
-    ctrlsHtml = problematicCtrls.map(function(c){
+    ctrlsHtml = '<div style="display:flex;flex-direction:column;gap:4px">' + problematicCtrls.map(function(c){
       var ctrlCode = c.code || c.id;
-      var checked = currentCtrlIds.indexOf(c.id) >= 0 ? 'checked' : '';
+      var isChecked = currentCtrlIds.indexOf(c.id) >= 0;
       var typeLabel = c.design === 'target'
-        ? '<span class="badge" style="background:#FAEEDA;color:#854F0B;font-size:9px">🎯 Target</span>'
-        : '<span class="badge bfl" style="font-size:9px">❌ Fail</span>';
-      var commentary = c.testComment
-        ? '<div style="font-size:10px;color:var(--text-3);margin-top:2px;font-style:italic">'+c.testComment.replace(/</g,'&lt;')+'</div>'
-        : '';
-      return '<label style="display:flex;align-items:flex-start;gap:8px;padding:6px 8px;border-bottom:.5px solid var(--border);cursor:pointer">'
-        + '<input type="checkbox" class="f-ctrl-cb" value="'+c.id+'" '+checked+' style="margin-top:3px"/>'
-        + '<div style="flex:1">'
-        + '<div style="display:flex;align-items:center;gap:6px">'
+        ? '<span class="badge" style="background:#FAEEDA;color:#854F0B;font-size:9px;flex-shrink:0">🎯 Target manquant</span>'
+        : '<span class="badge bfl" style="font-size:9px;flex-shrink:0">❌ Test fail</span>';
+      var aCount = (c.anomalies && c.anomalies.count) || '';
+      var sCount = (c.sample && c.sample.count) || '';
+      var details = '';
+      if (c.design !== 'target' && aCount) {
+        details = '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:1px">'+aCount+' anomalie'+(Number(aCount)>1?'s':'')+(sCount?' / '+sCount+' testé'+(Number(sCount)>1?'s':''):'')+'</div>';
+      } else if (c.design === 'target' && c.owner) {
+        details = '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:1px">Owner : '+(''+c.owner).replace(/</g,'&lt;')+'</div>';
+      }
+      var spName = _ctrlSpNameInModal(c);
+      var spInfo = spName ? '<span style="font-size:9px;color:var(--text-3);font-style:italic">· '+spName.replace(/</g,'&lt;')+'</span>' : '';
+      return '<label style="display:flex;align-items:flex-start;gap:8px;padding:6px 9px;background:'+(isChecked?'#EEEDFE':'#fff')+';border:.5px solid '+(isChecked?'#CECBF6':'var(--border)')+';border-radius:3px;cursor:pointer;font-size:11px">'
+        + '<input type="checkbox" class="f-ctrl-cb" value="'+c.id+'" '+(isChecked?'checked':'')+' style="margin-top:2px;flex-shrink:0"/>'
         + typeLabel
-        + '<span style="font-size:10px;color:var(--text-3);font-family:monospace">'+ctrlCode+'</span>'
-        + '<span style="font-size:11px;font-weight:500">'+c.name+'</span>'
-        + '</div>'
-        + commentary
+        + '<div style="flex:1;min-width:0">'
+        + '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span style="color:var(--text-3);font-size:10px;font-family:monospace">'+ctrlCode+'</span><span style="font-weight:500">'+(c.name||'').replace(/</g,'&lt;')+'</span>'+spInfo+'</div>'
+        + details
         + '</div>'
         + '</label>';
-    }).join('');
+    }).join('') + '</div>';
   }
 
-  // v77.11 : Construire la liste des design issues à cocher
+  // v77.12.2 : Liste design issues avec le même style que la vue étape 7
   var designIssuesHtml = '';
   if (!designIssues.length) {
     designIssuesHtml = '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:8px">Aucune design issue dans cet audit.</div>';
   } else {
-    designIssuesHtml = designIssues.map(function(iss){
-      var checked = currentDesignIssueIds.indexOf(iss.id) >= 0 ? 'checked' : '';
-      var subtypeLabel = iss.subtype === 'missing'
-        ? '<span class="badge" style="background:#FCEBEB;color:#A32D2D;font-size:9px;padding:1px 5px;border-radius:3px">⚠ Manquant</span>'
-        : '<span class="badge" style="background:#FAEEDA;color:#854F0B;font-size:9px;padding:1px 5px;border-radius:3px">⚠ Insuffisant</span>';
-      var spName = '';
-      if (iss.relatedSpId) {
-        var sp = spList.find(function(s){return s.id === iss.relatedSpId;});
-        if (sp) spName = '<span style="font-size:10px;color:var(--text-3);font-style:italic">· '+(sp.name||'').replace(/</g,'&lt;')+'</span>';
-      }
+    designIssuesHtml = '<div style="display:flex;flex-direction:column;gap:4px">' + designIssues.map(function(iss){
+      var isChecked = currentDesignIssueIds.indexOf(iss.id) >= 0;
+      var subtype = iss.subtype || 'weak';
+      var subtypeLabel = subtype === 'missing'
+        ? '<span class="badge" style="background:#FCE7E5;color:#7F1D1D;font-size:9px;flex-shrink:0">⚠ Design Manquant</span>'
+        : '<span class="badge" style="background:#FFEDD5;color:#9A3412;font-size:9px;flex-shrink:0">⚠ Design Insuffisant</span>';
+      var spName = _diSpName(iss);
+      var spInfo = spName ? '<span style="font-size:9px;color:var(--text-3);font-style:italic">· '+spName.replace(/</g,'&lt;')+'</span>' : '';
       var issTitle = iss.title || iss.controlName || '(sans titre)';
-      return '<label style="display:flex;align-items:flex-start;gap:8px;padding:6px 8px;border-bottom:.5px solid var(--border);cursor:pointer">'
-        + '<input type="checkbox" class="f-di-cb" value="'+iss.id+'" '+checked+' style="margin-top:3px"/>'
-        + '<div style="flex:1">'
-        + '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">'
+      var ctrlInfo = iss.controlName ? '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:1px">Contrôle : '+iss.controlName.replace(/</g,'&lt;')+'</div>' : '';
+      return '<label style="display:flex;align-items:flex-start;gap:8px;padding:6px 9px;background:'+(isChecked?'#EEEDFE':'#fff')+';border:.5px solid '+(isChecked?'#CECBF6':'var(--border)')+';border-radius:3px;cursor:pointer;font-size:11px">'
+        + '<input type="checkbox" class="f-di-cb" value="'+iss.id+'" '+(isChecked?'checked':'')+' style="margin-top:2px;flex-shrink:0"/>'
         + subtypeLabel
-        + '<span style="font-size:11px;font-weight:500">'+(''+issTitle).replace(/</g,'&lt;')+'</span>'
-        + spName
-        + '</div>'
+        + '<div style="flex:1;min-width:0">'
+        + '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span style="font-weight:500">'+(''+issTitle).replace(/</g,'&lt;')+'</span>'+spInfo+'</div>'
+        + ctrlInfo
         + '</div>'
         + '</label>';
-    }).join('');
+    }).join('') + '</div>';
   }
 
-  // v77.10 : modale compacte (gaps réduits, line-height tassée, modèle de saisie côte-à-côte)
-  var compactStyle = 'margin-bottom:8px';
+  // v77.12.2 : styles compacts mais utiles
+  var compactStyle = 'margin-bottom:10px';
   var labelStyle = 'font-size:11px;color:var(--text-2);display:block;margin-bottom:3px;font-weight:500';
   var helpStyle = 'font-size:10px;color:var(--text-3);font-style:italic;margin-bottom:3px';
   var inputStyle = 'width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box';
   var taStyle = inputStyle + ';font-family:inherit;resize:vertical';
 
-  // v77.11 : select SP en haut de la modale
-  var spOptions = '<option value=""'+(!currentSubProcessId?' selected':'')+'>— Auto (sera déterminé par la majorité des contrôles) —</option>';
-  spList.forEach(function(sp){
-    spOptions += '<option value="'+sp.id+'"'+(currentSubProcessId===sp.id?' selected':'')+'>'+(''+sp.name).replace(/</g,'&lt;')+(sp.source==='discovered'?' *':'')+'</option>';
-  });
-  spOptions += '<option value="__transverse"'+(currentSubProcessId==='__transverse'?' selected':'')+'>Transverse (sans SP spécifique)</option>';
+  // v77.12.2 : Body — section issues sélectionnées en haut (récap), reste du formulaire en dessous
+  // Plus de champ "Sous-processus de rattachement" : le rattachement est implicite via la section Report
+  // (le SP du finding est déterminé par la section où il a été créé / les contrôles liés)
 
-  var body = '<div style="'+compactStyle+'"><label style="'+labelStyle+'">Titre du finding <span style="color:var(--red)">*</span></label>'
+  // Bandeau d'aide en haut + bouton plein écran
+  var body = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;padding:7px 10px;background:#F5F4FE;border:.5px solid #CECBF6;border-radius:4px">';
+  body += '<span style="font-size:10px;color:#3C3489">💡 Le sous-processus de rattachement est déterminé automatiquement par les contrôles liés ci-dessous.</span>';
+  body += '<button onclick="_toggleFindingModalFullscreen()" style="background:none;border:.5px solid #CECBF6;color:#3C3489;font-size:10px;padding:3px 8px;border-radius:3px;cursor:pointer" title="Basculer en plein écran"><span id="f-modal-fs-icon">⛶</span> <span id="f-modal-fs-label">Plein écran</span></button>';
+  body += '</div>';
+
+  body += '<div style="'+compactStyle+'"><label style="'+labelStyle+'">Titre du finding <span style="color:var(--red)">*</span></label>'
     + '<input id="f-title" value="'+(f.title||'').replace(/"/g,'&quot;')+'" placeholder="ex : Ségrégation des tâches insuffisante en P2P" style="'+inputStyle+'"/></div>'
-    + '<div style="'+compactStyle+'"><label style="'+labelStyle+'">Sous-processus de rattachement</label>'
-    + '<div style="'+helpStyle+'">Détermine où le finding apparaît dans le rapport. Laisser sur Auto pour déterminer selon la majorité des contrôles liés.</div>'
-    + '<select id="f-sp" style="'+inputStyle+'" onchange="_onFindingSpChange()">'
-    + spOptions
-    + '</select></div>'
     + '<div style="'+compactStyle+'"><label style="'+labelStyle+'">Description courte (Executive Summary)</label>'
     + '<div style="'+helpStyle+'">2-3 lignes. Apparaîtra en slide « Executive Summary - Findings ».</div>'
-    + '<textarea id="f-desc-exec" style="'+taStyle+';min-height:45px" placeholder="ex : Process incomplet de tracking des opportunités de renouvellement dans SFDC.">'+((f.descExec || '')).replace(/</g,'&lt;')+'</textarea></div>'
+    + '<textarea id="f-desc-exec" style="'+taStyle+';min-height:50px" placeholder="ex : Process incomplet de tracking des opportunités de renouvellement dans SFDC.">'+((f.descExec || '')).replace(/</g,'&lt;')+'</textarea></div>'
     + '<div style="'+compactStyle+'"><label style="'+labelStyle+'">Description détaillée</label>'
     + '<div style="'+helpStyle+'">Constat complet, contexte, contrôles failed. Apparaîtra en slide détaillée du finding.</div>'
-    + '<textarea id="f-desc-detail" style="'+taStyle+';min-height:65px" placeholder="Description complète, références aux contrôles fail, contexte business...">'+(f.descDetailed || f.desc || '').replace(/</g,'&lt;')+'</textarea></div>'
+    + '<textarea id="f-desc-detail" style="'+taStyle+';min-height:80px" placeholder="Description complète, références aux contrôles fail, contexte business...">'+(f.descDetailed || f.desc || '').replace(/</g,'&lt;')+'</textarea></div>'
     + '<div style="'+compactStyle+'"><label style="'+labelStyle+'">Potential Risk</label>'
-    + '<textarea id="f-risk" style="'+taStyle+';min-height:45px" placeholder="ex : Missed renewals, lost revenue opportunities, contract leakage...">'+(f.potentialRisk||'').replace(/</g,'&lt;')+'</textarea></div>'
+    + '<textarea id="f-risk" style="'+taStyle+';min-height:50px" placeholder="ex : Missed renewals, lost revenue opportunities, contract leakage...">'+(f.potentialRisk||'').replace(/</g,'&lt;')+'</textarea></div>'
     + '<div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px;'+compactStyle+'">'
     + '<div><label style="'+labelStyle+'">Owner</label>'
     + '<input id="f-owner" value="'+(f.owner||'').replace(/"/g,'&quot;')+'" placeholder="ex : Sales Ops Director" style="'+inputStyle+'"/></div>'
@@ -14734,12 +14734,13 @@ function showFindingModal(existing) {
     + '</select></div>'
     + '</div>'
     + '<div style="'+compactStyle+'"><label style="'+labelStyle+'">Contrôles testés liés <span style="font-weight:400;color:var(--text-3)">('+problematicCtrls.length+' candidats)</span></label>'
-    + '<div style="border:.5px solid var(--border);border-radius:3px;max-height:140px;overflow-y:auto;background:#fafafa">'
+    + '<div style="'+helpStyle+'">Coche les Tests fail et Targets manquants à inclure dans ce finding.</div>'
+    + '<div style="max-height:200px;overflow-y:auto;padding:2px">'
     + ctrlsHtml
     + '</div></div>'
     + '<div style="'+compactStyle+'"><label style="'+labelStyle+'">Design Issues liées <span style="font-weight:400;color:var(--text-3)">('+designIssues.length+' candidats)</span></label>'
-    + '<div style="'+helpStyle+'">Pré-cochées : design issues du SP du finding. Décoche celles qui ne s\'appliquent pas.</div>'
-    + '<div id="f-di-list" style="border:.5px solid var(--border);border-radius:3px;max-height:140px;overflow-y:auto;background:#fafafa">'
+    + '<div style="'+helpStyle+'">Coche les défaillances de design à inclure dans ce finding.</div>'
+    + '<div id="f-di-list" style="max-height:200px;overflow-y:auto;padding:2px">'
     + designIssuesHtml
     + '</div></div>';
 
@@ -14753,9 +14754,11 @@ function showFindingModal(existing) {
     var probability = document.getElementById('f-prob').value;
     var impact = document.getElementById('f-impact').value;
     var checkedIds = Array.from(document.querySelectorAll('.f-ctrl-cb:checked')).map(function(cb){return cb.value;});
-    // v77.11 : design issues + SP
+    // v77.11 : design issues
     var checkedDiIds = Array.from(document.querySelectorAll('.f-di-cb:checked')).map(function(cb){return cb.value;});
-    var subProcessId = (document.getElementById('f-sp') || {}).value || '';
+    // v77.12.2 : on conserve le subProcessId actuel (qui vient de _findingPreselection ou de l'édition)
+    // Plus de UI pour le changer ; il sera recalculé via la majorité des contrôles à l'affichage si vide
+    var subProcessId = currentSubProcessId || '';
 
     if (!d.findings) d.findings = [];
     if (existing) {
@@ -14802,25 +14805,28 @@ function showFindingModal(existing) {
     await saveAuditData(CA);
     document.getElementById('det-content').innerHTML = renderDetContent();
     toast('Finding '+(existing?'modifié':'ajouté')+' ✓');
-  });
+  }, {wide: true});
 }
 
-// v77.11 : Quand le SP du finding change, re-cocher les design issues correspondantes
-function _onFindingSpChange() {
-  var sel = document.getElementById('f-sp');
-  if (!sel) return;
-  var newSpId = sel.value;
-  if (!newSpId || newSpId === '__transverse') return;
-  // Cocher uniquement les design issues du nouveau SP, décocher les autres
-  var d = getAudData(CA);
-  var allIssues = Array.isArray(d.issues) ? d.issues : [];
-  var matchingIssueIds = allIssues
-    .filter(function(iss){return iss.source === 'design' && iss.relatedSpId === newSpId;})
-    .map(function(iss){return iss.id;});
-  document.querySelectorAll('.f-di-cb').forEach(function(cb){
-    cb.checked = matchingIssueIds.indexOf(cb.value) >= 0;
-  });
+// v77.12.2 : toggle plein écran de la modale finding
+function _toggleFindingModalFullscreen() {
+  var modal = document.querySelector('#modal .md');
+  if (!modal) return;
+  var icon = document.getElementById('f-modal-fs-icon');
+  var label = document.getElementById('f-modal-fs-label');
+  if (modal.classList.contains('md-fullscreen')) {
+    modal.classList.remove('md-fullscreen');
+    modal.classList.add('md-wide');
+    if (icon) icon.textContent = '⛶';
+    if (label) label.textContent = 'Plein écran';
+  } else {
+    modal.classList.remove('md-wide');
+    modal.classList.add('md-fullscreen');
+    if (icon) icon.textContent = '⛗';
+    if (label) label.textContent = 'Mode normal';
+  }
 }
+
 async function removeManualFinding(i){const d=getAudData(CA);d.findings.splice(i,1);await saveAuditData(CA);document.getElementById('det-content').innerHTML=renderDetContent();}
 async function setMgtResp(findingId,field,val){const d=getAudData(CA);const r=d.mgtResp.find(x=>x.findingId===findingId);if(r){r[field]=val;await saveAuditData(CA);}}
 function pushAllMgtResp(){
