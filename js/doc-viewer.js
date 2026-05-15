@@ -134,16 +134,16 @@ async function openDocViewer(doc) {
     <div style="background:#fff;border-radius:8px;width:100%;max-width:1100px;height:90vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.4)">
       <div style="padding:12px 18px;border-bottom:.5px solid #e5e5e5;display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
         <div style="display:flex;align-items:center;gap:10px">
-          <div style="width:32px;height:32px;background:${badge.bg};color:${badge.fg};border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600">${badge.label}</div>
+          <div style="width:32px;height:32px;background:${dvEscapeHtml(badge.bg)};color:${dvEscapeHtml(badge.fg)};border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600">${dvEscapeHtml(badge.label)}</div>
           <div>
             <div style="font-size:13px;font-weight:500;color:#222">${dvEscapeHtml(DV_STATE.fileName)}</div>
             <div id="dv-subtitle" style="font-size:11px;color:#666"></div>
           </div>
         </div>
         <div style="display:flex;gap:6px">
-          ${DV_STATE.webUrl ? '<button class="bs" style="font-size:11px;padding:4px 10px" onclick="window.open(\''+DV_STATE.webUrl.replace(/'/g,"\\'")+'\',\'_blank\')">↗ Ouvrir dans onglet</button>' : ''}
-          <button class="bs" style="font-size:11px;padding:4px 10px" onclick="dvDownload()">⬇ Télécharger</button>
-          <button class="bd" style="font-size:11px;padding:4px 10px" onclick="dvClose()">✕ Fermer</button>
+          ${DV_STATE.webUrl ? '<button class="bs" id="dv-open-tab" style="font-size:11px;padding:4px 10px">↗ Ouvrir dans onglet</button>' : ''}
+          <button class="bs" id="dv-download-btn" style="font-size:11px;padding:4px 10px">⬇ Télécharger</button>
+          <button class="bd" id="dv-close-btn" style="font-size:11px;padding:4px 10px">✕ Fermer</button>
         </div>
       </div>
       <div id="dv-toolbar" style="padding:8px 16px;border-bottom:.5px solid #e5e5e5;background:#fafafa;display:none;align-items:center;justify-content:center;gap:14px;font-size:11px;color:#444;flex-shrink:0"></div>
@@ -153,6 +153,14 @@ async function openDocViewer(doc) {
     </div>
   `;
   document.body.appendChild(overlay);
+
+  // Brancher les handlers avec addEventListener (évite l'injection via onclick="...")
+  var openTabBtn = document.getElementById('dv-open-tab');
+  if (openTabBtn) openTabBtn.addEventListener('click', function(){
+    if (DV_STATE.webUrl) window.open(DV_STATE.webUrl, '_blank', 'noopener,noreferrer');
+  });
+  document.getElementById('dv-download-btn').addEventListener('click', dvDownload);
+  document.getElementById('dv-close-btn').addEventListener('click', dvClose);
 
   // Cliquer en dehors → fermer
   overlay.addEventListener('click', function(e){
@@ -181,11 +189,17 @@ async function openDocViewer(doc) {
   } catch(e) {
     console.error('[DV] Erreur:', e);
     var body = document.getElementById('dv-body');
-    if (body) body.innerHTML = '<div style="color:#A32D2D;font-size:13px;text-align:center;padding:2rem">'
-      +'<div style="margin-bottom:8px">⚠ Erreur lors du chargement</div>'
-      +'<div style="font-size:11px;color:#666">'+dvEscapeHtml(e.message)+'</div>'
-      +(DV_STATE.webUrl?'<div style="margin-top:14px"><button class="bs" onclick="window.open(\''+DV_STATE.webUrl.replace(/'/g,"\\'")+'\',\'_blank\')">↗ Ouvrir dans SharePoint</button></div>':'')
-      +'</div>';
+    if (body) {
+      body.innerHTML = '<div style="color:#A32D2D;font-size:13px;text-align:center;padding:2rem">'
+        +'<div style="margin-bottom:8px">⚠ Erreur lors du chargement</div>'
+        +'<div style="font-size:11px;color:#666">'+dvEscapeHtml(e.message)+'</div>'
+        +(DV_STATE.webUrl?'<div style="margin-top:14px"><button class="bs" id="dv-err-open">↗ Ouvrir dans SharePoint</button></div>':'')
+        +'</div>';
+      var errOpen = document.getElementById('dv-err-open');
+      if (errOpen) errOpen.addEventListener('click', function(){
+        window.open(DV_STATE.webUrl, '_blank', 'noopener,noreferrer');
+      });
+    }
   }
 }
 
@@ -357,7 +371,9 @@ async function dvRenderOffice(doc) {
     // Ajouter ?nb=true pour supprimer la bannière "Open in Office"
     embedUrl += (embedUrl.indexOf('?') >= 0 ? '&' : '?') + 'nb=true';
 
-    body.innerHTML = '<iframe src="' + embedUrl.replace(/"/g, '&quot;') + '" '
+    // L'URL vient de Microsoft Graph donc fiable, mais on échappe défensivement
+    // les caractères qui casseraient l'attribut src="..."
+    body.innerHTML = '<iframe src="' + dvEscapeHtml(embedUrl) + '" '
       + 'style="width:100%;height:100%;border:none;background:#fff" '
       + 'allow="clipboard-read; clipboard-write" '
       + 'sandbox="allow-scripts allow-same-origin allow-popups allow-forms"></iframe>';
@@ -377,15 +393,23 @@ function dvRenderOfficeFallback(body, errorMsg) {
   html += '<div style="font-size:12px;color:#777;max-width:420px">Le document peut être ouvert directement dans Office Online ou téléchargé.</div>';
   html += '<div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap;justify-content:center">';
   if (DV_STATE.webUrl) {
-    html += '<button class="bp" onclick="window.open(\'' + DV_STATE.webUrl.replace(/'/g, "\\'") + '\',\'_blank\')">↗ Ouvrir dans Office Online</button>';
+    html += '<button class="bp" id="dv-fb-open">↗ Ouvrir dans Office Online</button>';
   }
-  html += '<button class="bs" onclick="dvDownload()">⬇ Télécharger</button>';
+  html += '<button class="bs" id="dv-fb-download">⬇ Télécharger</button>';
   html += '</div>';
   if (errorMsg) {
-    html += '<details style="margin-top:14px;font-size:11px;color:#999"><summary style="cursor:pointer">Détails techniques</summary><div style="margin-top:6px;font-family:monospace;text-align:left;padding:8px;background:#f5f5f5;border-radius:4px">' + errorMsg.replace(/</g, '&lt;') + '</div></details>';
+    html += '<details style="margin-top:14px;font-size:11px;color:#999"><summary style="cursor:pointer">Détails techniques</summary><div style="margin-top:6px;font-family:monospace;text-align:left;padding:8px;background:#f5f5f5;border-radius:4px">' + dvEscapeHtml(errorMsg) + '</div></details>';
   }
   html += '</div>';
   body.innerHTML = html;
+
+  // Brancher les listeners sans injection de string
+  var openBtn = document.getElementById('dv-fb-open');
+  if (openBtn) openBtn.addEventListener('click', function(){
+    if (DV_STATE.webUrl) window.open(DV_STATE.webUrl, '_blank', 'noopener,noreferrer');
+  });
+  var dlBtn = document.getElementById('dv-fb-download');
+  if (dlBtn) dlBtn.addEventListener('click', dvDownload);
 }
 
 // ─── VIDEO ─────────────────────────────────────────────────────────────────
