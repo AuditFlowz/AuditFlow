@@ -4492,10 +4492,9 @@ function showRelancesModal() {
 
   var body = _renderRelancesModalBody(actions);
 
-  openModal('📧 Préparer les relances', body, async function(){
-    // Au "OK" : générer les emails
-    _generateRelanceEmails(actions);
-  }, {wide: true});
+  // v77.14b.2 : on cache le bouton OK natif et on ajoute 2 boutons custom dans le body
+  // (Outlook mailto vs Graph /sendMail)
+  openModal('📧 Préparer les relances', body, null, {wide: true, hideOk: true, cancelLabel: 'Fermer'});
 }
 
 function _renderRelancesModalBody(actions) {
@@ -4550,9 +4549,18 @@ function _renderRelancesModalBody(actions) {
   h += '<textarea id="relance-body" style="width:100%;min-height:130px;font-size:11px;padding:6px 8px;border:1px solid var(--border);border-radius:3px;font-family:inherit;resize:vertical;box-sizing:border-box;line-height:1.5">'+esc(_emailTemplate.body)+'</textarea>';
   h += '</div>';
 
-  // Bouton récap
+  // v77.14b.2 : 2 modes d'envoi - Outlook (mailto:) ou Graph /sendMail (direct)
   if (nbOwners > 0) {
-    h += '<div style="text-align:center;padding:8px;background:#E8F5E9;border:.5px solid #A6E2CD;border-radius:4px;font-size:11px;color:#085041;font-weight:500">📧 Au « OK » : '+nbOwners+' email(s) Outlook seront préparés. Tu cliqueras « Envoyer » dans chaque.</div>';
+    h += '<div style="text-align:center;padding:10px;background:#E8F5E9;border:.5px solid #A6E2CD;border-radius:4px;font-size:11px;color:#085041">';
+    h += '<div style="margin-bottom:8px;font-weight:500">📧 '+nbOwners+' email(s) à préparer ('+actions.filter(function(a){return _relanceSelections[a.id]&&a.ownerEmail;}).length+' actions au total)</div>';
+    h += '<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">';
+    // Bouton 1 : via Outlook (mailto:)
+    h += '<button class="bs" style="font-size:11px;padding:6px 14px;border:.5px solid #085041;color:#085041;background:#fff;font-weight:500" onclick="_generateRelanceEmails_mailto()">📨 Via Outlook (mailto:)</button>';
+    // Bouton 2 : direct via Graph
+    h += '<button class="bp" style="font-size:11px;padding:6px 14px;background:#085041;color:#fff;font-weight:500" onclick="_generateRelanceEmails_graph()">🚀 Envoi direct (Graph)</button>';
+    h += '</div>';
+    h += '<div style="font-size:9px;color:var(--text-3);margin-top:6px;font-style:italic">📨 Outlook : ouvre 1 mail à la fois pour validation manuelle. 🚀 Direct : envoi immédiat depuis ta boîte (Mail.Send).</div>';
+    h += '</div>';
   } else {
     h += '<div style="text-align:center;padding:8px;background:#FEF3F2;border:.5px solid #FCA5A5;border-radius:4px;font-size:11px;color:#7F1D1D">Aucune action sélectionnée avec email valide.</div>';
   }
@@ -4629,15 +4637,16 @@ function showRelancesModal_refresh() {
   setTimeout(showRelancesModal, 50);
 }
 
-// Génère les emails et ouvre Outlook
-function _generateRelanceEmails(actions) {
+// v77.14b.2 : Helper commun — prépare la liste des emails à envoyer
+// Retourne [{email, name, subject, body, actions:[...]}, ...]
+function _buildRelanceEmails(actions) {
   // Sauvegarder le template (au cas où user l'a édité)
   var subjEl = document.getElementById('relance-subject');
   var bodyEl = document.getElementById('relance-body');
   if (subjEl) _emailTemplate.subject = subjEl.value;
   if (bodyEl) _emailTemplate.body = bodyEl.value;
 
-  // Group par owner (email)
+  // Grouper par owner email
   var byOwner = {};
   actions.forEach(function(a){
     if (!_relanceSelections[a.id] || !a.ownerEmail) return;
@@ -4646,23 +4655,16 @@ function _generateRelanceEmails(actions) {
     byOwner[key].actions.push(a);
     if (a.ownerName && !byOwner[key].name) byOwner[key].name = a.ownerName;
   });
-  var ownerKeys = Object.keys(byOwner);
-  if (!ownerKeys.length) {
-    toast('Aucune action sélectionnée avec email valide.');
-    return;
-  }
 
   var senderName = (typeof CU !== 'undefined' && CU ? CU.name : '');
-  var nbSent = 0;
+  var emails = [];
 
-  ownerKeys.forEach(function(k, idx){
+  Object.keys(byOwner).forEach(function(k){
     var info = byOwner[k];
-    // Audit = liste unique des audits de ses actions
     var audits = {};
     info.actions.forEach(function(a){audits[a.audit||'—'] = true;});
     var auditStr = Object.keys(audits).join(', ');
 
-    // Liste textuelle des actions
     var actionsList = info.actions.map(function(a, i){
       var dlStr = (a.quarter||'?')+' '+(a.year||'?');
       var statusStr = _paTiming(a) === 'overdue' ? '⏰ EN RETARD' : 'Échéance '+dlStr;
@@ -4671,7 +4673,6 @@ function _generateRelanceEmails(actions) {
       return t;
     }).join('\n\n');
 
-    // Substituer les variables
     var subject = _emailTemplate.subject
       .replace(/\{\{audit\}\}/g, auditStr)
       .replace(/\{\{owner_first_name\}\}/g, _prenom(info.name) || 'l\'équipe')
@@ -4684,19 +4685,96 @@ function _generateRelanceEmails(actions) {
       .replace(/\{\{actions_list\}\}/g, actionsList)
       .replace(/\{\{sender_name\}\}/g, senderName);
 
-    // Construire l'URL mailto
-    var mailto = 'mailto:' + encodeURIComponent(info.email)
-      + '?subject=' + encodeURIComponent(subject)
-      + '&body=' + encodeURIComponent(body);
-
-    // Ouvrir avec petit délai pour éviter que le navigateur bloque
-    setTimeout(function(){
-      window.location.href = mailto;
-    }, idx * 800); // 800ms entre chaque
-    nbSent++;
+    emails.push({
+      email: info.email,
+      name: info.name,
+      subject: subject,
+      body: body,
+      actions: info.actions,
+    });
   });
 
-  toast(nbSent+' email(s) Outlook préparé(s) ✓');
+  return emails;
+}
+
+// v77.14b.2 : Mode 1 — Outlook (mailto:) → ouvre N fenêtres avec délai
+function _generateRelanceEmails_mailto() {
+  var actions = _listActionsToRelance();
+  var emails = _buildRelanceEmails(actions);
+  if (!emails.length) {
+    toast('Aucune action sélectionnée avec email valide.');
+    return;
+  }
+
+  // Avertir si plus de 1 email (popup blocker probable)
+  if (emails.length > 1) {
+    if (!confirm(emails.length+' fenêtres Outlook vont s\'ouvrir successivement. Si le navigateur bloque, utilise plutôt « Envoi direct (Graph) » qui n\'a pas cette limite.\n\nContinuer avec Outlook ?')) {
+      return;
+    }
+  }
+
+  emails.forEach(function(e, idx){
+    var mailto = 'mailto:' + encodeURIComponent(e.email)
+      + '?subject=' + encodeURIComponent(e.subject)
+      + '&body=' + encodeURIComponent(e.body);
+    setTimeout(function(){
+      window.location.href = mailto;
+    }, idx * 1200); // 1.2s entre chaque pour éviter le blocage
+  });
+
+  toast(emails.length+' email(s) Outlook préparé(s) ✓');
+  closeModal();
+}
+
+// v77.14b.2 : Mode 2 — Envoi direct via Microsoft Graph
+async function _generateRelanceEmails_graph() {
+  var actions = _listActionsToRelance();
+  var emails = _buildRelanceEmails(actions);
+  if (!emails.length) {
+    toast('Aucune action sélectionnée avec email valide.');
+    return;
+  }
+
+  if (!confirm(emails.length+' email(s) vont être envoyés DIRECTEMENT depuis ta boîte (sans validation supplémentaire).\n\nContinuer ?')) {
+    return;
+  }
+
+  // Afficher un indicateur de progression dans la modale
+  var hostEl = document.getElementById('mbody');
+  if (hostEl) {
+    hostEl.innerHTML = '<div style="text-align:center;padding:30px;font-size:13px;color:var(--text-2)"><div style="font-size:30px;margin-bottom:10px">📤</div><div>Envoi en cours...</div><div id="relance-progress" style="margin-top:10px;font-size:11px;color:var(--text-3)">0 / '+emails.length+'</div></div>';
+  }
+
+  var sent = 0;
+  var failed = [];
+
+  for (var i = 0; i < emails.length; i++) {
+    var e = emails[i];
+    try {
+      await graphSendMail({
+        toEmail: e.email,
+        toName: e.name,
+        subject: e.subject,
+        body: e.body,
+      });
+      sent++;
+    } catch(err) {
+      console.error('[Graph] sendMail error', e.email, err.message);
+      failed.push({email: e.email, error: err.message});
+    }
+    // Update progress
+    var progEl = document.getElementById('relance-progress');
+    if (progEl) progEl.textContent = (i+1)+' / '+emails.length;
+  }
+
+  closeModal();
+  if (failed.length === 0) {
+    toast('✓ '+sent+' email(s) envoyé(s) avec succès');
+  } else if (sent > 0) {
+    toast('⚠ '+sent+' envoyés, '+failed.length+' en échec (voir console)');
+  } else {
+    toast('✗ Échec envoi : '+(failed[0]||{}).error);
+  }
 }
 
 // Relance individuelle d'une seule action (icône 📧 sur la card)

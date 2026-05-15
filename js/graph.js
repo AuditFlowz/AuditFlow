@@ -43,7 +43,9 @@ var GRAPH_SCOPES = [
   'Sites.ReadWrite.All',
   'Files.ReadWrite',
   'User.Read',
-  'User.ReadBasic.All', // v77.14b : recherche annuaire M365 pour Owner Picker
+  // 'User.ReadBasic.All', // v77.14b.2 : désactivé temporairement (pas encore accordé par admin)
+                           //              Le picker M365 fonctionne en mode "saisie email libre" sans cette permission.
+                           //              Réactiver dès que l'admin Azure AD accorde le consentement.
   'Calendars.ReadWrite',
   'Mail.Send',
   'OnlineMeetings.ReadWrite'
@@ -587,6 +589,56 @@ async function spDelete(listName, afId) {
     var spId = await findSpItemId(listName, afId);
     if (spId) { await deleteItem(listName, spId); delete _spIdCache[listName + '::' + afId]; }
   } catch(e) { console.error('[SP] Delete error', listName, afId, e.message); }
+}
+
+// ════════════════════════════════════════════════════════════
+//  v77.14b.2 : Envoi d'emails via Microsoft Graph /sendMail
+// ════════════════════════════════════════════════════════════
+// Envoie un email depuis la boîte de l'utilisateur connecté.
+// Permission requise : Mail.Send (déjà dans GRAPH_SCOPES).
+// payload : { toEmail, toName, subject, body }
+async function graphSendMail(payload) {
+  if (!payload || !payload.toEmail || !payload.subject) {
+    throw new Error('Email payload incomplet');
+  }
+  var token = await getGraphToken();
+  if (!token) throw new Error('Pas de token Graph');
+
+  var mailMessage = {
+    message: {
+      subject: payload.subject,
+      body: {
+        contentType: 'Text', // texte brut (cohérent avec mailto:)
+        content: payload.body || '',
+      },
+      toRecipients: [
+        {
+          emailAddress: {
+            address: payload.toEmail,
+            name: payload.toName || payload.toEmail,
+          },
+        },
+      ],
+    },
+    saveToSentItems: true, // garde une copie dans "Éléments envoyés" de l'utilisateur
+  };
+
+  var res = await fetch('https://graph.microsoft.com/v1.0/me/sendMail', {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ' + token,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(mailMessage),
+  });
+
+  if (!res.ok) {
+    var errTxt = await res.text();
+    console.error('[Graph] sendMail failed', res.status, errTxt);
+    throw new Error('Envoi échoué ('+res.status+') : ' + errTxt);
+  }
+  // 202 Accepted = succès
+  return true;
 }
 
 // ════════════════════════════════════════════════════════════
