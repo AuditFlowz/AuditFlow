@@ -438,7 +438,7 @@ async function removeTestEvidence(docId) {
   if (!Array.isArray(d.docs)) return;
   var doc = d.docs.find(function(x){return x.id===docId;});
   if (!doc) return;
-  if (!confirm('Supprimer la preuve "'+doc.name+'" ?')) return;
+  if (!confirm('Supprimer la preuve "'+esc(doc.name)+'" ?')) return;
   // Suppression du fichier SharePoint si possible
   if (doc.itemId && typeof deleteDoc === 'function') {
     try { await deleteDoc(CA, doc.itemId, doc.name); } catch(e){ console.warn('[Evidence] delete SP failed:', e); }
@@ -585,7 +585,7 @@ function _renderAnalysisConfigUI(t, idOrIdx, context, dis, wppId) {
         h += '<button onclick="'+setAnalysisSources+',\'remove\','+srcIdx+',null)" style="font-size:11px;padding:3px 7px;background:#fff;color:#993C1D;border:.5px solid var(--border);border-radius:3px;cursor:pointer">×</button>';
       }
     } else {
-      h += '<span style="flex:1;font-size:11px;padding:4px 7px">'+(''+src).replace(/</g,'&lt;')+'</span>';
+      h += '<span style="flex:1;font-size:11px;padding:4px 7px">'+esc(src)+'</span>';
     }
     h += '</div>';
   });
@@ -606,7 +606,7 @@ function _renderAnalysisConfigUI(t, idOrIdx, context, dis, wppId) {
         h += '<button onclick="'+setAnalysisAttributes+',\'remove\','+attrIdx+',null)" style="font-size:11px;padding:3px 7px;background:#fff;color:#993C1D;border:.5px solid var(--border);border-radius:3px;cursor:pointer">×</button>';
       }
     } else {
-      h += '<span style="flex:1;font-size:11px;padding:4px 7px">'+(''+attr).replace(/</g,'&lt;')+'</span>';
+      h += '<span style="flex:1;font-size:11px;padding:4px 7px">'+esc(attr)+'</span>';
     }
     h += '</div>';
   });
@@ -638,7 +638,7 @@ function _renderAnalysisConfigUI(t, idOrIdx, context, dis, wppId) {
     h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:6px">';
     h += '<div style="font-size:11px;font-weight:600;color:'+anoColor+'">📊 Résultats de l\'analyse</div>';
     if (data.fileName) {
-      h += '<div style="font-size:9px;color:var(--text-3);font-style:italic">'+(''+data.fileName).replace(/</g,'&lt;')+(data.importedAt?' · importé le '+new Date(data.importedAt).toLocaleDateString('fr-FR'):'')+'</div>';
+      h += '<div style="font-size:9px;color:var(--text-3);font-style:italic">'+esc(data.fileName)+(data.importedAt?' · importé le '+new Date(data.importedAt).toLocaleDateString('fr-FR'):'')+'</div>';
     }
     h += '</div>';
     h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:11px;color:'+anoColor+';margin-bottom:8px">';
@@ -652,7 +652,7 @@ function _renderAnalysisConfigUI(t, idOrIdx, context, dis, wppId) {
       var info = results.divergencesByAttribute[attr];
       var pct = results.totalItems > 0 ? (info.count / results.totalItems) * 100 : 0;
       var itemsStr = info.items.slice(0, 5).join(', ') + (info.items.length > 5 ? ' …' : '');
-      h += '<li style="margin-bottom:2px"><strong style="font-weight:500">'+(''+attr).replace(/</g,'&lt;')+'</strong> : '+info.count+'/'+results.totalItems+' ('+pct.toFixed(1)+'%)'+(info.items.length?' → '+itemsStr.replace(/</g,'&lt;'):'')+'</li>';
+      h += '<li style="margin-bottom:2px"><strong style="font-weight:500">'+esc(attr)+'</strong> : '+info.count+'/'+results.totalItems+' ('+pct.toFixed(1)+'%)'+(info.items.length?' → '+esc(itemsStr):'')+'</li>';
     });
     h += '</ul>';
     h += '</div>';
@@ -776,7 +776,7 @@ function showProcRisksModal(procId){
     if (gr.impact) body += '<span class="badge" style="background:'+colors.bg+';color:'+colors.color+';font-size:9px">'+gr.impact+'</span>';
     if (gr.probability) body += '<span class="badge bpl" style="font-size:9px">'+gr.probability+'</span>';
     body += '</div>';
-    if (gr.description) body += '<div style="font-size:10px;color:var(--text-3);margin-top:2px">'+gr.description+'</div>';
+    if (gr.description) body += '<div style="font-size:10px;color:var(--text-3);margin-top:2px">'+esc(gr.description)+'</div>';
     if (typeBadges) body += '<div style="margin-top:3px">'+typeBadges+'</div>';
     body += '</span></label>';
   });
@@ -1023,7 +1023,7 @@ function renderRiskMatrix(){
     var linkedCtrls=allControls.filter(function(c){return linkedIds.includes(c.name);});
     var ctrlBadges=linkedCtrls.map(function(c){
       var res=c.finalized?(c.result==='pass'?'<span style="color:#059669">✓</span>':'<span style="color:#DC2626">✗</span>'):'';
-      return '<span class="badge bpl" style="font-size:9px;margin-right:2px">'+c.name+res+'</span>';
+      return '<span class="badge bpl" style="font-size:9px;margin-right:2px">'+esc(c.name)+res+'</span>';
     }).join('');
     var isAuditRisk=(d.auditRisks||[]).some(function(x){return x.id===r.id;});
 
@@ -1132,7 +1132,7 @@ function showLinkControlModal(riskId){
     var checked=linkedIds.includes(c.name);
     return '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)">'
       +'<input type="checkbox" id="rl-c'+ci+'" value="'+_escQ(c.name)+'" '+(checked?'checked':'')+'/>'
-      +'<label for="rl-c'+ci+'" style="font-size:12px;cursor:pointer;flex:1">'+c.name+'</label>'
+      +'<label for="rl-c'+ci+'" style="font-size:12px;cursor:pointer;flex:1">'+esc(c.name)+'</label>'
       +'<span class="badge '+(c.design==='existing'?'bdn':'btg')+'" style="font-size:9px">'+(c.design==='existing'?'Existing':'Target')+'</span>'
       +(c.finalized?'<span class="badge '+(c.result==='pass'?'bdn':'blt')+'" style="font-size:9px">'+(c.result==='pass'?'Pass':'Fail')+'</span>':'')
       +'</div>';
@@ -1269,7 +1269,7 @@ V['dashboard']=()=>{
     var tb=ap.type==='Process'?'bpc':'bbu';
     var stat=badge(ap.statut||'Planifié');
     return '<tr style="cursor:pointer" onclick="openAudit(this.getAttribute(\'data-id\'))" data-id="'+ap.id+'">'
-      +'<td style="font-weight:500;font-size:11px">'+ap.titre+'</td>'
+      +'<td style="font-weight:500;font-size:11px">'+esc(ap.titre)+'</td>'
       +'<td><span class="badge '+tb+'">'+ap.type+'</span></td>'
       +'<td style="font-size:10px;color:var(--text-2)">'+detail+'</td>'
       +'<td><div style="display:flex;gap:2px">'+avs+'</div></td>'
@@ -1281,7 +1281,7 @@ V['dashboard']=()=>{
 
   var lateRows=lateActions.map(function(a){
     return '<div class="ar"><div style="flex:1"><div class="an">'+a.title+'</div>'
-      +'<div class="am">'+a.dept+' · '+a.quarter+' '+a.year+'</div></div>'
+      +'<div class="am">'+esc(a.dept)+' · '+esc(a.quarter)+' '+a.year+'</div></div>'
       +badge(a.status)+'</div>';
   }).join('')||'<div style="font-size:12px;color:var(--text-3);padding:.5rem">Aucun plan urgent</div>';
 
@@ -1447,7 +1447,7 @@ V['dashboard']=()=>{
           + '<span class="badge" style="background:'+colors.bg+';color:'+colors.color+';font-size:9px">'+cat+'</span>'
           + statBadge
         + '</div>'
-        + '<div style="font-weight:500;font-size:11px">'+om.titre+'</div>'
+        + '<div style="font-weight:500;font-size:11px">'+esc(om.titre)+'</div>'
         + '</div>';
     });
     html += '</div>';
@@ -1749,14 +1749,14 @@ function renderProcTable(){
   filterBar += '<select onchange="_puSetFilter(\'univ\',this.value)" style="font-size:11px;padding:4px 8px;border:.5px solid var(--border);border-radius:3px;background:#fff">';
   filterBar += '<option value="">Tous les univers</option>';
   universList.forEach(function(u){
-    filterBar += '<option value="'+_escAttr(u)+'"'+(_puFilterUniv===u?' selected':'')+'>'+(''+u).replace(/</g,'&lt;')+'</option>';
+    filterBar += '<option value="'+_escAttr(u)+'"'+(_puFilterUniv===u?' selected':'')+'>'+esc(u)+'</option>';
   });
   filterBar += '</select>';
   // Filtre Domaine
   filterBar += '<select onchange="_puSetFilter(\'dom\',this.value)" style="font-size:11px;padding:4px 8px;border:.5px solid var(--border);border-radius:3px;background:#fff">';
   filterBar += '<option value="">Tous les domaines</option>';
   domainList.forEach(function(dd){
-    filterBar += '<option value="'+_escAttr(dd)+'"'+(_puFilterDom===dd?' selected':'')+'>'+(''+dd).replace(/</g,'&lt;')+'</option>';
+    filterBar += '<option value="'+_escAttr(dd)+'"'+(_puFilterDom===dd?' selected':'')+'>'+esc(dd)+'</option>';
   });
   filterBar += '</select>';
   // Recherche texte
@@ -1809,7 +1809,7 @@ function renderProcTable(){
             : '<span style="color:var(--text-3);font-size:11px">—</span>');
 
       // Cellule Univers : avec bouton Renommer au survol (admin only)
-      var univName = (p.univers||'(sans)').replace(/</g,'&lt;');
+      var univName = esc((p.univers||'(sans)'));
       var univCell = isAdmin
         ? '<td class="hover-rename" style="font-size:11px;color:var(--text-2);position:relative">'
             + '<span>'+univName+'</span>'
@@ -1818,7 +1818,7 @@ function renderProcTable(){
         : '<td style="font-size:11px;color:var(--text-2)">'+univName+'</td>';
 
       // Cellule Domaine : avec bouton Renommer au survol (admin only)
-      var domName = (p.dom||'(sans)').replace(/</g,'&lt;');
+      var domName = esc((p.dom||'(sans)'));
       var domCell = isAdmin
         ? '<td class="hover-rename" style="font-size:11px;color:var(--text-2);position:relative">'
             + '<span>'+domName+'</span>'
@@ -1837,7 +1837,7 @@ function renderProcTable(){
       h += '<tr>';
       h += univCell;
       h += domCell;
-      h += '<td style="font-weight:500;font-size:12px">'+(''+p.proc).replace(/</g,'&lt;')+'</td>';
+      h += '<td style="font-weight:500;font-size:12px">'+esc(p.proc)+'</td>';
       h += '<td>'+riskCell+'</td>';
       h += '<td>'+risksCell+'</td>';
       h += actionsCell;
@@ -2034,8 +2034,8 @@ function renderBuwpProcessCard(p, isAdmin) {
   h += '<div style="display:flex;align-items:center;gap:10px;padding:9px 12px;background:#fafafa;cursor:pointer" onclick="toggleBuwpProcess(\''+_escJsArg(p.id)+'\')">';
   h += '<span style="font-size:10px;color:var(--text-3);width:10px;flex-shrink:0">'+(expanded?'▼':'▶')+'</span>';
   h += '<div style="flex:1;min-width:0">';
-  h += '<div style="font-size:12px;font-weight:500">'+(''+(p.proc||'')).replace(/</g,'&lt;')+'</div>';
-  if (hierarchy) h += '<div style="font-size:9px;color:var(--text-3)">'+(''+hierarchy).replace(/</g,'&lt;')+'</div>';
+  h += '<div style="font-size:12px;font-weight:500">'+esc((''+(p.proc||'')))+'</div>';
+  if (hierarchy) h += '<div style="font-size:9px;color:var(--text-3)">'+esc(hierarchy)+'</div>';
   h += '</div>';
   h += '<span style="font-size:10px;color:var(--text-3);flex-shrink:0">'+testCount+(testCount>1?' tests':' test')+'</span>';
   // Bouton "+ Ajouter un test" : à droite, dans le header (stop propagation pour ne pas plier/déplier)
@@ -2068,7 +2068,7 @@ function renderBuwpTestRow(auditProcessId, t, isAdmin) {
   var expanded = !!_buwpExpandedTests[t.id];
 
   // Énoncé tronqué pour la ligne compacte
-  var statement = (t.statement || '(sans énoncé)').replace(/</g,'&lt;');
+  var statement = esc((t.statement || '(sans énoncé)'));
   var maxLen = 110;
   var truncated = statement.length > maxLen ? statement.slice(0, maxLen-1)+'…' : statement;
 
@@ -2076,7 +2076,7 @@ function renderBuwpTestRow(auditProcessId, t, isAdmin) {
   h += '<tr style="border-top:.5px solid #f0f0f0;cursor:pointer" onclick="toggleBuwpTest(\''+_escJsArg(t.id)+'\')">';
   h += '<td style="padding:6px 8px;width:90px;vertical-align:middle;white-space:nowrap">';
   h += '<span style="font-size:9px;color:var(--text-3);margin-right:4px">'+(expanded?'▼':'▶')+'</span>';
-  h += '<span style="background:var(--purple);color:#fff;font-size:9px;padding:2px 6px;border-radius:3px;font-family:monospace;letter-spacing:.4px">'+(t.code||'').replace(/</g,'&lt;')+'</span>';
+  h += '<span style="background:var(--purple);color:#fff;font-size:9px;padding:2px 6px;border-radius:3px;font-family:monospace;letter-spacing:.4px">'+esc((t.code||''))+'</span>';
   h += '</td>';
   h += '<td style="padding:6px 8px;vertical-align:middle">'+truncated+'</td>';
   h += '<td style="padding:6px 8px;width:60px;vertical-align:middle;text-align:right" onclick="event.stopPropagation()">';
@@ -2104,26 +2104,26 @@ function renderBuwpTestDetail(auditProcessId, t, isAdmin) {
   // Énoncé
   h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Énoncé du test</label>';
   if (isAdmin) {
-    h += '<textarea onchange="setBuTestField(\''+_escJsArg(auditProcessId)+'\',\''+_escJsArg(t.id)+'\',\'statement\',this.value)" style="width:100%;min-height:38px;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;resize:vertical;font-family:inherit;box-sizing:border-box;margin-bottom:5px">'+(''+(t.statement||'')).replace(/</g,'&lt;')+'</textarea>';
+    h += '<textarea onchange="setBuTestField(\''+_escJsArg(auditProcessId)+'\',\''+_escJsArg(t.id)+'\',\'statement\',this.value)" style="width:100%;min-height:38px;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;resize:vertical;font-family:inherit;box-sizing:border-box;margin-bottom:5px">'+esc((''+(t.statement||'')))+'</textarea>';
   } else {
-    h += '<div style="font-size:11px;padding:5px 8px;background:#fff;border-radius:3px;margin-bottom:5px">'+(''+(t.statement||'—')).replace(/</g,'&lt;')+'</div>';
+    h += '<div style="font-size:11px;padding:5px 8px;background:#fff;border-radius:3px;margin-bottom:5px">'+esc((''+(t.statement||'—')))+'</div>';
   }
 
   // Objectif (zone large, style assurance)
   h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Objectif (assurance / contrôle interne)</label>';
   if (isAdmin) {
-    h += '<textarea onchange="setBuTestField(\''+_escJsArg(auditProcessId)+'\',\''+_escJsArg(t.id)+'\',\'objective\',this.value)" style="width:100%;min-height:38px;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;resize:vertical;font-family:inherit;box-sizing:border-box;margin-bottom:5px" placeholder="ex : S\'assurer que...">'+(''+(t.objective||'')).replace(/</g,'&lt;')+'</textarea>';
+    h += '<textarea onchange="setBuTestField(\''+_escJsArg(auditProcessId)+'\',\''+_escJsArg(t.id)+'\',\'objective\',this.value)" style="width:100%;min-height:38px;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;resize:vertical;font-family:inherit;box-sizing:border-box;margin-bottom:5px" placeholder="ex : S\'assurer que...">'+esc((''+(t.objective||'')))+'</textarea>';
   } else {
-    h += '<div style="font-size:11px;padding:5px 8px;background:#fff;border-radius:3px;margin-bottom:5px">'+(''+(t.objective||'—')).replace(/</g,'&lt;')+'</div>';
+    h += '<div style="font-size:11px;padding:5px 8px;background:#fff;border-radius:3px;margin-bottom:5px">'+esc((''+(t.objective||'—')))+'</div>';
   }
 
   // Assertions COSO (zone large, format puces, monospace pour bien aligner)
   h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Assertions COSO testées</label>';
   if (isAdmin) {
-    h += '<textarea onchange="setBuTestField(\''+_escJsArg(auditProcessId)+'\',\''+_escJsArg(t.id)+'\',\'assertions\',this.value)" style="width:100%;min-height:60px;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;line-height:1.5;box-sizing:border-box;margin-bottom:1px" placeholder="• Complétude (...)\n• Existence (...)\n• Exactitude (...)">'+(''+(t.assertions||'')).replace(/</g,'&lt;')+'</textarea>';
+    h += '<textarea onchange="setBuTestField(\''+_escJsArg(auditProcessId)+'\',\''+_escJsArg(t.id)+'\',\'assertions\',this.value)" style="width:100%;min-height:60px;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;line-height:1.5;box-sizing:border-box;margin-bottom:1px" placeholder="• Complétude (...)\n• Existence (...)\n• Exactitude (...)">'+esc((''+(t.assertions||'')))+'</textarea>';
     h += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-bottom:7px">Une assertion par ligne, précédée d\'une puce « • »</div>';
   } else {
-    h += '<div style="font-size:11px;padding:5px 8px;background:#fff;border-radius:3px;margin-bottom:7px;white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;line-height:1.5">'+(''+(t.assertions||'—')).replace(/</g,'&lt;')+'</div>';
+    h += '<div style="font-size:11px;padding:5px 8px;background:#fff;border-radius:3px;margin-bottom:7px;white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;line-height:1.5">'+esc((''+(t.assertions||'—')))+'</div>';
   }
 
   // Sampling hint
@@ -2131,7 +2131,7 @@ function renderBuwpTestDetail(auditProcessId, t, isAdmin) {
   if (isAdmin) {
     h += '<input value="'+_escAttr(t.samplingHint)+'" placeholder="ex : 25 transactions sur les 12 derniers mois" onchange="setBuTestField(\''+_escJsArg(auditProcessId)+'\',\''+_escJsArg(t.id)+'\',\'samplingHint\',this.value)" style="width:100%;font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box;margin-bottom:7px"/>';
   } else {
-    h += '<div style="font-size:11px;padding:4px 7px;margin-bottom:7px">'+(''+(t.samplingHint||'—')).replace(/</g,'&lt;')+'</div>';
+    h += '<div style="font-size:11px;padding:4px 7px;margin-bottom:7px">'+esc((''+(t.samplingHint||'—')))+'</div>';
   }
 
   // PBC (sans statut, juste nom + suppression)
@@ -2152,7 +2152,7 @@ function renderBuwpTestDetail(auditProcessId, t, isAdmin) {
         h += '<input value="'+_escAttr(doc.name)+'" placeholder="ex : Journal des ventes" onchange="setBuPbcDoc(\''+_escJsArg(auditProcessId)+'\',\''+_escJsArg(t.id)+'\',\''+_escJsArg(doc.id)+'\',this.value)" style="flex:1;font-size:11px;padding:3px 7px;border:1px solid var(--border);border-radius:3px"/>';
         h += '<button onclick="removeBuPbcDoc(\''+_escJsArg(auditProcessId)+'\',\''+_escJsArg(t.id)+'\',\''+_escJsArg(doc.id)+'\')" title="Supprimer" style="background:#fff;border:.5px solid var(--border);color:var(--text-3);border-radius:3px;width:20px;height:20px;cursor:pointer;font-size:12px;padding:0;line-height:1">×</button>';
       } else {
-        h += '<span style="font-size:11px;flex:1">'+(''+(doc.name||'')).replace(/</g,'&lt;')+'</span>';
+        h += '<span style="font-size:11px;flex:1">'+esc((''+(doc.name||'')))+'</span>';
       }
       h += '</div>';
     });
@@ -2354,7 +2354,7 @@ function editRiskLevel(idx,val){
   PROCESSES[idx].risk=RISK_LEVELS.findIndex(function(r){return r.key===val;})+1||1;
   var p=PROCESSES[idx];
   saveProcessFull(p).catch(console.warn);
-  addHist('edit','Risque "'+p.proc+'" modifié → '+val);
+  addHist('edit','Risque "'+esc(p.proc)+'" modifié → '+val);
   toast('Risque mis à jour ✓');
 }
 
@@ -2362,7 +2362,7 @@ function archiveProc(idx){
   PROCESSES[idx].archived=true;
   var p=PROCESSES[idx];
   saveProcessFull(p).catch(console.warn);
-  addHist('arch','Process "'+p.proc+'" archivé');
+  addHist('arch','Process "'+esc(p.proc)+'" archivé');
   renderProcTable();
   toast('Archivé ✓');
 }
@@ -2378,7 +2378,7 @@ function showAddProcModal(){
   // Construit les options "Univers > Domaine"
   var domOpts = pairs.map(function(pa){
     var label = pa.univ ? pa.univ+' > '+pa.dom : pa.dom;
-    return '<option value="'+_escAttr(pa.univ+'|'+pa.dom)+'">'+label.replace(/</g,'&lt;')+'</option>';
+    return '<option value="'+_escAttr(pa.univ+'|'+pa.dom)+'">'+esc(label)+'</option>';
   }).join('');
   openModal('Nouveau processus',
     '<div><label>Univers > Domaine <span style="color:var(--red)">*</span></label>'
@@ -2418,9 +2418,9 @@ function showEditProcModal(idx){
   var domOpts = pairs.map(function(pa){
     var key = pa.univ+'|'+pa.dom;
     var label = pa.univ ? pa.univ+' > '+pa.dom : pa.dom;
-    return '<option value="'+_escAttr(key)+'"'+(key===currentKey?' selected':'')+'>'+label.replace(/</g,'&lt;')+'</option>';
+    return '<option value="'+_escAttr(key)+'"'+(key===currentKey?' selected':'')+'>'+esc(label)+'</option>';
   }).join('');
-  openModal('Modifier "'+p.proc+'"',
+  openModal('Modifier "'+esc(p.proc)+'"',
     '<div><label>Univers > Domaine</label>'
     +'<select id="m-domkey">'+domOpts+'</select></div>'
     +'<div><label>Nom du processus</label><input id="m-proc" value="'+_escAttr(p.proc)+'"/></div>'
@@ -2437,7 +2437,7 @@ function showEditProcModal(idx){
       p.riskLevel=riskKey;
       p.risk=RISK_LEVELS.findIndex(function(r){return r.key===riskKey;})+1||1;
       saveProcessFull(p).catch(console.warn);
-      addHist('edit','Process "'+p.proc+'" modifié');
+      addHist('edit','Process "'+esc(p.proc)+'" modifié');
       renderProcTable();
       toast('Mis à jour ✓');
     });
@@ -2701,7 +2701,7 @@ function gsCompanyModal(entryId, existingCo) {
       + '<div class="cb-list" style="display:flex;flex-direction:column;gap:3px;max-height:180px;overflow-y:auto;border:.5px solid var(--border);border-radius:var(--radius);padding:8px 10px;background:var(--bg-card)">'
       + pls.map(function(pl){
           var checked = currentPLs.indexOf(pl.id)>=0 ? ' checked' : '';
-          return '<label data-society="'+(pl.society||'')+'"><input type="checkbox" class="gs-pl-cb" value="'+pl.id+'"'+checked+'><span>'+pl.name+' <span style="color:var(--text-3);font-size:10px">('+(pl.society||'')+')</span></span></label>';
+          return '<label data-society="'+(pl.society||'')+'"><input type="checkbox" class="gs-pl-cb" value="'+pl.id+'"'+checked+'><span>'+esc(pl.name)+' <span style="color:var(--text-3);font-size:10px">('+(pl.society||'')+')</span></span></label>';
         }).join('')
       + '</div></div>';
   } else {
@@ -2845,7 +2845,7 @@ function renderPlanAuditTable(){
         var cat = ap.categorie || 'Autre';
         var colors = getOtherCategoryColors(cat);
         var desc = ap.description
-          ? '<div style="font-size:10px;color:var(--text-3);margin-top:2px;font-style:italic">'+ap.description+'</div>'
+          ? '<div style="font-size:10px;color:var(--text-3);margin-top:2px;font-style:italic">'+esc(ap.description)+'</div>'
           : '';
         detail = '<span style="font-size:11px"><strong style="color:'+colors.color+'">'+cat+'</strong>'+desc+'</span>';
         typeBadgeHtml = '<span class="badge" style="background:'+colors.bg+';color:'+colors.color+'">Autre</span>';
@@ -2861,7 +2861,7 @@ function renderPlanAuditTable(){
         ?'<td style="white-space:nowrap" ondblclick="event.stopPropagation()"><button class="bs" style="font-size:10px;padding:2px 7px" onclick="showEditAuditModal('+idx+')">Modifier</button> <button class="bd" style="font-size:10px;padding:2px 7px" onclick="deleteAudit('+idx+')">Supprimer</button></td>':'';
       h+='<tr ondblclick="openAudit(\''+ap.id+'\')" style="cursor:pointer" title="Double-cliquer pour ouvrir l\'audit">'
         +'<td>'+typeBadgeHtml+'</td>'
-        +'<td style="font-weight:500;font-size:12px">'+ap.titre+'</td>'
+        +'<td style="font-weight:500;font-size:12px">'+esc(ap.titre)+'</td>'
         +'<td>'+detail+'</td>'
         +'<td style="font-weight:500;color:var(--purple-dk)">'+ap.annee+dateStr+'</td>'
         +'<td><div style="display:flex;gap:3px">'+(avs||'<span style="font-size:10px;color:var(--text-3)">-</span>')+'</div></td>'
@@ -2895,7 +2895,7 @@ function auditModalBody(ap){
         var checked = currentPids.indexOf(p.id)>=0 ? ' checked' : '';
         return '<label>'
           + '<input type="checkbox" class="m-proc-cb" value="'+p.id+'"'+checked+'>'
-          + '<span>'+p.proc+'</span>'
+          + '<span>'+esc(p.proc)+'</span>'
           + '</label>';
       }).join('');
       return '<div class="m-dom-col">'
@@ -2926,7 +2926,7 @@ function auditModalBody(ap){
         var checked = currentPLs.indexOf(pl.id)>=0 ? ' checked' : '';
         return '<label>'
           + '<input type="checkbox" class="m-pl-cb" value="'+pl.id+'"'+checked+'>'
-          + '<span>'+pl.name+'</span>'
+          + '<span>'+esc(pl.name)+'</span>'
           + '</label>';
       }).join('');
       plListHtml += '<div class="m-dom-col">'
@@ -3033,7 +3033,7 @@ function auditModalBody(ap){
   } else {
     uniqueAuditors.forEach(function(u){
       var checked = isAuditorChecked(u) ? ' checked' : '';
-      h+='<label><input type="checkbox" class="m-auditor" value="'+u.id+'"'+checked+'><span>'+u.name+'</span></label>';
+      h+='<label><input type="checkbox" class="m-auditor" value="'+u.id+'"'+checked+'><span>'+esc(u.name)+'</span></label>';
     });
   }
   h+='</div></div>';
@@ -3169,7 +3169,7 @@ function showAddAuditModal(){
     var newAp=Object.assign({id:'ap'+Date.now()},data);
     AUDIT_PLAN.push(newAp);
     await saveAuditPlan(newAp);
-    addHist('add','Audit "'+data.titre+'" ajouté au plan');
+    addHist('add','Audit "'+esc(data.titre)+'" ajouté au plan');
     renderPlanAuditTable();toast('Audit créé ✓');
   }, {wide:true});
   attachProcCheckboxListeners();
@@ -3180,7 +3180,7 @@ function showEditAuditModal(idx){
     var data=collectAuditModal();if(!data)return;
     AUDIT_PLAN[idx]=Object.assign({},ap,data);
     await saveAuditPlan(AUDIT_PLAN[idx]);
-    addHist('edit','Audit "'+data.titre+'" modifié');
+    addHist('edit','Audit "'+esc(data.titre)+'" modifié');
     renderPlanAuditTable();toast('Audit mis à jour ✓');
   }, {wide:true});
   attachProcCheckboxListeners();
@@ -3222,10 +3222,10 @@ function attachProcCheckboxListeners() {
 }
 async function deleteAudit(idx){
   var ap=AUDIT_PLAN[idx];
-  if(!confirm('Supprimer "'+ap.titre+'" ?'))return;
+  if(!confirm('Supprimer "'+esc(ap.titre)+'" ?'))return;
   AUDIT_PLAN.splice(idx,1);
   await spDelete('AF_AuditPlan',ap.id);
-  addHist('del','Audit "'+ap.titre+'" supprimé');
+  addHist('del','Audit "'+esc(ap.titre)+'" supprimé');
   renderPlanAuditTable();toast('Supprimé');
 }
 
@@ -3304,7 +3304,7 @@ function renderPlanProcessTable(){
         if (!matches.length) return '<span style="color:var(--text-3)">—</span>';
         return matches.map(function(m){
           return '<div ondblclick="openAudit(\''+m.id+'\')" style="display:flex;flex-direction:column;gap:2px;margin-bottom:2px;cursor:pointer;padding:2px 4px;border-radius:3px" title="Double-cliquer pour ouvrir l\'audit" onmouseover="this.style.background=\'var(--purple-lt)\'" onmouseout="this.style.background=\'\'">'
-            + '<span style="font-size:10px;font-weight:500;color:var(--purple-dk)">'+m.titre+'</span>'
+            + '<span style="font-size:10px;font-weight:500;color:var(--purple-dk)">'+esc(m.titre)+'</span>'
             + '<div style="display:flex;gap:3px">'+((m.auditeurs||[]).map(function(id){return avEl(id,16);}).join(''))+'</div>'
             + '</div>';
         }).join('');
@@ -3317,7 +3317,7 @@ function renderPlanProcessTable(){
         ? computeProcRiskLevelFromRefs(p.riskRefs)
         : (p.riskLevel||'faible');
       h+='<tr>'
-        +'<td style="font-weight:500;font-size:11px;padding-left:18px">'+p.proc+'</td>'
+        +'<td style="font-weight:500;font-size:11px;padding-left:18px">'+esc(p.proc)+'</td>'
         +'<td>'+riskLabel(effLvl)+'</td>'
         +'<td>'+covBadge+'</td>'
         +'<td>'+yc(2025)+'</td><td>'+yc(2026)+'</td><td>'+yc(2027)+'</td><td>'+yc(2028)+'</td>'
@@ -3640,7 +3640,7 @@ function renderBUTable(){
         +'<td><span class="badge bsbs">'+(b.entite||'')+'</span></td>'
         +'<td style="color:var(--text-2);font-size:11px">'+(b.region||'')+'</td>'
         +'<td style="font-weight:500;font-size:11px">'+((b.pays||[]).join(', '))+'</td>'
-        +'<td style="font-size:11px">'+b.titre+'</td>'
+        +'<td style="font-size:11px">'+esc(b.titre)+'</td>'
         +'<td style="font-weight:500;color:var(--purple-dk)">'+b.annee+'</td>'
         +'<td><div style="display:flex;gap:3px">'+(avs||'<span style="font-size:10px;color:var(--text-3)">—</span>')+'</div></td>'
         +'<td>'+badge(b.statut||'Planifié')+'</td>'
@@ -3655,7 +3655,7 @@ function renderBUTable(){
           +'<td><span class="badge bsbs">'+(b.entite||'')+'</span></td>'
           +'<td style="color:var(--text-2);font-size:11px">'+(b.region||'')+'</td>'
           +'<td style="font-weight:500;font-size:11px">'+((b.pays||[]).join(', '))+'</td>'
-          +'<td style="font-size:11px">'+b.titre+'</td>'
+          +'<td style="font-size:11px">'+esc(b.titre)+'</td>'
           +'<td style="font-weight:500;color:var(--purple-dk)">'+b.annee+'</td>'
           +'<td><div style="display:flex;gap:3px">'+(avs||'<span style="font-size:10px;color:var(--text-3)">—</span>')+'</div></td>'
           +'<td>'+badge(b.statut||'Planifié')+'</td>'
@@ -3743,7 +3743,7 @@ function showAddAuditFromPlanif(){
     var newAp = Object.assign({id:'ap'+Date.now()}, data);
     AUDIT_PLAN.push(newAp);
     await saveAuditPlan(newAp);
-    addHist('add','Audit "'+data.titre+'" ajouté au plan');
+    addHist('add','Audit "'+esc(data.titre)+'" ajouté au plan');
     // Refresh du Gantt
     renderGantt();
     toast('Audit créé ✓');
@@ -3826,7 +3826,7 @@ function renderActionList(){
       +badge(a.status)
       +(a.fromFinding?'<span class="tag-new">↗ Finding</span>':'')
       +'</div>'
-      +'<div style="font-size:11px;color:var(--text-2);margin-bottom:4px">Audit : '+a.audit+' · Resp. : '+a.resp+' · Dept : <strong>'+a.dept+'</strong> · Éch. : '+a.quarter+' '+a.year+(a.findingTitle?'<span style="color:var(--text-3)"> · "'+a.findingTitle+'"</span>':'')+'</div>'
+      +'<div style="font-size:11px;color:var(--text-2);margin-bottom:4px">Audit : '+esc(a.audit)+' · Resp. : '+esc(a.resp)+' · Dept : <strong>'+esc(a.dept)+'</strong> · Éch. : '+esc(a.quarter)+' '+a.year+(a.findingTitle?'<span style="color:var(--text-3)"> · "'+esc(a.findingTitle)+'"</span>':'')+'</div>'
       +'<div style="display:flex;align-items:center;gap:8px"><div style="flex:1;height:5px;background:var(--bg);border-radius:3px;overflow:hidden"><div style="height:100%;border-radius:3px;background:'+(fc[a.status]||'var(--purple)')+';width:'+a.pct+'%"></div></div><span style="font-size:10px;color:var(--text-3)">'+a.pct+'%</span></div>'
       +'</div>';
   }).join('')||'<div style="font-size:12px;color:var(--text-3)">Aucun plan d\'action.</div>';
@@ -3835,7 +3835,7 @@ function renderActionList(){
 async function showNewActionModal(){
   openModal("Nouveau plan d'action",
     '<div><label>Titre</label><input id="pa-title" placeholder="ex : Revue des accès ERP"/></div>'
-    +'<div><label>Lié à l\'audit</label><select id="pa-audit">'+AUDIT_PLAN.map(function(a){return'<option>'+a.titre+'</option>';}).join('')+'</select></div>'
+    +'<div><label>Lié à l\'audit</label><select id="pa-audit">'+AUDIT_PLAN.map(function(a){return'<option>'+esc(a.titre)+'</option>';}).join('')+'</select></div>'
     +'<div><label>Responsable</label><select id="pa-resp"><option>Selma H.</option><option>Nisrine E.</option></select></div>'
     +'<div><label>Département owner</label><input id="pa-dept" placeholder="ex : Finance, IT, RH..."/></div>'
     +'<div><label>Entité</label><select id="pa-ent"><option>Groupe</option><option>74S</option><option>SBS</option><option>AXW</option></select></div>'
@@ -3977,7 +3977,7 @@ function raRender() {
   // ── Intro ──
   html += '<div class="card" style="margin-bottom:.75rem">';
   html += '<div style="font-size:12px;font-weight:600;color:var(--text-2);margin-bottom:6px">Introduction (apparaît en haut de la slide « Risk valuation matrix » du rapport)</div>';
-  html += '<textarea onchange="raSetIntro(this.value)" style="width:100%;min-height:80px;font-size:12px;padding:8px;border:1px solid var(--border);border-radius:4px;resize:vertical">'+(RA_DATA.intro||'').replace(/</g,'&lt;')+'</textarea>';
+  html += '<textarea onchange="raSetIntro(this.value)" style="width:100%;min-height:80px;font-size:12px;padding:8px;border:1px solid var(--border);border-radius:4px;resize:vertical">'+esc((RA_DATA.intro||''))+'</textarea>';
   html += '</div>';
 
   // ── Tableau Impacts (matrice 4 colonnes par catégorie) ──
@@ -3997,7 +3997,7 @@ function raRender() {
     html += '<tr>';
     html += '<td style="background:#F2F2F2;padding:6px;border:1px solid #ccc;font-weight:bold;vertical-align:top"><input value="'+(row.label||'').replace(/"/g,'&quot;')+'" onchange="raSetRowLabel('+ri+',this.value)" style="width:100%;background:transparent;border:none;font-weight:bold;font-size:11px"/></td>';
     row.cells.forEach(function(c, ci){
-      html += '<td style="padding:0;border:1px solid #ccc;vertical-align:top"><textarea onchange="raSetCell('+ri+','+ci+',this.value)" style="width:100%;min-height:80px;border:none;padding:6px;font-size:10px;resize:vertical;font-family:inherit;background:transparent">'+(c||'').replace(/</g,'&lt;')+'</textarea></td>';
+      html += '<td style="padding:0;border:1px solid #ccc;vertical-align:top"><textarea onchange="raSetCell('+ri+','+ci+',this.value)" style="width:100%;min-height:80px;border:none;padding:6px;font-size:10px;resize:vertical;font-family:inherit;background:transparent">'+esc((c||''))+'</textarea></td>';
     });
     html += '</tr>';
   });
@@ -4079,7 +4079,7 @@ function ruRender(){
     html += '<span style="font-size:10px;font-weight:700;color:var(--purple-dk);letter-spacing:.05em">URD</span>';
     html += '<span style="font-size:15px;font-weight:600">'+gr.title+'</span>';
     html += '</div>';
-    if (gr.description) html += '<div style="font-size:11px;color:var(--text-2);margin-bottom:6px">'+gr.description+'</div>';
+    if (gr.description) html += '<div style="font-size:11px;color:var(--text-2);margin-bottom:6px">'+esc(gr.description)+'</div>';
     html += '<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-top:6px">';
     if (gr.probability) html += '<span class="badge bpl" style="font-size:10px">Prob: '+gr.probability+'</span>';
     if (gr.impact) html += '<span class="badge" style="background:'+impactColors.bg+';color:'+impactColors.color+';font-size:10px;font-weight:600">Impact: '+gr.impact+'</span>';
@@ -4102,7 +4102,7 @@ function ruRender(){
         html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:var(--bg-card);border-radius:6px;margin-bottom:4px;font-size:11px">';
         html += '<div style="flex:1">';
         html += '<div style="font-weight:500">'+or.title+'</div>';
-        if (or.description) html += '<div style="font-size:10px;color:var(--text-3);margin-top:2px">'+or.description+'</div>';
+        if (or.description) html += '<div style="font-size:10px;color:var(--text-3);margin-top:2px">'+esc(or.description)+'</div>';
         html += '</div>';
         html += '<div style="display:flex;gap:4px;margin-left:10px">';
         html += '<span class="badge" style="background:'+impactColors.bg+';color:'+impactColors.color+';font-size:9px">Hérite '+(gr.impact||'—')+'</span>';
@@ -4378,13 +4378,13 @@ function plRender(){
         : '<span style="font-size:10px;color:var(--text-3);font-style:italic">Aucun pays</span>';
       html += '<div class="card" style="padding:12px 14px">'
         + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">'
-          + '<div style="font-size:13px;font-weight:600">'+pl.name+'</div>'
+          + '<div style="font-size:13px;font-weight:600">'+esc(pl.name)+'</div>'
           + '<div style="display:flex;gap:4px">'
             + (CU&&CU.role==='admin'?'<button class="bs" style="font-size:10px;padding:2px 6px" onclick="plEditProductLine(\''+pl.id+'\')">Éditer</button>':'')
             + (CU&&CU.role==='admin'?'<button class="bd" style="font-size:10px;padding:2px 6px" onclick="plDeleteProductLine(\''+pl.id+'\')">×</button>':'')
           + '</div>'
         + '</div>'
-        + (pl.description ? '<div style="font-size:11px;color:var(--text-2);margin-bottom:8px">'+pl.description+'</div>' : '')
+        + (pl.description ? '<div style="font-size:11px;color:var(--text-2);margin-bottom:8px">'+esc(pl.description)+'</div>' : '')
         + '<div style="font-size:10px;color:var(--text-3);margin-bottom:4px">Pays ('+countries.length+')</div>'
         + '<div style="display:flex;flex-wrap:wrap;gap:3px">'+countriesHtml+'</div>'
         + '</div>';
@@ -4464,10 +4464,10 @@ function plEditProductLine(plId){
 async function plDeleteProductLine(plId){
   var pl = PRODUCT_LINES.find(function(x){return x.id===plId;});
   if (!pl) return;
-  if (!confirm('Supprimer la Product Line "'+pl.name+'" ?')) return;
+  if (!confirm('Supprimer la Product Line "'+esc(pl.name)+'" ?')) return;
   await spDelete('AF_ProductLines', plId);
   PRODUCT_LINES = PRODUCT_LINES.filter(function(x){return x.id!==plId;});
-  addHist('del', 'Product Line "'+pl.name+'" supprimée');
+  addHist('del', 'Product Line "'+esc(pl.name)+'" supprimée');
   plRender();
   toast('Product Line supprimée ✓');
 }
@@ -4577,7 +4577,7 @@ function teamRenderCard(g, idx) {
   }
 
   // Nom
-  html += '<div style="font-size:15px;font-weight:600;color:var(--text-1)">'+g.name+'</div>';
+  html += '<div style="font-size:15px;font-weight:600;color:var(--text-1)">'+esc(g.name)+'</div>';
   // Role
   var roleLabel = g.role === 'admin' ? 'Administrateur' : g.role === 'auditeur' ? 'Auditeur' : g.role;
   html += '<div style="font-size:11px;color:var(--text-3);font-style:italic;margin-bottom:10px">'+roleLabel+'</div>';
@@ -4653,13 +4653,13 @@ async function teamShowEditModal(memberIdx) {
   // Experience
   body += '<div>';
   body += '<label style="font-size:11px;color:var(--text-3)">Experience</label>';
-  body += '<textarea id="tm-experience" style="width:100%;min-height:60px;font-size:12px;padding:6px;border:1px solid var(--border);border-radius:4px;resize:vertical" placeholder="ex : 10+ years in audit, 5 years at PwC, IFRS expert...">'+(experience||'').replace(/</g,'&lt;')+'</textarea>';
+  body += '<textarea id="tm-experience" style="width:100%;min-height:60px;font-size:12px;padding:6px;border:1px solid var(--border);border-radius:4px;resize:vertical" placeholder="ex : 10+ years in audit, 5 years at PwC, IFRS expert...">'+esc((experience||''))+'</textarea>';
   body += '</div>';
 
   // Academics
   body += '<div>';
   body += '<label style="font-size:11px;color:var(--text-3)">Academics</label>';
-  body += '<textarea id="tm-academics" style="width:100%;min-height:60px;font-size:12px;padding:6px;border:1px solid var(--border);border-radius:4px;resize:vertical" placeholder="ex : MSc Finance ESCP, CFA, CIA...">'+(academics||'').replace(/</g,'&lt;')+'</textarea>';
+  body += '<textarea id="tm-academics" style="width:100%;min-height:60px;font-size:12px;padding:6px;border:1px solid var(--border);border-radius:4px;resize:vertical" placeholder="ex : MSc Finance ESCP, CFA, CIA...">'+esc((academics||''))+'</textarea>';
   body += '</div>';
 
   body += '</div>';
@@ -4837,7 +4837,7 @@ function renderUsersTbl(){
   document.getElementById('utbl').innerHTML = grouped.map(function(p, i){
     var emptyMail = '<span style="color:var(--text-3);font-size:11px;font-style:italic">—</span>';
     return'<tr>'
-      +'<td style="font-weight:500">'+p.name+'</td>'
+      +'<td style="font-weight:500">'+esc(p.name)+'</td>'
       +'<td style="color:var(--text-2);font-size:11px">'+(p.email74 || emptyMail)+'</td>'
       +'<td style="color:var(--text-2);font-size:11px">'+(p.emailAxway || emptyMail)+(p.emailOther && !p.email74 && !p.emailAxway ? ' '+p.emailOther : '')+'</td>'
       +'<td><span class="badge '+(RB[p.role]||'bpl')+'">'+(RL[p.role]||p.role)+'</span></td>'
@@ -4932,7 +4932,7 @@ function renderAuditList(){
   var rows=getAudits().filter(function(a){return(ft==='all'||a.type===ft)&&(fs==='all'||a.status===fs);});
   document.getElementById('audit-list').innerHTML=rows.length
     ?rows.map(function(a){return'<div class="ar" onclick="openAudit(\''+a.id+'\')">'
-      +'<div style="flex:1"><div class="an">'+a.name+'</div><div class="am">'+a.ent+' · '+a.type+'</div></div>'
+      +'<div style="flex:1"><div class="an">'+esc(a.name)+'</div><div class="am">'+a.ent+' · '+a.type+'</div></div>'
       +'<div style="display:flex;gap:2px">'+((a.assignedTo||[]).map(function(id){return avEl(id,20);}).join(''))+'</div>'
       +'<span class="badge '+(a.type==='Process'?'bpc':'bbu')+'">'+a.type+'</span>'
       +badge(a.status)
@@ -4964,7 +4964,7 @@ V['audit-detail']=()=>{
     <div class="topbar">
       <div style="display:flex;align-items:center;gap:8px">
         <button class="bs" onclick="nav('dashboard')">← Retour</button>
-        <div class="tbtitle">${a.name}</div>
+        <div class="tbtitle">${esc(a.name)}</div>
       </div>
       <div style="display:flex;gap:7px" id="step-actions">
         <button class="bs" onclick="showInterviewsLibrary()" style="font-size:11px;" title="Bibliothèque d'entretiens de l'audit">📋 Entretiens (${interviewsCount})</button>
@@ -5226,7 +5226,7 @@ function renderAuditHeaderCompact(a, step, pct) {
       return '<div onclick="goStep('+i+')" style="width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;cursor:pointer;flex-shrink:0;'+dotStyle+'" title="'+_stepLabel(i)+'">'+dotContent+'</div>'+separator;
     }).join('');
     return '<div style="background:'+p.bg+';padding:7px 10px;border-radius:6px;flex:'+p.idxs.length+'">'
-      + '<div style="font-size:9px;color:'+p.txt+';font-weight:500;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:5px">'+p.name+'</div>'
+      + '<div style="font-size:9px;color:'+p.txt+';font-weight:500;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:5px">'+esc(p.name)+'</div>'
       + '<div style="display:flex;align-items:center;gap:0">'+stepDots+'</div>'
       + '</div>';
   }).join('<div style="width:6px"></div>');
@@ -5683,7 +5683,7 @@ function renderKickoffGenerateBanner() {
       var draftEditUrl = toEditableOfficeUrl(draftKO.webUrl);
       html += '<div style="font-size:11px;color:#854F0B;padding:7px 10px;background:#FAEEDA;border:.5px solid #FAC775;border-radius:4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
       html += '<span>📝</span>';
-      html += '<span style="flex:1;min-width:160px"><strong style="font-weight:500">Draft</strong> · généré le '+draftDate+(draftKO.uploadedBy?' par '+draftKO.uploadedBy.replace(/</g,'&lt;'):'')+'</span>';
+      html += '<span style="flex:1;min-width:160px"><strong style="font-weight:500">Draft</strong> · généré le '+draftDate+(draftKO.uploadedBy?' par '+esc(draftKO.uploadedBy):'')+'</span>';
       html += '<a href="'+draftEditUrl.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener" style="font-size:10px;padding:3px 8px;background:#854F0B;color:#fff;border:.5px solid #854F0B;border-radius:3px;text-decoration:none;font-weight:500" title="Ouvrir et modifier le draft dans PowerPoint Online">✏ Modifier draft</a>';
       html += '<button class="bp" style="font-size:10px;padding:3px 8px;background:#3C3489;color:#fff;border:.5px solid #3C3489;border-radius:3px;font-weight:500" onclick="finalizeKickoff()" title="Copier le draft actuel comme version finale">📌 Marquer comme version finale</button>';
       html += '</div>';
@@ -5695,7 +5695,7 @@ function renderKickoffGenerateBanner() {
       var finalEditUrl = toEditableOfficeUrl(finalKO.webUrl);
       html += '<div style="font-size:11px;color:#085041;padding:7px 10px;background:#E1F5EE;border:.5px solid #A6E2CD;border-radius:4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
       html += '<span>📌</span>';
-      html += '<span style="flex:1;min-width:160px"><strong style="font-weight:500">Version finale</strong> · figée le '+finalDate+(finalKO.finalizedBy?' par '+finalKO.finalizedBy.replace(/</g,'&lt;'):'')+' &middot; <em>Lien envoyé dans la convocation</em></span>';
+      html += '<span style="flex:1;min-width:160px"><strong style="font-weight:500">Version finale</strong> · figée le '+finalDate+(finalKO.finalizedBy?' par '+esc(finalKO.finalizedBy):'')+' &middot; <em>Lien envoyé dans la convocation</em></span>';
       html += '<a href="'+finalEditUrl.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener" style="font-size:10px;padding:3px 8px;background:#3C3489;color:#fff;border:.5px solid #3C3489;border-radius:3px;text-decoration:none;font-weight:500" title="Ouvrir et modifier la version finale dans PowerPoint Online">✏ Modifier final</a>';
       html += '<a href="'+finalKO.webUrl.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener" style="font-size:10px;padding:3px 8px;background:#fff;color:#085041;border:.5px solid #A6E2CD;border-radius:3px;text-decoration:none" title="Ouvrir en lecture seule">Ouvrir →</a>';
       html += '</div>';
@@ -5858,7 +5858,7 @@ function renderKickoffPrepSection() {
       // Titre (gras)
       html += '<input value="'+(sp.name||'').replace(/"/g,'&quot;')+'" placeholder="ex : Order entry" onchange="setSubProcess('+idx+',\'name\',this.value)" style="width:100%;font-size:12px;font-weight:500;padding:6px 9px;border:1px solid var(--border);border-radius:3px;margin-bottom:5px;box-sizing:border-box"/>';
       // Description (textarea sous le titre)
-      html += '<textarea onchange="setSubProcess('+idx+',\'description\',this.value)" placeholder="ex : Saisie commandes clients dans SAP" style="width:100%;min-height:54px;font-size:11px;padding:6px 9px;border:1px solid var(--border);border-radius:3px;resize:vertical;margin-bottom:7px;box-sizing:border-box;font-family:inherit">'+(sp.description||'').replace(/</g,'&lt;')+'</textarea>';
+      html += '<textarea onchange="setSubProcess('+idx+',\'description\',this.value)" placeholder="ex : Saisie commandes clients dans SAP" style="width:100%;min-height:54px;font-size:11px;padding:6px 9px;border:1px solid var(--border);border-radius:3px;resize:vertical;margin-bottom:7px;box-sizing:border-box;font-family:inherit">'+esc((sp.description||''))+'</textarea>';
       // Owner(s) + email côte à côte
       html += '<div style="display:grid;grid-template-columns:1.4fr 2fr;gap:6px">';
       html += '<input value="'+(sp.owners||'').replace(/"/g,'&quot;')+'" placeholder="Owner(s) — ex : J. Smith" onchange="setSubProcess('+idx+',\'owners\',this.value)" style="font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box"/>';
@@ -5951,8 +5951,8 @@ function renderAuditRisksSubsection() {
       // Ligne principale
       html += '<div style="display:grid;grid-template-columns:'+gridCols+';gap:0;font-size:11px;align-items:center">';
       html += '<span>'+sourceBadge+'</span>';
-      html += '<span><div style="font-weight:500;color:var(--text)">'+(r.title||r.label||'').replace(/</g,'&lt;')+'</div>';
-      if (r.description) html += '<div style="font-size:10px;color:var(--text-3);margin-top:2px">'+r.description.replace(/</g,'&lt;')+'</div>';
+      html += '<span><div style="font-weight:500;color:var(--text)">'+esc((r.title||r.label||''))+'</div>';
+      if (r.description) html += '<div style="font-size:10px;color:var(--text-3);margin-top:2px">'+esc(r.description)+'</div>';
       html += '</span>';
       html += '<span style="font-size:11px">'+probDisp+'</span>';
       html += '<span style="font-size:11px">'+impDisp+'</span>';
@@ -5978,7 +5978,7 @@ function renderAuditRisksSubsection() {
             ? 'background:var(--purple-lt);color:var(--purple-dk);border:1px solid var(--purple);font-size:10px;padding:3px 9px;border-radius:11px;cursor:pointer;user-select:none;line-height:1.2'
             : 'background:#fff;color:var(--text-3);border:.5px solid var(--border);font-size:10px;padding:3px 9px;border-radius:11px;cursor:pointer;user-select:none;line-height:1.2';
           var prefix = isLinked ? '✓ ' : '+ ';
-          html += '<span onclick="toggleSubProcessRiskLink(\''+r.id+'\',\''+spNameEsc+'\')" style="'+pillStyle+'">'+prefix+(spName.length>26?spName.slice(0,24)+'…':spName).replace(/</g,'&lt;')+'</span>';
+          html += '<span onclick="toggleSubProcessRiskLink(\''+r.id+'\',\''+spNameEsc+'\')" style="'+pillStyle+'">'+prefix+esc((spName.length>26?spName.slice(0,24)+'…':spName))+'</span>';
         });
         html += '</div>';
       } else {
@@ -6270,8 +6270,8 @@ function renderWpBuOwnersTable(wp, isPreparer) {
     h += '<tr style="border-bottom:.5px solid #f0f0f0">';
     // Cell Process
     h += '<td style="padding:8px 10px;vertical-align:top">';
-    h += '<div style="font-weight:500;font-size:12px">'+(''+procName).replace(/</g,'&lt;')+'</div>';
-    if (loc) h += '<div style="font-size:9px;color:var(--text-3);margin-top:1px">'+(''+loc).replace(/</g,'&lt;')+'</div>';
+    h += '<div style="font-weight:500;font-size:12px">'+esc(procName)+'</div>';
+    if (loc) h += '<div style="font-size:9px;color:var(--text-3);margin-top:1px">'+esc(loc)+'</div>';
     h += '</td>';
     // Cell Owners
     h += '<td style="padding:6px 10px;vertical-align:top">';
@@ -6286,8 +6286,8 @@ function renderWpBuOwnersTable(wp, isPreparer) {
           h += '<input value="'+_escAttr(o.email)+'" type="email" placeholder="email" onchange="setWpBuOwner(\''+_escJsArg(wpp.id)+'\',\''+_escJsArg(o.id)+'\',\'email\',this.value)" style="flex:1;font-size:11px;padding:3px 6px;border:.5px solid var(--border);border-radius:3px;background:#fff;color:var(--text-2);min-width:0"/>';
           h += '<button onclick="removeWpBuOwner(\''+_escJsArg(wpp.id)+'\',\''+_escJsArg(o.id)+'\')" title="Supprimer" style="background:#fff;border:.5px solid var(--border);color:var(--text-3);border-radius:3px;width:18px;height:20px;line-height:1;cursor:pointer;padding:0;font-size:11px;flex-shrink:0">×</button>';
         } else {
-          h += '<span style="flex:0 0 110px;font-size:11px;font-weight:500">'+(''+(o.name||'')).replace(/</g,'&lt;')+'</span>';
-          h += '<span style="flex:1;font-size:11px;color:var(--text-2)">'+(''+(o.email||'')).replace(/</g,'&lt;')+'</span>';
+          h += '<span style="flex:0 0 110px;font-size:11px;font-weight:500">'+esc((''+(o.name||'')))+'</span>';
+          h += '<span style="flex:1;font-size:11px;color:var(--text-2)">'+esc((''+(o.email||'')))+'</span>';
         }
         h += '</div>';
       });
@@ -6334,8 +6334,8 @@ function renderWpBuProcessCard(wpp, isPreparer) {
   h += '<div style="display:flex;align-items:center;gap:10px;padding:9px 12px;background:#fafafa;cursor:pointer" onclick="toggleWpBuProcess(\''+_escJsArg(wpp.id)+'\')">';
   h += '<span style="font-size:10px;color:var(--text-3);width:10px;flex-shrink:0">'+(expanded?'▼':'▶')+'</span>';
   h += '<div style="flex:1;min-width:0">';
-  h += '<div style="font-size:12px;font-weight:500">'+(''+procName).replace(/</g,'&lt;')+'</div>';
-  if (hierarchy) h += '<div style="font-size:9px;color:var(--text-3)">'+(''+hierarchy).replace(/</g,'&lt;')+'</div>';
+  h += '<div style="font-size:12px;font-weight:500">'+esc(procName)+'</div>';
+  if (hierarchy) h += '<div style="font-size:9px;color:var(--text-3)">'+esc(hierarchy)+'</div>';
   h += '</div>';
   h += '<span style="background:'+modeBadgeBg+';color:'+modeBadgeColor+';font-size:9px;padding:2px 7px;border-radius:3px;font-weight:600;letter-spacing:.3px;flex-shrink:0">'+modeBadgeLabel+'</span>';
   if (isDesignOnly) {
@@ -6429,7 +6429,7 @@ function renderWpBuTestRowCompact(wppId, t, isPreparer) {
   else if (t.modifiedFromRef) sourceTag = ' <span style="font-size:8px;color:#854F0B;font-style:italic">(modifié)</span>';
 
   // Énoncé tronqué si trop long (les détails complets seront dans la vue dépliée)
-  var statement = (t.statement || '(sans énoncé)').replace(/</g,'&lt;');
+  var statement = esc((t.statement || '(sans énoncé)'));
   var maxLen = 110;
   var truncated = statement.length > maxLen ? statement.slice(0, maxLen-1)+'…' : statement;
 
@@ -6437,7 +6437,7 @@ function renderWpBuTestRowCompact(wppId, t, isPreparer) {
   h += '<tr style="border-top:.5px solid #f0f0f0;cursor:pointer" onclick="toggleWpBuTest(\''+_escJsArg(t.id)+'\')">';
   h += '<td style="padding:6px 8px;width:90px;vertical-align:middle;white-space:nowrap">';
   h += '<span style="font-size:9px;color:var(--text-3);width:8px;display:inline-block;margin-right:3px">'+(expanded?'▼':'▶')+'</span>';
-  h += '<span style="background:var(--purple);color:#fff;font-size:9px;padding:2px 6px;border-radius:3px;font-family:monospace;letter-spacing:.4px">'+(t.code||'').replace(/</g,'&lt;')+'</span>';
+  h += '<span style="background:var(--purple);color:#fff;font-size:9px;padding:2px 6px;border-radius:3px;font-family:monospace;letter-spacing:.4px">'+esc((t.code||''))+'</span>';
   h += '</td>';
   h += '<td style="padding:6px 8px;vertical-align:middle">'+truncated+sourceTag+'</td>';
   if (isPreparer) {
@@ -6467,32 +6467,32 @@ function renderWpBuTestRowDetail(wppId, t, isPreparer) {
   // Énoncé éditable
   h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Énoncé du test</label>';
   if (isPreparer) {
-    h += '<textarea onchange="setWpBuTestField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'statement\',this.value)" style="width:100%;min-height:38px;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;resize:vertical;font-family:inherit;box-sizing:border-box;margin-bottom:5px">'+(''+(t.statement||'')).replace(/</g,'&lt;')+'</textarea>';
+    h += '<textarea onchange="setWpBuTestField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'statement\',this.value)" style="width:100%;min-height:38px;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;resize:vertical;font-family:inherit;box-sizing:border-box;margin-bottom:5px">'+esc((''+(t.statement||'')))+'</textarea>';
   } else {
-    h += '<div style="font-size:11px;padding:5px 8px;background:#fff;border-radius:3px;margin-bottom:5px">'+(''+(t.statement||'—')).replace(/</g,'&lt;')+'</div>';
+    h += '<div style="font-size:11px;padding:5px 8px;background:#fff;border-radius:3px;margin-bottom:5px">'+esc((''+(t.statement||'—')))+'</div>';
   }
   // Objectif (zone large, style assurance)
   h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Objectif (assurance / contrôle interne)</label>';
   if (isPreparer) {
-    h += '<textarea onchange="setWpBuTestField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'objective\',this.value)" style="width:100%;min-height:38px;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;resize:vertical;font-family:inherit;box-sizing:border-box;margin-bottom:5px" placeholder="ex : S\'assurer que...">'+(''+(t.objective||'')).replace(/</g,'&lt;')+'</textarea>';
+    h += '<textarea onchange="setWpBuTestField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'objective\',this.value)" style="width:100%;min-height:38px;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;resize:vertical;font-family:inherit;box-sizing:border-box;margin-bottom:5px" placeholder="ex : S\'assurer que...">'+esc((''+(t.objective||'')))+'</textarea>';
   } else {
-    h += '<div style="font-size:11px;padding:5px 8px;background:#fff;border-radius:3px;margin-bottom:5px">'+(''+(t.objective||'—')).replace(/</g,'&lt;')+'</div>';
+    h += '<div style="font-size:11px;padding:5px 8px;background:#fff;border-radius:3px;margin-bottom:5px">'+esc((''+(t.objective||'—')))+'</div>';
   }
 
   // Assertions COSO (zone large, monospace pour bien aligner les puces)
   h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Assertions COSO testées</label>';
   if (isPreparer) {
-    h += '<textarea onchange="setWpBuTestField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'assertions\',this.value)" style="width:100%;min-height:60px;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;line-height:1.5;box-sizing:border-box;margin-bottom:1px" placeholder="• Complétude (...)\n• Existence (...)\n• Exactitude (...)">'+(''+(t.assertions||'')).replace(/</g,'&lt;')+'</textarea>';
+    h += '<textarea onchange="setWpBuTestField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'assertions\',this.value)" style="width:100%;min-height:60px;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;line-height:1.5;box-sizing:border-box;margin-bottom:1px" placeholder="• Complétude (...)\n• Existence (...)\n• Exactitude (...)">'+esc((''+(t.assertions||'')))+'</textarea>';
     h += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-bottom:7px">Une assertion par ligne, précédée d\'une puce « • »</div>';
   } else {
-    h += '<div style="font-size:11px;padding:5px 8px;background:#fff;border-radius:3px;margin-bottom:7px;white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;line-height:1.5">'+(''+(t.assertions||'—')).replace(/</g,'&lt;')+'</div>';
+    h += '<div style="font-size:11px;padding:5px 8px;background:#fff;border-radius:3px;margin-bottom:7px;white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;line-height:1.5">'+esc((''+(t.assertions||'—')))+'</div>';
   }
   // Sampling
   h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Méthode / sample (combien et comment)</label>';
   if (isPreparer) {
     h += '<input value="'+_escAttr(t.samplingHint)+'" placeholder="ex : 25 transactions sur les 12 derniers mois" onchange="setWpBuTestField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'samplingHint\',this.value)" style="width:100%;font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box;margin-bottom:7px"/>';
   } else {
-    h += '<div style="font-size:11px;padding:4px 7px;margin-bottom:7px">'+(''+(t.samplingHint||'—')).replace(/</g,'&lt;')+'</div>';
+    h += '<div style="font-size:11px;padding:4px 7px;margin-bottom:7px">'+esc((''+(t.samplingHint||'—')))+'</div>';
   }
   // PBC avec statut
   h += '<div style="border-top:.5px dashed var(--border);padding-top:7px;margin-top:3px">';
@@ -6523,7 +6523,7 @@ function renderWpBuTestRowDetail(wppId, t, isPreparer) {
         h += '</select>';
         h += '<button onclick="removeWpBuPbc(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\''+_escJsArg(doc.id)+'\')" title="Supprimer" style="background:#fff;border:.5px solid var(--border);color:var(--text-3);border-radius:3px;width:20px;height:20px;cursor:pointer;font-size:12px;padding:0;line-height:1">×</button>';
       } else {
-        h += '<span style="font-size:11px;flex:1">'+(''+(doc.name||'')).replace(/</g,'&lt;')+'</span>';
+        h += '<span style="font-size:11px;flex:1">'+esc((''+(doc.name||'')))+'</span>';
         h += '<span style="font-size:10px;padding:2px 7px;border-radius:3px;background:'+statusBg+';color:'+statusColor+';font-weight:500">'+(doc.status||'à demander')+'</span>';
       }
       h += '</div>';
@@ -6583,11 +6583,11 @@ function showUploadBuWorkProgramModal() {
   var body = '<div style="font-size:11px;color:var(--text-3);margin-bottom:10px">Coche les Process du référentiel BU à importer dans l\'audit. Leurs tests seront copiés et restent modifiables localement.</div>';
   body += '<div id="upload-bu-body">';
   universList.forEach(function(univ){
-    body += '<div style="background:#3C3489;color:#fff;font-weight:700;padding:6px 10px;font-size:10px;letter-spacing:.5px;text-transform:uppercase;margin-bottom:4px">'+(''+univ).replace(/</g,'&lt;')+'</div>';
+    body += '<div style="background:#3C3489;color:#fff;font-weight:700;padding:6px 10px;font-size:10px;letter-spacing:.5px;text-transform:uppercase;margin-bottom:4px">'+esc(univ)+'</div>';
     var domains = Object.keys(hierarchy[univ]).sort(function(a,b){return a.localeCompare(b,'fr',{sensitivity:'base'});});
     domains.forEach(function(dom){
       var rows = hierarchy[univ][dom].slice().sort(function(a,b){return (a.process.proc||'').localeCompare(b.process.proc||'','fr',{sensitivity:'base'});});
-      body += '<div style="background:#EEEDFE;color:#3C3489;font-weight:600;padding:5px 10px 5px 16px;font-size:10px;margin-bottom:4px">'+(''+dom).replace(/</g,'&lt;')+'</div>';
+      body += '<div style="background:#EEEDFE;color:#3C3489;font-weight:600;padding:5px 10px 5px 16px;font-size:10px;margin-bottom:4px">'+esc(dom)+'</div>';
       rows.forEach(function(item){
         var p = item.process;
         var refEntry = item.refEntry;
@@ -6598,7 +6598,7 @@ function showUploadBuWorkProgramModal() {
         body += '<label style="display:flex;align-items:center;gap:8px;padding:7px 16px;cursor:'+(isAlready?'default':'pointer')+';border-bottom:.5px solid #f0f0f0'+(isAlready?';opacity:.55':'')+'">';
         body += '<input type="checkbox" class="upl-bu-cb" value="'+_escAttr(p.id)+'"'+checkedAttr+disabledAttr+' style="width:14px;height:14px;flex-shrink:0"/>';
         body += '<div style="flex:1;min-width:0">';
-        body += '<div style="font-size:12px;font-weight:500">'+(''+p.proc).replace(/</g,'&lt;')+'</div>';
+        body += '<div style="font-size:12px;font-weight:500">'+esc(p.proc)+'</div>';
         body += '<div style="font-size:10px;color:var(--purple)">'+testCount+' test'+(testCount>1?'s':'')+' dans le référentiel</div>';
         body += '</div>';
         if (isAlready) body += '<span style="background:#E1F5EE;color:#085041;font-size:9px;padding:2px 6px;border-radius:3px">déjà couvert</span>';
@@ -6706,11 +6706,11 @@ function showAddBuProcessFromUniverseModal() {
   var body = '<div style="font-size:11px;color:var(--text-3);margin-bottom:10px">Coche les Process à ajouter à l\'audit. Les tests du référentiel BU Work Program seront automatiquement importés (en mode Design + Operating). Tu pourras retirer/modifier les tests ensuite, ou basculer en mode Design only si nécessaire.</div>';
   body += '<div id="add-bu-univ-body">';
   universList.forEach(function(univ){
-    body += '<div style="background:#3C3489;color:#fff;font-weight:700;padding:6px 10px;font-size:10px;letter-spacing:.5px;text-transform:uppercase;margin-bottom:4px">'+(''+univ).replace(/</g,'&lt;')+'</div>';
+    body += '<div style="background:#3C3489;color:#fff;font-weight:700;padding:6px 10px;font-size:10px;letter-spacing:.5px;text-transform:uppercase;margin-bottom:4px">'+esc(univ)+'</div>';
     var domains = Object.keys(hierarchy[univ]).sort(function(a,b){return a.localeCompare(b,'fr',{sensitivity:'base'});});
     domains.forEach(function(dom){
       var rows = hierarchy[univ][dom].slice().sort(function(a,b){return (a.proc||'').localeCompare(b.proc||'','fr',{sensitivity:'base'});});
-      body += '<div style="background:#EEEDFE;color:#3C3489;font-weight:600;padding:5px 10px 5px 16px;font-size:10px;margin-bottom:4px">'+(''+dom).replace(/</g,'&lt;')+'</div>';
+      body += '<div style="background:#EEEDFE;color:#3C3489;font-weight:600;padding:5px 10px 5px 16px;font-size:10px;margin-bottom:4px">'+esc(dom)+'</div>';
       rows.forEach(function(p){
         // Indique si ce Process a des tests dans le référentiel BU (info utile)
         var refEntry = (BU_PROCESSES||[]).find(function(b){return b.auditProcessId===p.id;});
@@ -6720,7 +6720,7 @@ function showAddBuProcessFromUniverseModal() {
         body += '<label style="display:flex;align-items:center;gap:8px;padding:7px 16px;cursor:pointer;border-bottom:.5px solid #f0f0f0">';
         body += '<input type="checkbox" class="add-bu-univ-cb" value="'+_escAttr(p.id)+'" style="width:14px;height:14px;flex-shrink:0"/>';
         body += '<div style="flex:1;min-width:0">';
-        body += '<div style="font-size:12px;font-weight:500">'+(''+p.proc).replace(/</g,'&lt;')+'</div>';
+        body += '<div style="font-size:12px;font-weight:500">'+esc(p.proc)+'</div>';
         if (isDesignOnlyProc) {
           body += '<div style="font-size:10px;color:#854F0B;font-style:italic">Process spécial → mode <strong>Design only</strong> par défaut</div>';
         } else if (refTestCount>0) {
@@ -6938,7 +6938,7 @@ function showWpBuOwnersModal(wppId) {
   if (!Array.isArray(wpp.owners)) wpp.owners = [];
 
   var body = '<div id="bu-owners-body">' + renderWpBuOwnersBody(wpp) + '</div>';
-  openModal('Process Owners — '+procName.replace(/</g,'&lt;'),
+  openModal('Process Owners — '+esc(procName),
     body,
     null,
     { hideOk: true, cancelLabel: 'Fermer' }
@@ -7371,10 +7371,10 @@ function renderKickoffBookingSection() {
     // Liste détaillée (cliquable pour expanded ?)
     html += '<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px">';
     participants.to.forEach(function(p){
-      html += '<span style="font-size:10px;background:#EEEDFE;color:#3C3489;padding:2px 7px;border-radius:10px">'+(p.name||p.email).replace(/</g,'&lt;')+'</span>';
+      html += '<span style="font-size:10px;background:#EEEDFE;color:#3C3489;padding:2px 7px;border-radius:10px">'+esc((p.name||p.email))+'</span>';
     });
     participants.cc.forEach(function(p){
-      html += '<span style="font-size:10px;background:#FFF4D9;color:#854F0B;padding:2px 7px;border-radius:10px">'+(p.name||p.email).replace(/</g,'&lt;')+' · CC</span>';
+      html += '<span style="font-size:10px;background:#FFF4D9;color:#854F0B;padding:2px 7px;border-radius:10px">'+esc((p.name||p.email))+' · CC</span>';
     });
     html += '</div>';
     html += '</div>';
@@ -7399,7 +7399,7 @@ function renderKickoffBookingSection() {
       var border = c.type === 'cc' ? '#FAC775' : '#CECBF6';
       var label = (c.name || c.email) + ' · ' + (c.type === 'cc' ? 'CC' : 'TO');
       html += '<span style="font-size:10px;background:'+bg+';color:'+color+';padding:3px 8px;border-radius:10px;border:.5px solid '+border+';display:inline-flex;align-items:center;gap:4px">'
-        + label.replace(/</g,'&lt;')
+        + esc(label)
         + ' <button onclick="removeAdHocContact('+idx+')" title="Retirer" style="background:transparent;border:none;color:'+color+';font-size:11px;cursor:pointer;padding:0;line-height:1">×</button>'
         + '</span>';
     });
@@ -7682,7 +7682,7 @@ async function createKickoffMeetings() {
   }
 
   // Body bilingue EN puis FR, en typo Calibri
-  var auditTitle = (audit.titre || '').replace(/</g,'&lt;');
+  var auditTitle = esc((audit.titre || ''));
   var organizerName = (typeof CU !== 'undefined' && CU && CU.name) ? CU.name : '';
   var organizerTitle = 'Director of Internal Audit';
   var organizerTitleFr = 'Directeur de l\'Audit Interne';
@@ -7695,7 +7695,7 @@ async function createKickoffMeetings() {
     + '<p>I invite you to the kick-off meeting of the audit &ldquo;' + auditTitle + '&rdquo;.<br/>'
     + 'The purpose of this meeting is to present the scope, objectives, and timeline of the audit assignment.</p>';
   if (kickoffLink) {
-    bodyHtml += '<p>Presentation deck (SharePoint): <a href="'+kickoffLink+'">'+kickoffName.replace(/</g,'&lt;')+'</a></p>';
+    bodyHtml += '<p>Presentation deck (SharePoint): <a href="'+kickoffLink+'">'+esc(kickoffName)+'</a></p>';
   }
   bodyHtml += '<p>Kind regards,<br/>'
     + organizerName + ' &mdash; ' + organizerTitle + '</p>'
@@ -7705,7 +7705,7 @@ async function createKickoffMeetings() {
     + '<p>Je vous invite &agrave; la r&eacute;union de Kick-off de l\'audit &laquo;&nbsp;' + auditTitle + '&nbsp;&raquo;.<br/>'
     + 'Cette r&eacute;union vise &agrave; pr&eacute;senter le p&eacute;rim&egrave;tre, les objectifs et le planning de la mission.</p>';
   if (kickoffLink) {
-    bodyHtml += '<p>Support de pr&eacute;sentation (SharePoint) : <a href="'+kickoffLink+'">'+kickoffName.replace(/</g,'&lt;')+'</a></p>';
+    bodyHtml += '<p>Support de pr&eacute;sentation (SharePoint) : <a href="'+kickoffLink+'">'+esc(kickoffName)+'</a></p>';
   }
   bodyHtml += '<p>Cordialement,<br/>'
     + organizerName + '<br/>'
@@ -7893,8 +7893,8 @@ function renderControlsBySpSection() {
     html += '<div style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:#fafafa;'+(expanded?'border-bottom:.5px solid var(--border);':'')+'cursor:pointer" onclick="toggleWCGWSubProcess(\''+_escJsArg(sp.id)+'\')">';
     html += '<span style="font-size:11px;color:var(--text-3);width:14px;text-align:center">'+(expanded?'▼':'▶')+'</span>';
     html += '<div style="flex:1;min-width:0">';
-    html += '<div style="font-size:13px;font-weight:500;color:var(--text-1)">'+(spIdx+1)+'. '+(sp.name||'(sans nom)').replace(/</g,'&lt;')+'</div>';
-    if (sp.description) html += '<div style="font-size:10px;color:var(--text-3);margin-top:1px">'+(''+sp.description).replace(/</g,'&lt;')+'</div>';
+    html += '<div style="font-size:13px;font-weight:500;color:var(--text-1)">'+(spIdx+1)+'. '+esc((sp.name||'(sans nom)'))+'</div>';
+    if (sp.description) html += '<div style="font-size:10px;color:var(--text-3);margin-top:1px">'+esc(sp.description)+'</div>';
     html += '</div>';
     html += '<span style="font-size:10px;color:var(--text-3);background:#fff;border:.5px solid var(--border);border-radius:3px;padding:2px 6px">'+existingForSP.length+' E · '+targetForSP.length+' T</span>';
     html += '<button class="bs" style="font-size:10px;padding:3px 8px;background:#F5FBF8;color:#085041;border-color:#A6E2CD" onclick="event.stopPropagation();showAddControlForSP(\''+_escJsArg(sp.id)+'\',\'existing\')">+ Existant</button>';
@@ -7945,18 +7945,18 @@ function renderControlMiniCard(c, globalIdx, wcgwById) {
   var border = isExisting ? '#A6E2CD' : '#FAC775';
   var codeColor = isExisting ? '#5DCAA5' : '#F59E0B';
   var code = c.code || ('CTRL-'+(globalIdx+1));
-  var name = (c.name || c.label || '(sans nom)').replace(/</g,'&lt;');
+  var name = esc((c.name || c.label || '(sans nom)'));
   var wcgw = c.wcgwId ? wcgwById[c.wcgwId] : null;
 
   var h = '<div style="background:'+bg+';border:.5px solid '+border+';border-radius:3px;padding:6px 8px;margin-bottom:4px;display:flex;align-items:flex-start;gap:5px;font-size:10px">';
-  h += '<span style="font-weight:600;font-size:9px;flex-shrink:0;padding:1px 6px;border-radius:2px;background:'+codeColor+';color:#fff">'+code.replace(/</g,'&lt;')+'</span>';
+  h += '<span style="font-weight:600;font-size:9px;flex-shrink:0;padding:1px 6px;border-radius:2px;background:'+codeColor+';color:#fff">'+esc(code)+'</span>';
   h += '<div style="flex:1;min-width:0;line-height:1.4">';
   h += '<div style="color:var(--text-1);font-weight:500">'+name+'</div>';
   if (wcgw && wcgw.title) {
-    h += '<div style="font-size:9px;color:#3C3489;font-style:italic;margin-top:2px;background:#EEEDFE;padding:1px 5px;border-radius:2px;display:inline-block">WCGW : '+(''+wcgw.title).replace(/</g,'&lt;')+'</div>';
+    h += '<div style="font-size:9px;color:#3C3489;font-style:italic;margin-top:2px;background:#EEEDFE;padding:1px 5px;border-radius:2px;display:inline-block">WCGW : '+esc(wcgw.title)+'</div>';
   }
   if (c.description) {
-    h += '<div style="font-size:9px;color:var(--text-3);margin-top:2px">'+(''+c.description).replace(/</g,'&lt;')+'</div>';
+    h += '<div style="font-size:9px;color:var(--text-3);margin-top:2px">'+esc(c.description)+'</div>';
   }
   h += '</div>';
   h += '<div style="display:flex;gap:3px;flex-shrink:0">';
@@ -8048,8 +8048,8 @@ function renderWCGWSection() {
     html += '<div style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:#fafafa;border-bottom:'+(expanded?'.5px solid var(--border)':'none')+';cursor:pointer" onclick="toggleWCGWSubProcess(\''+_escJsArg(sp.id)+'\')">';
     html += '<span style="font-size:11px;color:var(--text-3);width:14px;text-align:center">'+(expanded?'▼':'▶')+'</span>';
     html += '<div style="flex:1;min-width:0">';
-    html += '<div style="font-size:13px;font-weight:500;color:var(--text-1)">'+(''+spName).replace(/</g,'&lt;')+'</div>';
-    if (spDesc) html += '<div style="font-size:10px;color:var(--text-3);margin-top:1px">'+(''+spDesc).replace(/</g,'&lt;')+'</div>';
+    html += '<div style="font-size:13px;font-weight:500;color:var(--text-1)">'+esc(spName)+'</div>';
+    if (spDesc) html += '<div style="font-size:10px;color:var(--text-3);margin-top:1px">'+esc(spDesc)+'</div>';
     html += '</div>';
     html += '<span style="font-size:10px;color:var(--text-3);background:#fff;border:.5px solid var(--border);border-radius:3px;padding:2px 6px">'+wcgwsForSP.length+' WCGW · '+ctrlsForSP+' contrôles</span>';
     html += '<button class="bs" style="font-size:10px;padding:3px 8px" onclick="event.stopPropagation();showAddWCGWModalForSP(\''+_escJsArg(sp.id)+'\')">+ WCGW</button>';
@@ -8083,7 +8083,7 @@ function renderWCGWSection() {
       var globalIdx = wcgwList.indexOf(w);
       html += '<div style="background:#fff;border:.5px solid #FED7AA;border-radius:4px;padding:6px 8px;margin-bottom:4px;display:flex;align-items:center;gap:6px">';
       html += '<span class="badge bpl" style="font-size:9px;padding:2px 6px;flex-shrink:0">'+(w.code||('WCGW-'+(globalIdx+1)))+'</span>';
-      html += '<span style="flex:1;font-size:11px">'+(w.title||'(sans titre)').replace(/</g,'&lt;')+'</span>';
+      html += '<span style="flex:1;font-size:11px">'+esc((w.title||'(sans titre)'))+'</span>';
       html += '<button class="bs" style="font-size:10px;padding:1px 6px" onclick="showEditWCGWModal('+globalIdx+')">Rattacher</button>';
       html += '<button class="bd" style="font-size:10px;padding:1px 5px" onclick="removeWCGW('+globalIdx+')">×</button>';
       html += '</div>';
@@ -8101,7 +8101,7 @@ function renderWCGWSection() {
       var ctrlCode = c.code || ('CTRL-'+(origIdx+1));
       html += '<div style="background:#fff;border:.5px solid #FED7AA;border-radius:4px;padding:6px 8px;margin-bottom:4px;display:flex;align-items:center;gap:6px">';
       html += '<span style="color:var(--text-3);font-size:10px;flex-shrink:0">'+ctrlCode+'</span>';
-      html += '<span style="flex:1;font-size:11px">'+(c.name||c.label||'(sans nom)').replace(/</g,'&lt;')+'</span>';
+      html += '<span style="flex:1;font-size:11px">'+esc((c.name||c.label||'(sans nom)'))+'</span>';
       html += '<button class="bs" style="font-size:10px;padding:1px 6px" onclick="showEditControlModal('+origIdx+')">Rattacher</button>';
       html += '<button class="bd" style="font-size:10px;padding:1px 4px" onclick="removeControlAt('+origIdx+')">×</button>';
       html += '</div>';
@@ -8135,8 +8135,8 @@ function renderWCGWCardForSP(w, globalIdx, ctrls, d) {
   h += '<div style="display:flex;align-items:flex-start;gap:8px;padding-bottom:8px;border-bottom:.5px solid #f0f0f0;margin-bottom:8px">';
   h += '<span class="badge bpl" style="font-size:9px;padding:2px 6px;flex-shrink:0">'+(w.code||('WCGW-'+(globalIdx+1)))+'</span>';
   h += '<div style="flex:1;min-width:0">';
-  h += '<div style="font-size:12px;font-weight:500">'+(''+(w.title||'(sans titre)')).replace(/</g,'&lt;')+'</div>';
-  if (w.description) h += '<div style="font-size:10px;color:var(--text-3);margin-top:2px">'+(''+w.description).replace(/</g,'&lt;')+'</div>';
+  h += '<div style="font-size:12px;font-weight:500">'+esc((''+(w.title||'(sans titre)')))+'</div>';
+  if (w.description) h += '<div style="font-size:10px;color:var(--text-3);margin-top:2px">'+esc(w.description)+'</div>';
   h += '</div>';
   h += '<button class="bs" style="font-size:9px;padding:2px 6px" onclick="showEditWCGWModal('+globalIdx+')">Éditer</button>';
   h += '<button class="bd" style="font-size:9px;padding:2px 6px" onclick="removeWCGW('+globalIdx+')" title="Supprimer">×</button>';
@@ -8147,7 +8147,7 @@ function renderWCGWCardForSP(w, globalIdx, ctrls, d) {
     h += '<div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;font-size:10px;padding:0 0 8px">';
     h += '<span style="color:var(--text-3)"><strong style="font-weight:500">Risques liés :</strong></span>';
     linkedRisks.forEach(function(lr){
-      h += '<span class="badge '+(lr.source==='adhoc'?'bpc':'bpl')+'" style="font-size:9px;padding:1px 6px">'+(''+lr.title).replace(/</g,'&lt;')+'</span>';
+      h += '<span class="badge '+(lr.source==='adhoc'?'bpc':'bpl')+'" style="font-size:9px;padding:1px 6px">'+esc(lr.title)+'</span>';
     });
     h += '</div>';
   }
@@ -8202,7 +8202,7 @@ function renderWCGWControlRow(c, origIdx) {
   var clefBadge = c.clef ? '<span style="display:inline-block;background:#EEEDFE;color:#3C3489;font-size:9px;padding:1px 4px;border-radius:2px;margin-left:4px">Clef</span>' : '';
   var h = '<div style="display:flex;align-items:flex-start;gap:5px;padding:4px 0;border-bottom:.5px solid rgba(0,0,0,.06);font-size:11px;cursor:pointer" onclick="showEditControlModal('+origIdx+')">';
   h += '<span style="font-family:monospace;font-size:9px;background:#fff;color:var(--text-3);padding:1px 5px;border-radius:2px;flex-shrink:0;border:.5px solid var(--border);margin-top:1px">'+ctrlCode+'</span>';
-  h += '<div style="flex:1;color:var(--text-1)">'+(''+name).replace(/</g,'&lt;')+clefBadge+'</div>';
+  h += '<div style="flex:1;color:var(--text-1)">'+esc(name)+clefBadge+'</div>';
   h += '<button onclick="event.stopPropagation();removeControlAt('+origIdx+')" title="Supprimer" style="background:transparent;border:none;color:var(--text-3);font-size:11px;padding:0 2px;cursor:pointer">×</button>';
   h += '</div>';
   return h;
@@ -8505,7 +8505,7 @@ function renderFlowchartEditor() {
     var color = isActive ? '#3C3489' : 'rgba(255,255,255,.85)';
     var weight = isActive ? '500' : '400';
     html += '<span onclick="switchFlowchart(\''+_escJsArg(f.id)+'\')" style="font-size:11px;padding:5px 11px;background:'+bg+';color:'+color+';border-radius:3px;cursor:pointer;flex-shrink:0;font-weight:'+weight+'">';
-    html += (''+displayLabel).replace(/</g,'&lt;')
+    html += esc(displayLabel)
       + ' <span style="font-size:9px;opacity:.7">('+(f.nodes||[]).length+')</span>';
     html += '</span>';
   });
@@ -8554,7 +8554,7 @@ function renderFlowchartEditor() {
   html += '<div style="display:flex;gap:8px;padding:8px 14px;background:#fafafa;border-bottom:.5px solid var(--border);align-items:center;flex-wrap:wrap">';
   html += '<input id="fc-label" value="'+(''+(fc.label||'')).replace(/"/g,'&quot;')+'" placeholder="Titre du flowchart..." onchange="setFlowchartLabel(this.value)" style="font-size:12px;padding:4px 9px;border:.5px solid var(--border);border-radius:3px;width:280px;font-weight:500;box-sizing:border-box"/>';
   if (currentSp) {
-    html += '<span style="font-size:10px;color:var(--text-3)">Sous-processus : <strong style="font-weight:500;color:var(--text-2)">'+(''+currentSp.name).replace(/</g,'&lt;')+'</strong></span>';
+    html += '<span style="font-size:10px;color:var(--text-3)">Sous-processus : <strong style="font-weight:500;color:var(--text-2)">'+esc(currentSp.name)+'</strong></span>';
   }
   html += '<div style="width:1px;height:18px;background:var(--border);margin:0 4px"></div>';
   // Edge mode toggle
@@ -8736,7 +8736,7 @@ function renderFlowchartBottomControls(fc, d, allCtrls) {
   // Header
   h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">';
   h += '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
-  h += '<div style="font-size:12px;font-weight:600;color:#3C3489;display:flex;align-items:center;gap:6px">🛡 WCGW & Contrôles · '+spName.replace(/</g,'&lt;')+'</div>';
+  h += '<div style="font-size:12px;font-weight:600;color:#3C3489;display:flex;align-items:center;gap:6px">🛡 WCGW & Contrôles · '+esc(spName)+'</div>';
   h += '<span style="font-size:10px;color:var(--text-3);font-style:italic"><strong style="color:#993C1D;font-weight:500">'+validation.wcgwNodes.length+' WCGW</strong> · <strong style="color:#085041;font-weight:500">'+nbE+' Existant'+(nbE>1?'s':'')+'</strong> · <strong style="color:#854F0B;font-weight:500">'+nbT+' Target</strong></span>';
   h += '<span style="font-size:9px;color:var(--text-3);background:#fafafa;padding:2px 7px;border-radius:3px;border:.5px solid var(--border);font-style:italic">📊 dérivé du flowchart · lecture seule</span>';
   h += '</div>';
@@ -8766,8 +8766,8 @@ function renderFlowchartBottomControls(fc, d, allCtrls) {
     h += '<div style="background:#fafafa;border:.5px solid var(--border);border-radius:4px;padding:8px 10px">';
     // Header WCGW
     h += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">';
-    h += '<span style="font-size:9px;background:#FCEBEB;color:#993C1D;border:.5px solid #F2C2C0;padding:2px 7px;border-radius:3px;font-weight:600">⚠ '+wCode.replace(/</g,'&lt;')+'</span>';
-    h += '<span style="color:var(--text-1);font-weight:500;font-size:11px;flex:1">'+wTitle.replace(/</g,'&lt;')+'</span>';
+    h += '<span style="font-size:9px;background:#FCEBEB;color:#993C1D;border:.5px solid #F2C2C0;padding:2px 7px;border-radius:3px;font-weight:600">⚠ '+esc(wCode)+'</span>';
+    h += '<span style="color:var(--text-1);font-weight:500;font-size:11px;flex:1">'+esc(wTitle)+'</span>';
     if (isUncovered) {
       h += '<span style="font-size:9px;color:#993C1D;background:#FCEBEB;border:.5px solid #F2C2C0;padding:2px 6px;border-radius:3px;font-weight:500">⚠ Non couvert</span>';
     } else {
@@ -8796,8 +8796,8 @@ function renderFlowchartBottomControls(fc, d, allCtrls) {
         if (isHighlighted) pillStyle += ';box-shadow:0 0 0 2px #3C3489';
         if (isDimmed) pillStyle += ';opacity:.4';
         h += '<div onclick="setHighlightedControl(\''+(c?_escJsArg(c.id):'')+'\')" style="'+pillStyle+'">';
-        h += '<span style="font-weight:600;font-size:9px;padding:1px 5px;border-radius:2px;background:'+codeColor+';color:#fff">'+code.replace(/</g,'&lt;')+'</span>';
-        h += '<span>'+name.replace(/</g,'&lt;')+'</span>';
+        h += '<span style="font-weight:600;font-size:9px;padding:1px 5px;border-radius:2px;background:'+codeColor+';color:#fff">'+esc(code)+'</span>';
+        h += '<span>'+esc(name)+'</span>';
         if (c) {
           h += '<button onclick="event.stopPropagation();showEditControlModal('+(allCtrls.indexOf(c))+')" title="Éditer" style="background:transparent;border:none;color:var(--text-3);font-size:11px;padding:0 2px;cursor:pointer;line-height:1;margin-left:4px">✎</button>';
         }
@@ -8824,8 +8824,8 @@ function renderFlowchartBottomControls(fc, d, allCtrls) {
       var code = c ? (c.code || 'CTRL') : ctrlNode.text;
       var name = c ? (c.name || '(à décrire)') : '(non lié)';
       h += '<div style="font-size:10px;padding:3px 8px;border-radius:3px;display:flex;align-items:center;gap:4px;background:'+bg+';border:.5px solid '+border+(isExisting?'':';border-style:dashed')+'">';
-      h += '<span style="font-weight:600;font-size:9px;padding:1px 5px;border-radius:2px;background:'+codeColor+';color:#fff">'+code.replace(/</g,'&lt;')+'</span>';
-      h += '<span>'+name.replace(/</g,'&lt;')+'</span>';
+      h += '<span style="font-weight:600;font-size:9px;padding:1px 5px;border-radius:2px;background:'+codeColor+';color:#fff">'+esc(code)+'</span>';
+      h += '<span>'+esc(name)+'</span>';
       h += '<span style="font-style:italic;color:var(--text-3);font-size:9px;margin-left:3px">→ lie à un WCGW</span>';
       h += '</div>';
     });
@@ -8864,7 +8864,7 @@ function _fcRenderNarrativeSidePanel(fc) {
   // Affichage du narratif (section SP courante si trouvée, sinon message)
   h += '<div style="margin-bottom:14px">';
   h += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;margin-bottom:5px">';
-  if (spForFc) h += 'Section · '+(spForFc.name||'').replace(/</g,'&lt;');
+  if (spForFc) h += 'Section · '+esc((spForFc.name||''));
   else h += 'Narratif';
   h += '</div>';
   if (sectionExtract) {
@@ -8895,7 +8895,7 @@ function _fcRenderNarrativeSidePanel(fc) {
     h += '<div style="display:flex;align-items:center;gap:6px;padding:6px 8px;background:#fff;border:.5px solid var(--border);border-radius:3px">';
     h += '<span style="font-size:18px;color:#3C3489;flex-shrink:0">📄</span>';
     h += '<div style="flex:1;min-width:0">';
-    h += '<div style="font-weight:500;color:#3C3489;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11px">'+(''+nf.fileName).replace(/</g,'&lt;')+'</div>';
+    h += '<div style="font-weight:500;color:#3C3489;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11px">'+esc(nf.fileName)+'</div>';
     if (uploadedLabel) h += '<div style="font-size:9px;color:var(--text-3)">'+uploadedLabel+'</div>';
     h += '</div>';
     h += '<a href="'+nf.webUrl+'" target="_blank" rel="noopener" title="Ouvrir" style="text-decoration:none;font-size:11px;padding:3px 6px;border:.5px solid var(--border);border-radius:3px;color:var(--text-2);background:#fff">↗</a>';
@@ -8942,12 +8942,12 @@ function _fcRenderWcgwSidePanel(fc, d, allCtrls) {
     h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">';
     h += '<div style="display:flex;align-items:center;gap:5px;flex:1;min-width:0">';
     h += '<span style="background:#EEEDFE;color:#3C3489;font-size:9px;padding:1px 5px;border-radius:2px;flex-shrink:0;font-weight:500">'+(w.code||('WCGW-'+(globalIdx+1)))+'</span>';
-    h += '<span style="font-size:11px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+(''+(w.title||'(sans titre)')).replace(/</g,'&lt;')+'</span>';
+    h += '<span style="font-size:11px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc((''+(w.title||'(sans titre)')))+'</span>';
     h += '</div>';
     h += '<button onclick="showEditWCGWModal('+globalIdx+')" class="bs" style="font-size:9px;padding:1px 5px;flex-shrink:0">Éditer</button>';
     h += '</div>';
     if (w.description) {
-      h += '<div style="font-size:10px;color:var(--text-3);margin-bottom:6px;line-height:1.3">'+(''+w.description).replace(/</g,'&lt;')+'</div>';
+      h += '<div style="font-size:10px;color:var(--text-3);margin-bottom:6px;line-height:1.3">'+esc(w.description)+'</div>';
     }
     h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;font-size:10px">';
     // Target
@@ -8960,7 +8960,7 @@ function _fcRenderWcgwSidePanel(fc, d, allCtrls) {
         var ci = allCtrls.indexOf(c);
         h += '<div style="font-size:10px;padding:1px 0;color:#854F0B" onclick="showEditControlModal('+ci+')" style="cursor:pointer">';
         h += '<span style="font-family:monospace;font-size:8px;background:#fff;padding:1px 3px;border-radius:2px;margin-right:3px">'+(c.code||'C-'+(ci+1))+'</span>';
-        h += (''+(c.name||'(sans nom)').substring(0,30)).replace(/</g,'&lt;');
+        h += esc((''+(c.name||'(sans nom)').substring(0,30)));
         h += '</div>';
       });
     }
@@ -8975,7 +8975,7 @@ function _fcRenderWcgwSidePanel(fc, d, allCtrls) {
         var ci = allCtrls.indexOf(c);
         h += '<div style="font-size:10px;padding:1px 0;color:#085041" onclick="showEditControlModal('+ci+')" style="cursor:pointer">';
         h += '<span style="font-family:monospace;font-size:8px;background:#fff;padding:1px 3px;border-radius:2px;margin-right:3px">'+(c.code||'C-'+(ci+1))+'</span>';
-        h += (''+(c.name||'(sans nom)').substring(0,30)).replace(/</g,'&lt;');
+        h += esc((''+(c.name||'(sans nom)').substring(0,30)));
         h += '</div>';
       });
     }
@@ -9124,7 +9124,7 @@ function _fcRenderEdge(edge, nodes) {
   var bFrom = _fcNodeBox(nodeFrom);
   var bTo = _fcNodeBox(nodeTo);
 
-  var label = (edge.label || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  var label = (edge.label || '').esc(replace(/&/g,'&amp;')).replace(/>/g,'&gt;');
   var style = edge.style || 'straight';
 
   // v69.1 : si lien WCGW ↔ Contrôle → ligne d'association (pas de flèche, plus fine)
@@ -9306,7 +9306,7 @@ function _fcAnalyzeWcgwCoverage(fc) {
 function _fcRenderNode(node, allCtrls, validation) {
   var sel = _flowchartEditor && _flowchartEditor.selectedNodeId === node.id;
   var x = node.x, y = node.y, w = node.w, h = node.h;
-  var label = (node.text || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  var label = (node.text || '').esc(replace(/&/g,'&amp;')).replace(/>/g,'&gt;');
 
   // v68 : flag d'erreur pour halo rouge
   var isOrphan = validation && validation.orphanCtrlNodeIds && validation.orphanCtrlNodeIds.indexOf(node.id) >= 0;
@@ -9316,7 +9316,7 @@ function _fcRenderNode(node, allCtrls, validation) {
   // Si lié à un contrôle, on prend le code du contrôle comme label
   if ((node.type === 'ctrl_existing' || node.type === 'ctrl_target') && node.controlId) {
     var c = allCtrls.find(function(x){return x.id===node.controlId;});
-    if (c) label = (c.code || c.name || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    if (c) label = (c.code || c.name || '').esc(replace(/&/g,'&amp;')).replace(/>/g,'&gt;');
   }
 
   // v66 : highlight bidirectionnel — si un contrôle est highlight, dimme tout sauf
@@ -9458,7 +9458,7 @@ function _fcRenderNode(node, allCtrls, validation) {
 
   // Affichage de l'acteur (qui exécute) sous la forme — pour tous types sauf start/end et wcgw
   if (node.actor && node.type !== 'start' && node.type !== 'end' && node.type !== 'wcgw') {
-    var actorTxt = (''+node.actor).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    var actorTxt = (''+node.actor).esc(replace(/&/g,'&amp;')).replace(/>/g,'&gt;');
     if (actorTxt.length > 28) actorTxt = actorTxt.substring(0, 26) + '…';
     var actorY = y + h + 14; // 14px sous le bas de la forme
     // Petit fond pour la lisibilité (pas de border, juste fond clair)
@@ -9473,7 +9473,7 @@ function _fcRenderNode(node, allCtrls, validation) {
     var wcgwListCanvas = (dForWcgw.wcgw && dForWcgw.wcgw[4]) || [];
     var wcgwDefCanvas = wcgwListCanvas.find(function(w){return w.id === node.wcgwId;});
     if (wcgwDefCanvas && wcgwDefCanvas.title && wcgwDefCanvas.title !== 'WCGW à décrire') {
-      var titleTxt = wcgwDefCanvas.title.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      var titleTxt = esc(wcgwDefCanvas.title.replace(/&/g,'&amp;')).replace(/>/g,'&gt;');
       if (titleTxt.length > 32) titleTxt = titleTxt.substring(0, 30) + '…';
       var titleY = y + h + 14;
       var titleW = Math.max(titleTxt.length * 5.5 + 12, 30);
@@ -9518,7 +9518,7 @@ function _fcRenderProperties(node, allCtrls) {
       // Description (textarea)
       h += '<div style="margin-bottom:10px">';
       h += '<label style="font-size:10px;color:var(--text-2);display:block;margin-bottom:3px">Description du scénario à risque</label>';
-      h += '<textarea onchange="setWcgwField(\''+wcgwDef.id+'\',\'description\',this.value)" placeholder="Décris en détail le scénario : qui pourrait faire quoi, dans quelles circonstances, avec quelles conséquences…" style="width:100%;min-height:80px;font-size:11px;padding:6px 8px;border:.5px solid var(--border);border-radius:3px;box-sizing:border-box;resize:vertical;font-family:inherit;line-height:1.5">'+(''+(wcgwDef.description||'')).replace(/</g,'&lt;')+'</textarea>';
+      h += '<textarea onchange="setWcgwField(\''+wcgwDef.id+'\',\'description\',this.value)" placeholder="Décris en détail le scénario : qui pourrait faire quoi, dans quelles circonstances, avec quelles conséquences…" style="width:100%;min-height:80px;font-size:11px;padding:6px 8px;border:.5px solid var(--border);border-radius:3px;box-sizing:border-box;resize:vertical;font-family:inherit;line-height:1.5">'+esc((''+(wcgwDef.description||'')))+'</textarea>';
       h += '</div>';
 
       // Risques associés (multi-select depuis Risk Universe)
@@ -9538,7 +9538,7 @@ function _fcRenderProperties(node, allCtrls) {
           var checked = riskIds.indexOf(rid) >= 0 ? 'checked' : '';
           h += '<label style="display:flex;align-items:flex-start;gap:5px;padding:3px 0;font-size:10px;cursor:pointer">';
           h += '<input type="checkbox" '+checked+' onchange="toggleWcgwRisk(\''+wcgwDef.id+'\',\''+rid+'\',this.checked)" style="margin-top:1px"/>';
-          h += '<span><strong style="font-weight:500;color:#3C3489;font-family:monospace">'+rcode.replace(/</g,'&lt;')+'</strong> · '+(''+rname).replace(/</g,'&lt;')+'</span>';
+          h += '<span><strong style="font-weight:500;color:#3C3489;font-family:monospace">'+esc(rcode)+'</strong> · '+esc(rname)+'</span>';
           h += '</label>';
         });
         h += '</div>';
@@ -9555,7 +9555,7 @@ function _fcRenderProperties(node, allCtrls) {
       if (spForFc) {
         h += '<div style="margin-bottom:10px;padding:6px 8px;background:#fafafa;border-radius:3px;border:.5px solid var(--border)">';
         h += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;margin-bottom:3px">Sous-processus rattaché</div>';
-        h += '<div style="font-size:11px;color:var(--text-1);font-weight:500">'+(''+spForFc.name).replace(/</g,'&lt;')+'</div>';
+        h += '<div style="font-size:11px;color:var(--text-1);font-weight:500">'+esc(spForFc.name)+'</div>';
         h += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:2px">Hérité du flowchart</div>';
         h += '</div>';
       }
@@ -9649,7 +9649,7 @@ function _fcRenderProperties(node, allCtrls) {
       var code = c.code || ('CTRL-'+(ctrlIdx+1));
       var name = c.name || c.label || '(sans nom)';
       var sel = (node.controlId === c.id) ? ' selected' : '';
-      h += '<option value="'+c.id+'"'+sel+'>'+code+' · '+name.replace(/</g,'&lt;')+'</option>';
+      h += '<option value="'+c.id+'"'+sel+'>'+code+' · '+esc(name)+'</option>';
     });
     h += '</select>';
     if (availCtrls.length === 0) {
@@ -10636,7 +10636,7 @@ function renderControlsSection() {
       html += '<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:4px">';
       html += '<div style="flex:1">';
       html += '<div style="font-size:12px;font-weight:500"><span style="color:var(--text-3);font-size:10px;margin-right:6px">'+ctrlCode+'</span>'+(c.name||c.label||'(sans nom)')+'</div>';
-      if (c.description) html += '<div style="font-size:10px;color:var(--text-3);margin-top:2px">'+c.description+'</div>';
+      if (c.description) html += '<div style="font-size:10px;color:var(--text-3);margin-top:2px">'+esc(c.description)+'</div>';
       html += '</div>';
       html += sourceBadge + typeBadge + designBadge;
       html += '<button class="bs" style="font-size:10px;padding:1px 6px;margin-left:5px" onclick="showEditControlModal('+idx+')">Éditer</button>';
@@ -10893,7 +10893,7 @@ function renderItwNarrativeSection() {
   h += '<div style="font-size:11px;font-weight:600;color:var(--text-1)">Narratif consolidé</div>';
   h += '<div id="itw-narrative-status" style="font-size:10px;color:var(--text-3);font-style:italic">'+(d.consolidatedNarrative ? d.consolidatedNarrative.length+' caractères · sauvegardé' : 'Vide')+'</div>';
   h += '</div>';
-  h += '<textarea id="itw-narrative-textarea" oninput="_itwMarkNarrativeDirty()" onblur="saveConsolidatedNarrative(this.value)" placeholder="Décris ici les processus audités, à partir des entretiens et de tes observations.\n\nUtilise le format suivant pour structurer par sous-processus :\n\n## Cash Pooling\nChaque matin à 9h, le Trésorier consulte les soldes des filiales…\n\n## Loan Management\n…" style="width:100%;min-height:560px;font-size:12px;padding:14px 16px;border:none;box-sizing:border-box;resize:vertical;font-family:inherit;line-height:1.7;background:#fff">'+(d.consolidatedNarrative||'').replace(/</g,'&lt;')+'</textarea>';
+  h += '<textarea id="itw-narrative-textarea" oninput="_itwMarkNarrativeDirty()" onblur="saveConsolidatedNarrative(this.value)" placeholder="Décris ici les processus audités, à partir des entretiens et de tes observations.\n\nUtilise le format suivant pour structurer par sous-processus :\n\n## Cash Pooling\nChaque matin à 9h, le Trésorier consulte les soldes des filiales…\n\n## Loan Management\n…" style="width:100%;min-height:560px;font-size:12px;padding:14px 16px;border:none;box-sizing:border-box;resize:vertical;font-family:inherit;line-height:1.7;background:#fff">'+esc((d.consolidatedNarrative||''))+'</textarea>';
   h += '</div>';
   // Aide / légende
   h += '<div style="font-size:10px;color:var(--text-3);margin-top:6px;padding:6px 10px;background:#fafafa;border:.5px solid var(--border);border-radius:3px;line-height:1.5">';
@@ -10923,7 +10923,7 @@ function renderItwNarrativeSection() {
       var icon = found ? '✓' : '○';
       h += '<div style="padding:6px 8px;background:'+bg+';border:.5px solid '+brd+';border-radius:3px;margin-bottom:4px;display:flex;align-items:center;gap:6px;font-size:10px">';
       h += '<span style="color:'+color+';font-weight:600;font-size:12px;flex-shrink:0">'+icon+'</span>';
-      h += '<span style="flex:1;min-width:0;color:'+(found?'var(--text-1)':'var(--text-2)')+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+(sp.name||'').replace(/"/g,'&quot;')+'">'+(sp.name||'(sans nom)').replace(/</g,'&lt;')+'</span>';
+      h += '<span style="flex:1;min-width:0;color:'+(found?'var(--text-1)':'var(--text-2)')+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+(sp.name||'').replace(/"/g,'&quot;')+'">'+esc((sp.name||'(sans nom)'))+'</span>';
       if (!found) {
         h += '<button onclick="_itwInsertSpSection(\''+_escQ(sp.name)+'\')" title="Insérer la section dans le narratif" style="font-size:9px;padding:2px 6px;background:#fff;border:.5px solid var(--border);border-radius:2px;cursor:pointer;color:#3C3489;font-weight:500">+ section</button>';
       }
@@ -10947,7 +10947,7 @@ function renderItwNarrativeSection() {
       var color = _intervColor(itv.intervieweName);
       h += '<div style="display:flex;align-items:center;gap:6px;padding:4px 0;font-size:10px">';
       h += '<div style="width:22px;height:22px;border-radius:50%;background:'+color+';color:#fff;display:flex;align-items:center;justify-content:center;font-weight:500;font-size:8px;flex-shrink:0">'+initials+'</div>';
-      h += '<div style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(itv.intervieweName||'').replace(/</g,'&lt;')+'</div>';
+      h += '<div style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc((itv.intervieweName||''))+'</div>';
       if (itv.analyzedAt) h += '<span style="color:#085041;font-size:9px;flex-shrink:0">✓</span>';
       h += '</div>';
     });
@@ -11045,17 +11045,17 @@ function renderDesignIssuesInItwSection() {
       } else {
         h += '<span style="font-size:9px;background:#FFF4D9;color:#854F0B;padding:1px 6px;border-radius:2px;border:.5px solid #FAC775;font-weight:500">🕐 À valider</span>';
       }
-      if (sp) h += '<span style="font-size:9px;background:#fff;color:var(--text-2);padding:1px 6px;border-radius:2px;border:.5px solid var(--border)">'+sp.name.replace(/</g,'&lt;')+'</span>';
+      if (sp) h += '<span style="font-size:9px;background:#fff;color:var(--text-2);padding:1px 6px;border-radius:2px;border:.5px solid var(--border)">'+esc(sp.name)+'</span>';
       h += '</div>';
       // Title
-      h += '<div style="font-size:12px;font-weight:500;color:var(--text-1);margin-bottom:3px">'+(iss.title||'(sans titre)').replace(/</g,'&lt;')+'</div>';
+      h += '<div style="font-size:12px;font-weight:500;color:var(--text-1);margin-bottom:3px">'+esc((iss.title||'(sans titre)'))+'</div>';
       // Control name
       if (iss.controlName) {
-        h += '<div style="font-size:10px;color:var(--text-2);font-style:italic;margin-bottom:4px">Contrôle concerné : '+iss.controlName.replace(/</g,'&lt;')+'</div>';
+        h += '<div style="font-size:10px;color:var(--text-2);font-style:italic;margin-bottom:4px">Contrôle concerné : '+esc(iss.controlName)+'</div>';
       }
       // Description
       if (iss.description) {
-        h += '<div style="font-size:11px;color:var(--text-2);line-height:1.5;white-space:pre-wrap">'+iss.description.replace(/</g,'&lt;')+'</div>';
+        h += '<div style="font-size:11px;color:var(--text-2);line-height:1.5;white-space:pre-wrap">'+esc(iss.description)+'</div>';
       }
       // v75 : Root cause
       var rcCat = _getRootCauseCategory(iss.rootCauseCategory);
@@ -11068,7 +11068,7 @@ function renderDesignIssuesInItwSection() {
         }
         h += '</div>';
         if (iss.rootCauseExplanation) {
-          h += '<div style="font-size:10px;color:var(--text-2);line-height:1.5;font-style:italic">'+iss.rootCauseExplanation.replace(/</g,'&lt;')+'</div>';
+          h += '<div style="font-size:10px;color:var(--text-2);line-height:1.5;font-style:italic">'+esc(iss.rootCauseExplanation)+'</div>';
         }
         h += '</div>';
       }
@@ -11198,7 +11198,7 @@ function showDesignIssueAiModal(idx) {
     body += '<select id="di-sp" style="width:100%;font-size:11px;padding:6px 9px;border:.5px solid var(--border);border-radius:3px;box-sizing:border-box;background:#fff">';
     body += '<option value="">— Aucun / Transverse —</option>';
     sps.forEach(function(sp){
-      body += '<option value="'+sp.id+'"'+(spId===sp.id?' selected':'')+'>'+sp.name.replace(/</g,'&lt;')+'</option>';
+      body += '<option value="'+sp.id+'"'+(spId===sp.id?' selected':'')+'>'+esc(sp.name)+'</option>';
     });
     body += '</select>';
     body += '</div>';
@@ -11207,7 +11207,7 @@ function showDesignIssueAiModal(idx) {
   // Description
   body += '<div style="margin-bottom:10px">';
   body += '<label style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;display:block;margin-bottom:3px">Description détaillée</label>';
-  body += '<textarea id="di-description" placeholder="Décris la défaillance : quel est le gap ou la faiblesse de design, quel risque ça expose, pourquoi c\'est un problème (1-3 phrases)" style="width:100%;min-height:90px;font-size:11px;padding:8px 10px;border:.5px solid var(--border);border-radius:3px;box-sizing:border-box;resize:vertical;font-family:inherit;line-height:1.5;overflow-wrap:anywhere;word-break:break-word">'+description.replace(/</g,'&lt;')+'</textarea>';
+  body += '<textarea id="di-description" placeholder="Décris la défaillance : quel est le gap ou la faiblesse de design, quel risque ça expose, pourquoi c\'est un problème (1-3 phrases)" style="width:100%;min-height:90px;font-size:11px;padding:8px 10px;border:.5px solid var(--border);border-radius:3px;box-sizing:border-box;resize:vertical;font-family:inherit;line-height:1.5;overflow-wrap:anywhere;word-break:break-word">'+esc(description)+'</textarea>';
   body += '</div>';
 
   // v75 : Root cause section
@@ -11218,14 +11218,14 @@ function showDesignIssueAiModal(idx) {
   body += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;margin-bottom:3px">Catégorie</div>';
   body += '<select id="di-rc-cat" onmousedown="event.stopPropagation()" onclick="event.stopPropagation()" style="width:100%;font-size:11px;padding:6px 9px;border:.5px solid var(--border);border-radius:3px;box-sizing:border-box;background:#fff">';
   ROOT_CAUSE_CATEGORIES.forEach(function(c){
-    body += '<option value="'+c.id+'"'+(rcCat===c.id?' selected':'')+'>'+c.label.replace(/</g,'&lt;')+'</option>';
+    body += '<option value="'+c.id+'"'+(rcCat===c.id?' selected':'')+'>'+esc(c.label)+'</option>';
   });
   body += '</select>';
   body += '</div>';
   // Explication
   body += '<div>';
   body += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;margin-bottom:3px">Explication factuelle</div>';
-  body += '<textarea id="di-rc-expl" placeholder="Justifie la catégorisation à partir d\'éléments concrets des entretiens (ex : « Le trésorier a indiqué qu\'il n\'a jamais reçu de formation sur la procédure de validation des paiements. »). 1-3 phrases." style="width:100%;min-height:60px;font-size:11px;padding:8px 10px;border:.5px solid var(--border);border-radius:3px;box-sizing:border-box;resize:vertical;font-family:inherit;line-height:1.5;overflow-wrap:anywhere;word-break:break-word">'+rcExpl.replace(/</g,'&lt;')+'</textarea>';
+  body += '<textarea id="di-rc-expl" placeholder="Justifie la catégorisation à partir d\'éléments concrets des entretiens (ex : « Le trésorier a indiqué qu\'il n\'a jamais reçu de formation sur la procédure de validation des paiements. »). 1-3 phrases." style="width:100%;min-height:60px;font-size:11px;padding:8px 10px;border:.5px solid var(--border);border-radius:3px;box-sizing:border-box;resize:vertical;font-family:inherit;line-height:1.5;overflow-wrap:anywhere;word-break:break-word">'+esc(rcExpl)+'</textarea>';
   body += '</div>';
   body += '</div>';
 
@@ -11469,7 +11469,7 @@ function renderDesignIssuesSection() {
   html += '<div style="font-size:11px;font-weight:600;color:var(--text-1)">Narratif consolidé de la BU <span style="font-size:10px;color:var(--text-3);font-weight:400;font-style:italic">— structuré par Process couvert</span></div>';
   html += '<div id="bu-narrative-status" style="font-size:10px;color:var(--text-3);font-style:italic">'+(hasNarrative ? d.consolidatedNarrative.length+' caractères · sauvegardé' : 'Vide')+'</div>';
   html += '</div>';
-  html += '<textarea id="bu-narrative-textarea" oninput="_buMarkNarrativeDirty()" onblur="saveConsolidatedNarrative(this.value)" placeholder="Le narratif sera généré automatiquement à partir des entretiens via « 🤖 Analyser entretiens ».\n\nFormat structuré par Process couvert :\n\n## Cash Management\n[narratif…]\n\n## Tax\n[narratif…]" style="width:100%;min-height:'+(hasNarrative?'320px':'160px')+';font-size:12px;padding:14px 16px;border:none;box-sizing:border-box;resize:vertical;font-family:inherit;line-height:1.7;background:#fff;overflow-wrap:anywhere;word-break:break-word">'+(d.consolidatedNarrative||'').replace(/</g,'&lt;')+'</textarea>';
+  html += '<textarea id="bu-narrative-textarea" oninput="_buMarkNarrativeDirty()" onblur="saveConsolidatedNarrative(this.value)" placeholder="Le narratif sera généré automatiquement à partir des entretiens via « 🤖 Analyser entretiens ».\n\nFormat structuré par Process couvert :\n\n## Cash Management\n[narratif…]\n\n## Tax\n[narratif…]" style="width:100%;min-height:'+(hasNarrative?'320px':'160px')+';font-size:12px;padding:14px 16px;border:none;box-sizing:border-box;resize:vertical;font-family:inherit;line-height:1.7;background:#fff;overflow-wrap:anywhere;word-break:break-word">'+esc((d.consolidatedNarrative||''))+'</textarea>';
   html += '</div>';
 
   // ── LISTE DES DESIGN ISSUES (existant) ────────────────
@@ -11510,7 +11510,7 @@ function renderDesignIssuesSection() {
     var procName = wpp
       ? (function(){ var p=(PROCESSES||[]).find(function(x){return x.id===wpp.auditProcessId;}); return p?p.proc:'(Process introuvable)'; })()
       : '(Process non assigné)';
-    html += '<div style="background:#EEEDFE;color:#3C3489;font-weight:600;padding:6px 10px;font-size:11px;border-radius:4px;margin-bottom:6px;margin-top:8px">'+(''+procName).replace(/</g,'&lt;')+'</div>';
+    html += '<div style="background:#EEEDFE;color:#3C3489;font-weight:600;padding:6px 10px;font-size:11px;border-radius:4px;margin-bottom:6px;margin-top:8px">'+esc(procName)+'</div>';
     byProcess[procId].forEach(function(iss){
       html += '<div style="border:.5px solid var(--border);border-radius:5px;padding:9px 12px;margin-bottom:6px;background:#fafafa;position:relative">';
       if (isPreparer) {
@@ -11521,10 +11521,10 @@ function renderDesignIssuesSection() {
       }
       html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;padding-right:80px">';
       html += '<span style="background:#FAEEDA;color:#854F0B;font-size:9px;padding:2px 7px;border-radius:3px;font-weight:500">DESIGN</span>';
-      html += '<span style="font-size:12px;font-weight:500">'+(''+(iss.title||'')).replace(/</g,'&lt;')+'</span>';
+      html += '<span style="font-size:12px;font-weight:500">'+esc((''+(iss.title||'')))+'</span>';
       html += '</div>';
       if (iss.description) {
-        html += '<div style="font-size:11px;color:var(--text-2);margin-top:3px;white-space:pre-wrap">'+(''+iss.description).replace(/</g,'&lt;')+'</div>';
+        html += '<div style="font-size:11px;color:var(--text-2);margin-top:3px;white-space:pre-wrap">'+esc(iss.description)+'</div>';
       }
       html += '</div>';
     });
@@ -11551,7 +11551,7 @@ function showDesignIssueModal(issueId) {
   var procOptions = wp.map(function(wpp){
     var p = (PROCESSES||[]).find(function(x){return x.id===wpp.auditProcessId;});
     var name = p ? p.proc : '(Process introuvable)';
-    return '<option value="'+_escAttr(wpp.id)+'"'+(iss.processId===wpp.id?' selected':'')+'>'+name.replace(/</g,'&lt;')+'</option>';
+    return '<option value="'+_escAttr(wpp.id)+'"'+(iss.processId===wpp.id?' selected':'')+'>'+esc(name)+'</option>';
   }).join('');
 
   var body = '';
@@ -11560,7 +11560,7 @@ function showDesignIssueModal(issueId) {
   body += '<div><label>Titre <span style="color:var(--red)">*</span></label>';
   body += '<input id="di-title" value="'+_escAttr(iss.title)+'" placeholder="ex : Absence de séparation des tâches en P2P"/></div>';
   body += '<div><label>Description</label>';
-  body += '<textarea id="di-desc" style="width:100%;min-height:90px" placeholder="Décris le problème : ce qui est manquant ou mal conçu, pourquoi c\'est un problème, contexte business...">'+(''+(iss.description||'')).replace(/</g,'&lt;')+'</textarea></div>';
+  body += '<textarea id="di-desc" style="width:100%;min-height:90px" placeholder="Décris le problème : ce qui est manquant ou mal conçu, pourquoi c\'est un problème, contexte business...">'+esc((''+(iss.description||'')))+'</textarea></div>';
 
   openModal(existing ? 'Modifier l\'issue Design' : 'Nouvelle issue Design', body, async function(){
     var processId = document.getElementById('di-proc').value;
@@ -11718,7 +11718,7 @@ function renderTestingsBuProcessCard(wpp, isPreparer) {
   h += '<div style="border:.5px solid var(--border);border-radius:6px;margin-bottom:8px;background:#fff">';
   h += '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:'+(collapsed?'none':'.5px solid #f0f0f0')+';background:#fafafa;cursor:pointer" onclick="toggleTestingsBuProcess(\''+_escJsArg(wpp.id)+'\')">';
   h += '<div style="flex:1;min-width:0">';
-  h += '<div style="font-size:13px;font-weight:500">'+(collapsed?'▶ ':'▼ ')+(''+procName).replace(/</g,'&lt;')+'</div>';
+  h += '<div style="font-size:13px;font-weight:500">'+(collapsed?'▶ ':'▼ ')+esc(procName)+'</div>';
   h += '<div style="font-size:11px;color:var(--purple);margin-top:3px">'
     + testCount+(testCount>1?' tests':' test')
     + ' · '+doneCount+' fait'+(doneCount>1?'s':'')
@@ -11803,8 +11803,8 @@ function renderTestingsBuTestRow(wppId, t, isPreparer) {
   // v77.10 : Header collapsible (1 ligne)
   h += '<div onclick="toggleTestCard(\''+_escJsArg(cardOpenKey)+'\')" style="cursor:pointer;padding:8px 12px;display:flex;align-items:center;gap:10px;user-select:none;background:'+(isOpen?'#fafafa':'transparent')+'">';
   h += '<span style="font-size:11px;color:var(--text-3);width:10px;flex-shrink:0;transition:transform .15s;transform:rotate('+(isOpen?'90':'0')+'deg)">▶</span>';
-  h += '<span style="background:var(--purple);color:#fff;font-size:9px;padding:2px 7px;border-radius:3px;font-family:monospace;letter-spacing:.4px;flex-shrink:0">'+(t.code||'').replace(/</g,'&lt;')+'</span>';
-  h += '<span style="font-size:11px;font-weight:500;color:var(--text-1);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(''+(t.statement||'(sans énoncé)')).replace(/</g,'&lt;')+'</span>';
+  h += '<span style="background:var(--purple);color:#fff;font-size:9px;padding:2px 7px;border-radius:3px;font-family:monospace;letter-spacing:.4px;flex-shrink:0">'+esc((t.code||''))+'</span>';
+  h += '<span style="font-size:11px;font-weight:500;color:var(--text-1);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc((''+(t.statement||'(sans énoncé)')))+'</span>';
   h += '<span style="flex-shrink:0">'+modeBadge+'</span>';
   if (sampleHeader) {
     h += '<span style="font-size:10px;color:var(--text-3);font-family:monospace;flex-shrink:0">'+sampleHeader+'</span>';
@@ -11828,9 +11828,9 @@ function renderTestingsBuTestRow(wppId, t, isPreparer) {
   if (t.testType || t.objective) {
     h += '<div style="margin-bottom:8px">';
     if (t.testType) {
-      h += '<span style="background:#FAEEDA;color:#854F0B;font-size:9px;padding:2px 7px;border-radius:3px">'+(t.testType||'').replace(/</g,'&lt;')+'</span>';
+      h += '<span style="background:#FAEEDA;color:#854F0B;font-size:9px;padding:2px 7px;border-radius:3px">'+esc((t.testType||''))+'</span>';
     }
-    if (t.objective) h += '<div style="font-size:10px;color:var(--text-3);font-style:italic;margin-top:4px">Objectif : '+(''+t.objective).replace(/</g,'&lt;')+'</div>';
+    if (t.objective) h += '<div style="font-size:10px;color:var(--text-3);font-style:italic;margin-top:4px">Objectif : '+esc(t.objective)+'</div>';
     h += '</div>';
   }
 
@@ -12137,9 +12137,9 @@ function renderTestingsBuTestRow(wppId, t, isPreparer) {
   }
   h += '</div>';
   if (isPreparer) {
-    h += '<textarea id="iss-desc-'+_escAttr(t.id)+'" onchange="setBuIssueDescription(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',this.value)" style="width:100%;min-height:60px;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;resize:vertical;font-family:inherit;box-sizing:border-box;margin-bottom:4px" placeholder="Détail des anomalies trouvées, contexte, ce qui sera remonté dans le rapport...">'+issueDesc.replace(/</g,'&lt;')+'</textarea>';
+    h += '<textarea id="iss-desc-'+_escAttr(t.id)+'" onchange="setBuIssueDescription(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',this.value)" style="width:100%;min-height:60px;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;resize:vertical;font-family:inherit;box-sizing:border-box;margin-bottom:4px" placeholder="Détail des anomalies trouvées, contexte, ce qui sera remonté dans le rapport...">'+esc(issueDesc)+'</textarea>';
   } else {
-    h += '<div style="font-size:11px;padding:5px 8px;background:#fafafa;border-radius:3px;margin-bottom:4px;white-space:pre-wrap">'+(issueDesc||'—').replace(/</g,'&lt;')+'</div>';
+    h += '<div style="font-size:11px;padding:5px 8px;background:#fafafa;border-radius:3px;margin-bottom:4px;white-space:pre-wrap">'+esc((issueDesc||'—'))+'</div>';
   }
 
   h += '</div>'; // fin issue description
@@ -12459,7 +12459,7 @@ function renderFindingsBuSection() {
     });
     Object.keys(byProcess).forEach(function(procId){
       var procName = procId === '_unassigned' ? '(Process non assigné)' : _getProcNameForWpp(procId);
-      html += '<div style="background:#EEEDFE;color:#3C3489;font-weight:600;padding:6px 10px;font-size:11px;border-radius:4px;margin-bottom:6px;margin-top:8px">'+procName.replace(/</g,'&lt;')+'</div>';
+      html += '<div style="background:#EEEDFE;color:#3C3489;font-weight:600;padding:6px 10px;font-size:11px;border-radius:4px;margin-bottom:6px;margin-top:8px">'+esc(procName)+'</div>';
       byProcess[procId].forEach(function(f){
         var fIdx = d.findings.indexOf(f);
         html += renderBuFindingCard(f, fIdx, isPreparer);
@@ -12492,7 +12492,7 @@ function renderFindingsBuSection() {
     });
     Object.keys(byProcessIssues).forEach(function(procId){
       var procName = procId === '_unassigned' ? '(Process non assigné)' : _getProcNameForWpp(procId);
-      html += '<div style="background:#FAEEDA;color:#854F0B;font-weight:600;padding:6px 10px;font-size:11px;border-radius:4px;margin-bottom:6px;margin-top:8px">'+procName.replace(/</g,'&lt;')+'</div>';
+      html += '<div style="background:#FAEEDA;color:#854F0B;font-weight:600;padding:6px 10px;font-size:11px;border-radius:4px;margin-bottom:6px;margin-top:8px">'+esc(procName)+'</div>';
       byProcessIssues[procId].forEach(function(iss){
         html += renderUnaggregatedIssueRow(iss, isPreparer);
       });
@@ -12522,10 +12522,10 @@ function renderBuFindingCard(f, fIdx, isPreparer) {
     h += '</div>';
   }
   // Titre
-  h += '<div style="font-size:13px;font-weight:600;margin-bottom:4px;padding-right:80px">'+(''+(f.title||'(sans titre)')).replace(/</g,'&lt;')+'</div>';
+  h += '<div style="font-size:13px;font-weight:600;margin-bottom:4px;padding-right:80px">'+esc((''+(f.title||'(sans titre)')))+'</div>';
   // Description courte
   if (f.descExec) {
-    h += '<div style="font-size:11px;color:var(--text-2);margin-bottom:6px;line-height:1.4">'+(''+f.descExec).replace(/</g,'&lt;')+'</div>';
+    h += '<div style="font-size:11px;color:var(--text-2);margin-bottom:6px;line-height:1.4">'+esc(f.descExec)+'</div>';
   }
   // Méta : owner / proba / impact
   var meta = [];
@@ -12533,7 +12533,7 @@ function renderBuFindingCard(f, fIdx, isPreparer) {
   if (f.probability) meta.push('Probabilité : '+f.probability);
   if (f.impact) meta.push('Impact : '+f.impact);
   if (meta.length) {
-    h += '<div style="font-size:10px;color:var(--text-3);margin-bottom:7px;font-style:italic">'+meta.join(' · ').replace(/</g,'&lt;')+'</div>';
+    h += '<div style="font-size:10px;color:var(--text-3);margin-bottom:7px;font-style:italic">'+esc(meta.join(' · '))+'</div>';
   }
   // Issues incluses
   h += '<div style="border-top:.5px dashed var(--border);padding-top:6px;margin-top:4px">';
@@ -12556,7 +12556,7 @@ function renderBuFindingCard(f, fIdx, isPreparer) {
       var badgeLabel = iss.source==='design' ? 'DESIGN' : 'OPERATING';
       h += '<div style="display:flex;align-items:flex-start;gap:6px;padding:3px 0">';
       h += '<span style="background:'+badgeBg+';color:'+badgeColor+';font-size:9px;padding:2px 6px;border-radius:3px;font-weight:500;flex-shrink:0;margin-top:2px">'+badgeLabel+'</span>';
-      h += '<div style="flex:1;min-width:0;font-size:10px;color:var(--text-2)">'+_issueShortLabel(iss).replace(/</g,'&lt;')+'</div>';
+      h += '<div style="flex:1;min-width:0;font-size:10px;color:var(--text-2)">'+esc(_issueShortLabel(iss))+'</div>';
       h += '</div>';
     });
   }
@@ -12575,13 +12575,13 @@ function renderUnaggregatedIssueRow(iss, isPreparer) {
   h += '<span style="background:'+badgeBg+';color:'+badgeColor+';font-size:9px;padding:2px 6px;border-radius:3px;font-weight:500;flex-shrink:0;margin-top:2px">'+badgeLabel+'</span>';
   h += '<div style="flex:1;min-width:0">';
   if (iss.title) {
-    h += '<div style="font-size:11px;font-weight:500">'+(''+iss.title).replace(/</g,'&lt;')+'</div>';
+    h += '<div style="font-size:11px;font-weight:500">'+esc(iss.title)+'</div>';
   } else if (iss.source === 'operating') {
     var code = _getIssueTestCode(iss);
     if (code) h += '<div style="font-size:10px;color:var(--text-3);font-family:monospace">'+code+'</div>';
   }
   if (iss.description) {
-    h += '<div style="font-size:10px;color:var(--text-2);margin-top:1px;white-space:pre-wrap">'+(''+iss.description).replace(/</g,'&lt;')+'</div>';
+    h += '<div style="font-size:10px;color:var(--text-2);margin-top:1px;white-space:pre-wrap">'+esc(iss.description)+'</div>';
   }
   h += '</div>';
   if (isPreparer) {
@@ -12623,7 +12623,7 @@ function showBuFindingModal(findingIdx, seedIssueId) {
   var procOptions = wp.map(function(wpp){
     var p = (PROCESSES||[]).find(function(x){return x.id===wpp.auditProcessId;});
     var name = p ? p.proc : '(Process introuvable)';
-    return '<option value="'+_escAttr(wpp.id)+'"'+(preSelectedProcId===wpp.id?' selected':'')+'>'+name.replace(/</g,'&lt;')+'</option>';
+    return '<option value="'+_escAttr(wpp.id)+'"'+(preSelectedProcId===wpp.id?' selected':'')+'>'+esc(name)+'</option>';
   }).join('');
 
   // Construire le panneau d'issues — sera rendu dynamiquement par updateBuFindingIssuesPanel
@@ -12636,11 +12636,11 @@ function showBuFindingModal(findingIdx, seedIssueId) {
   body += '<input id="bf-title" value="'+_escAttr(f.title)+'" placeholder="ex : Ségrégation des tâches insuffisante en P2P"/></div>';
   body += '<div><label>Description courte (Executive Summary)</label>';
   body += '<div style="font-size:10px;color:var(--text-3);font-style:italic;margin-bottom:3px">2-3 lignes — apparaîtra en synthèse du rapport.</div>';
-  body += '<textarea id="bf-desc-exec" style="width:100%;min-height:50px">'+(''+(f.descExec||'')).replace(/</g,'&lt;')+'</textarea></div>';
+  body += '<textarea id="bf-desc-exec" style="width:100%;min-height:50px">'+esc((''+(f.descExec||'')))+'</textarea></div>';
   body += '<div><label>Description détaillée</label>';
-  body += '<textarea id="bf-desc-detail" style="width:100%;min-height:80px" placeholder="Constat complet : combine les issues design + operating, contexte business, références aux tests...">'+(''+(f.descDetailed||f.desc||'')).replace(/</g,'&lt;')+'</textarea></div>';
+  body += '<textarea id="bf-desc-detail" style="width:100%;min-height:80px" placeholder="Constat complet : combine les issues design + operating, contexte business, références aux tests...">'+esc((''+(f.descDetailed||f.desc||'')))+'</textarea></div>';
   body += '<div><label>Risque potentiel</label>';
-  body += '<textarea id="bf-risk" style="width:100%;min-height:50px" placeholder="ex : Pertes de marge non maîtrisées, fraude possible...">'+(''+(f.potentialRisk||'')).replace(/</g,'&lt;')+'</textarea></div>';
+  body += '<textarea id="bf-risk" style="width:100%;min-height:50px" placeholder="ex : Pertes de marge non maîtrisées, fraude possible...">'+esc((''+(f.potentialRisk||'')))+'</textarea></div>';
   body += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">';
   body += '<div><label>Owner</label><input id="bf-owner" value="'+_escAttr(f.owner)+'" placeholder="ex : Sales Director"/></div>';
   body += '<div><label>Probability</label>';
@@ -12784,7 +12784,7 @@ function updateBuFindingIssuesPanel() {
     var isMainProc = procId === selectedProcId;
     var headerBg = isMainProc ? '#3C3489' : '#EEEDFE';
     var headerColor = isMainProc ? '#fff' : '#3C3489';
-    h += '<div style="background:'+headerBg+';color:'+headerColor+';font-weight:600;padding:5px 10px;font-size:10px;letter-spacing:.3px;text-transform:uppercase;box-sizing:border-box;width:100%">'+procName.replace(/</g,'&lt;');
+    h += '<div style="background:'+headerBg+';color:'+headerColor+';font-weight:600;padding:5px 10px;font-size:10px;letter-spacing:.3px;text-transform:uppercase;box-sizing:border-box;width:100%">'+esc(procName);
     if (isMainProc) h += ' <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:10px">(Process principal)</span>';
     h += '</div>';
     byProcess[procId].forEach(function(iss){
@@ -12797,14 +12797,14 @@ function updateBuFindingIssuesPanel() {
       h += '<input type="checkbox" class="bf-iss-cb" value="'+_escAttr(iss.id)+'"'+checked+' style="margin-top:3px;flex-shrink:0;width:14px;height:14px"/>';
       h += '<span style="background:'+badgeBg+';color:'+badgeColor+';font-size:9px;padding:2px 6px;border-radius:3px;font-weight:500;flex-shrink:0;margin-top:1px">'+badgeLabel+'</span>';
       h += '<div style="flex:1;min-width:0;word-break:break-word;overflow-wrap:break-word">';
-      if (iss.title) h += '<div style="font-size:11px;font-weight:500">'+(''+iss.title).replace(/</g,'&lt;')+'</div>';
+      if (iss.title) h += '<div style="font-size:11px;font-weight:500">'+esc(iss.title)+'</div>';
       else if (iss.source === 'operating') {
         var code = _getIssueTestCode(iss);
         if (code) h += '<div style="font-size:10px;color:var(--text-3);font-family:monospace">'+code+'</div>';
       }
       if (iss.description) {
         var shortDesc = iss.description.length > 150 ? iss.description.slice(0,150)+'…' : iss.description;
-        h += '<div style="font-size:10px;color:var(--text-2);margin-top:1px;white-space:pre-wrap">'+shortDesc.replace(/</g,'&lt;')+'</div>';
+        h += '<div style="font-size:10px;color:var(--text-2);margin-top:1px;white-space:pre-wrap">'+esc(shortDesc)+'</div>';
       }
       if (isInOther) h += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:2px">⚠ déjà dans un autre finding</div>';
       h += '</div>';
@@ -12962,7 +12962,7 @@ function renderFindingsSection() {
     // Header SP
     html += '<div onclick="toggleFindingsSpSection(\''+_escJsArg(spId)+'\')" style="cursor:pointer;padding:9px 14px;background:#fafafa;border-bottom:'+(isOpen?'.5px solid var(--border)':'none')+';display:flex;align-items:center;gap:10px;user-select:none">';
     html += '<span style="font-size:11px;color:var(--text-3);width:10px;flex-shrink:0;transition:transform .15s;transform:rotate('+(isOpen?'90':'0')+'deg)">▶</span>';
-    html += '<span style="font-size:13px;font-weight:600;color:var(--text-1);flex:1">'+(''+spInfo.name).replace(/</g,'&lt;');
+    html += '<span style="font-size:13px;font-weight:600;color:var(--text-1);flex:1">'+esc(spInfo.name);
     if (spInfo.source === 'discovered') html += ' <span style="font-size:9px;color:var(--text-3);font-style:italic">(découvert)</span>';
     html += '</span>';
     html += '<span style="font-size:10px;color:var(--text-3);flex-shrink:0">'+nbIssues+' issue'+(nbIssues>1?'s':'')+' · '+nbFindings+' finding'+(nbFindings>1?'s':'')+'</span>';
@@ -12988,8 +12988,8 @@ function renderFindingsSection() {
           html += '<input type="checkbox" '+(isChecked?'checked':'')+' onchange="toggleIssueSelection(\''+_escJsArg(checkId)+'\')" style="margin-top:2px;flex-shrink:0"/>';
           html += typeLabel;
           html += '<div style="flex:1;min-width:0">';
-          html += '<div style="font-weight:500">'+(iss.title||'(sans titre)').replace(/</g,'&lt;')+'</div>';
-          if (iss.controlName) html += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:1px">Contrôle : '+iss.controlName.replace(/</g,'&lt;')+'</div>';
+          html += '<div style="font-weight:500">'+esc((iss.title||'(sans titre)'))+'</div>';
+          if (iss.controlName) html += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:1px">Contrôle : '+esc(iss.controlName)+'</div>';
           html += '</div>';
           html += '</label>';
         });
@@ -13005,7 +13005,7 @@ function renderFindingsSection() {
           html += '<input type="checkbox" '+(isChecked?'checked':'')+' onchange="toggleIssueSelection(\''+_escJsArg(checkId)+'\')" style="margin-top:2px;flex-shrink:0"/>';
           html += '<span class="badge bfl" style="font-size:9px;flex-shrink:0">❌ Test fail</span>';
           html += '<div style="flex:1;min-width:0">';
-          html += '<div><span style="color:var(--text-3);font-size:10px;margin-right:5px;font-family:monospace">'+ctrlCode+'</span>'+(c.name||'').replace(/</g,'&lt;')+'</div>';
+          html += '<div><span style="color:var(--text-3);font-size:10px;margin-right:5px;font-family:monospace">'+ctrlCode+'</span>'+esc((c.name||''))+'</div>';
           html += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:1px">'+aCount+' anomalie'+(Number(aCount)>1?'s':'')+' / '+sCount+' testé'+(Number(sCount)>1?'s':'')+'</div>';
           html += '</div>';
           html += '</label>';
@@ -13020,8 +13020,8 @@ function renderFindingsSection() {
           html += '<input type="checkbox" '+(isChecked?'checked':'')+' onchange="toggleIssueSelection(\''+_escJsArg(checkId)+'\')" style="margin-top:2px;flex-shrink:0"/>';
           html += '<span class="badge" style="background:#FAEEDA;color:#854F0B;font-size:9px;flex-shrink:0">🎯 Target manquant</span>';
           html += '<div style="flex:1;min-width:0">';
-          html += '<div><span style="color:var(--text-3);font-size:10px;margin-right:5px;font-family:monospace">'+ctrlCode+'</span>'+(c.name||'').replace(/</g,'&lt;')+'</div>';
-          if (c.owner) html += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:1px">Owner : '+c.owner.replace(/</g,'&lt;')+'</div>';
+          html += '<div><span style="color:var(--text-3);font-size:10px;margin-right:5px;font-family:monospace">'+ctrlCode+'</span>'+esc((c.name||''))+'</div>';
+          if (c.owner) html += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:1px">Owner : '+esc(c.owner)+'</div>';
           html += '</div>';
           html += '</label>';
         });
@@ -13053,9 +13053,9 @@ function renderFindingsSection() {
           html += '<div style="display:flex;align-items:flex-start;gap:8px">';
           html += '<span class="badge bpc" style="font-size:10px;flex-shrink:0">F'+(idx+1)+'</span>';
           html += '<div style="flex:1;min-width:0">';
-          html += '<div style="font-size:12px;font-weight:600">'+(f.title||'(sans titre)').replace(/</g,'&lt;')+'</div>';
+          html += '<div style="font-size:12px;font-weight:600">'+esc((f.title||'(sans titre)'))+'</div>';
           var execTxt = f.descExec || '';
-          if (execTxt) html += '<div style="font-size:10px;color:var(--text-2);margin-top:3px;font-style:italic">'+execTxt.replace(/</g,'&lt;')+'</div>';
+          if (execTxt) html += '<div style="font-size:10px;color:var(--text-2);margin-top:3px;font-style:italic">'+esc(execTxt)+'</div>';
           // Méta : owner + risk + nombre d'issues liées
           var nbDi = (f.designIssueIds||[]).length;
           var nbCtl = (f.controlIds||[]).length;
@@ -13217,7 +13217,7 @@ function renderHeaderAndMaturitySection() {
   html += '<div style="font-size:11px;font-weight:600;color:var(--text-2)">Exec Summary — Header</div>';
   html += '<span style="font-size:9px;color:var(--text-3);font-style:italic">Maturité ajoutée auto en fin</span>';
   html += '</div>';
-  html += '<textarea id="exec-summary-header" placeholder="ex : The audit of the Renewals process identified improvement opportunities in operational efficiency..." style="width:100%;min-height:80px;font-size:11px;padding:6px 8px;border:1px solid var(--border);border-radius:3px;resize:vertical;line-height:1.4" onchange="setExecSummaryHeader(this.value)">'+(d.execSummaryHeader||'').replace(/</g,'&lt;')+'</textarea>';
+  html += '<textarea id="exec-summary-header" placeholder="ex : The audit of the Renewals process identified improvement opportunities in operational efficiency..." style="width:100%;min-height:80px;font-size:11px;padding:6px 8px;border:1px solid var(--border);border-radius:3px;resize:vertical;line-height:1.4" onchange="setExecSummaryHeader(this.value)">'+esc((d.execSummaryHeader||''))+'</textarea>';
   html += '</div>';
 
   // ─── Colonne droite : Maturity compacte ─────────────────────
@@ -13552,7 +13552,7 @@ async function composeMgtRespEmail() {
   var subject = 'Rapport d\'audit — ' + titre + ' — Demande de Management Response';
 
   var bodyHtml = '<p>Bonjour,</p>';
-  bodyHtml += '<p>Suite aux travaux de l\'audit <strong>' + titre.replace(/</g,'&lt;') + '</strong>, le rapport final est désormais disponible.</p>';
+  bodyHtml += '<p>Suite aux travaux de l\'audit <strong>' + esc(titre) + '</strong>, le rapport final est désormais disponible.</p>';
   bodyHtml += '<p><strong>Rapport d\'audit :</strong> <a href="' + finalReport.webUrl + '">Ouvrir sur SharePoint</a> (joint à ce mail également)</p>';
   if (findingsCount > 0) {
     bodyHtml += '<p>Le rapport identifie <strong>' + findingsCount + ' finding' + (findingsCount>1?'s':'') + '</strong> pour lesquels nous sollicitons votre Management Response.</p>';
@@ -13690,13 +13690,13 @@ function renderMgtRespSection() {
       html += '<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:8px">';
       html += '<span class="badge bpc" style="flex-shrink:0">Finding</span>';
       html += '<div style="flex:1">';
-      html += '<div style="font-size:13px;font-weight:600">'+(''+f.title).replace(/</g,'&lt;')+'</div>';
-      if (f.desc) html += '<div style="font-size:11px;color:var(--text-2);margin-top:4px;white-space:pre-wrap">'+(''+f.desc).replace(/</g,'&lt;')+'</div>';
+      html += '<div style="font-size:13px;font-weight:600">'+esc(f.title)+'</div>';
+      if (f.desc) html += '<div style="font-size:11px;color:var(--text-2);margin-top:4px;white-space:pre-wrap">'+esc(f.desc)+'</div>';
       if (f.controls.length) {
         html += '<div style="font-size:10px;color:var(--text-3);margin-top:4px">Contrôles concernés : ';
         html += f.controls.map(function(c){
           var typeLabel = c.design === 'target' ? '🎯' : '❌';
-          return typeLabel+' '+(c.code||c.id)+' '+(''+c.name).replace(/</g,'&lt;');
+          return typeLabel+' '+(c.code||c.id)+' '+esc(c.name);
         }).join(' · ');
         html += '</div>';
       }
@@ -13739,7 +13739,7 @@ function _renderSingleMgtResp(f, resp, respIdx, totalResp) {
   // Champs MR : texte + owner
   html += '<div style="display:grid;grid-template-columns:3fr 1fr;gap:8px;margin-bottom:10px">';
   html += '<div><label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:3px">Réponse du management</label>';
-  html += '<textarea style="font-size:11px;width:100%;min-height:50px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;font-family:inherit;resize:vertical" placeholder="Le management s\'engage à ..." onchange="setMgtRespField(\''+_escJsArg(resp.id)+'\',\'responseText\',this.value)">'+(resp.responseText||'').replace(/</g,'&lt;')+'</textarea></div>';
+  html += '<textarea style="font-size:11px;width:100%;min-height:50px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;font-family:inherit;resize:vertical" placeholder="Le management s\'engage à ..." onchange="setMgtRespField(\''+_escJsArg(resp.id)+'\',\'responseText\',this.value)">'+esc((resp.responseText||''))+'</textarea></div>';
   html += '<div><label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:3px">Owner de la MR</label>';
   html += '<input style="font-size:11px;width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box" placeholder="ex: Director Finance" value="'+(resp.responseOwner||'').replace(/"/g,'&quot;')+'" onchange="setMgtRespField(\''+_escJsArg(resp.id)+'\',\'responseOwner\',this.value)"/></div>';
   html += '</div>';
@@ -14460,7 +14460,7 @@ function showAnalysisDetailModal(/* context, ...args */) {
   body += '<th style="padding:6px 8px;text-align:left;border:.5px solid var(--border);font-weight:500;color:var(--text-3)">ID</th>';
   cfg.attributes.forEach(function(attr){
     cfg.sources.forEach(function(src){
-      body += '<th style="padding:6px 8px;text-align:left;border:.5px solid var(--border);font-weight:500;color:var(--text-3);font-size:9px">'+(''+attr).replace(/</g,'&lt;')+'<br><span style="font-weight:400">('+(''+src).replace(/</g,'&lt;')+')</span></th>';
+      body += '<th style="padding:6px 8px;text-align:left;border:.5px solid var(--border);font-weight:500;color:var(--text-3);font-size:9px">'+esc(attr)+'<br><span style="font-weight:400">('+esc(src)+')</span></th>';
     });
   });
   body += '<th style="padding:6px 8px;text-align:left;border:.5px solid var(--border);font-weight:500;color:var(--text-3)">Commentaire</th>';
@@ -14469,15 +14469,15 @@ function showAnalysisDetailModal(/* context, ...args */) {
     var details = results.itemDetails[idx];
     var hasDiv = details && details.hasDivergence;
     body += '<tr'+(hasDiv?' style="background:#FCEBEB"':'')+'>';
-    body += '<td style="padding:5px 8px;border:.5px solid var(--border);font-weight:500">'+(''+item.id).replace(/</g,'&lt;')+'</td>';
+    body += '<td style="padding:5px 8px;border:.5px solid var(--border);font-weight:500">'+esc(item.id)+'</td>';
     cfg.attributes.forEach(function(attr){
       var isAttrDiv = details && details.divergentAttrs.indexOf(attr) >= 0;
       cfg.sources.forEach(function(src){
         var v = (item.values && item.values[attr] && item.values[attr][src]) || '';
-        body += '<td style="padding:5px 8px;border:.5px solid var(--border);'+(isAttrDiv?'color:#993C1D;font-weight:600':'')+'">'+(''+v).replace(/</g,'&lt;')+'</td>';
+        body += '<td style="padding:5px 8px;border:.5px solid var(--border);'+(isAttrDiv?'color:#993C1D;font-weight:600':'')+'">'+esc(v)+'</td>';
       });
     });
-    body += '<td style="padding:5px 8px;border:.5px solid var(--border);font-size:10px;color:var(--text-3);font-style:italic">'+(''+(item.comment||'')).replace(/</g,'&lt;')+'</td>';
+    body += '<td style="padding:5px 8px;border:.5px solid var(--border);font-size:10px;color:var(--text-3);font-style:italic">'+esc((''+(item.comment||'')))+'</td>';
     body += '</tr>';
   });
   body += '</tbody></table>';
@@ -14781,15 +14781,15 @@ function showFindingModal(existing) {
       if (c.design !== 'target' && aCount) {
         details = '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:1px">'+aCount+' anomalie'+(Number(aCount)>1?'s':'')+(sCount?' / '+sCount+' testé'+(Number(sCount)>1?'s':''):'')+'</div>';
       } else if (c.design === 'target' && c.owner) {
-        details = '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:1px">Owner : '+(''+c.owner).replace(/</g,'&lt;')+'</div>';
+        details = '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:1px">Owner : '+esc(c.owner)+'</div>';
       }
       var spName = _ctrlSpNameInModal(c);
-      var spInfo = spName ? '<span style="font-size:9px;color:var(--text-3);font-style:italic">· '+spName.replace(/</g,'&lt;')+'</span>' : '';
+      var spInfo = spName ? '<span style="font-size:9px;color:var(--text-3);font-style:italic">· '+esc(spName)+'</span>' : '';
       return '<label style="display:flex;align-items:flex-start;gap:8px;padding:6px 9px;background:'+(isChecked?'#EEEDFE':'#fff')+';border:.5px solid '+(isChecked?'#CECBF6':'var(--border)')+';border-radius:3px;cursor:pointer;font-size:11px">'
         + '<input type="checkbox" class="f-ctrl-cb" value="'+c.id+'" '+(isChecked?'checked':'')+' style="margin-top:2px;flex-shrink:0"/>'
         + typeLabel
         + '<div style="flex:1;min-width:0">'
-        + '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span style="color:var(--text-3);font-size:10px;font-family:monospace">'+ctrlCode+'</span><span style="font-weight:500">'+(c.name||'').replace(/</g,'&lt;')+'</span>'+spInfo+'</div>'
+        + '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span style="color:var(--text-3);font-size:10px;font-family:monospace">'+ctrlCode+'</span><span style="font-weight:500">'+esc((c.name||''))+'</span>'+spInfo+'</div>'
         + details
         + '</div>'
         + '</label>';
@@ -14808,14 +14808,14 @@ function showFindingModal(existing) {
         ? '<span class="badge" style="background:#FCE7E5;color:#7F1D1D;font-size:9px;flex-shrink:0">⚠ Design Manquant</span>'
         : '<span class="badge" style="background:#FFEDD5;color:#9A3412;font-size:9px;flex-shrink:0">⚠ Design Insuffisant</span>';
       var spName = _diSpName(iss);
-      var spInfo = spName ? '<span style="font-size:9px;color:var(--text-3);font-style:italic">· '+spName.replace(/</g,'&lt;')+'</span>' : '';
+      var spInfo = spName ? '<span style="font-size:9px;color:var(--text-3);font-style:italic">· '+esc(spName)+'</span>' : '';
       var issTitle = iss.title || iss.controlName || '(sans titre)';
-      var ctrlInfo = iss.controlName ? '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:1px">Contrôle : '+iss.controlName.replace(/</g,'&lt;')+'</div>' : '';
+      var ctrlInfo = iss.controlName ? '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:1px">Contrôle : '+esc(iss.controlName)+'</div>' : '';
       return '<label style="display:flex;align-items:flex-start;gap:8px;padding:6px 9px;background:'+(isChecked?'#EEEDFE':'#fff')+';border:.5px solid '+(isChecked?'#CECBF6':'var(--border)')+';border-radius:3px;cursor:pointer;font-size:11px">'
         + '<input type="checkbox" class="f-di-cb" value="'+iss.id+'" '+(isChecked?'checked':'')+' style="margin-top:2px;flex-shrink:0"/>'
         + subtypeLabel
         + '<div style="flex:1;min-width:0">'
-        + '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span style="font-weight:500">'+(''+issTitle).replace(/</g,'&lt;')+'</span>'+spInfo+'</div>'
+        + '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span style="font-weight:500">'+esc(issTitle)+'</span>'+spInfo+'</div>'
         + ctrlInfo
         + '</div>'
         + '</label>';
@@ -14843,12 +14843,12 @@ function showFindingModal(existing) {
     + '<input id="f-title" value="'+(f.title||'').replace(/"/g,'&quot;')+'" placeholder="ex : Ségrégation des tâches insuffisante en P2P" style="'+inputStyle+'"/></div>'
     + '<div style="'+compactStyle+'"><label style="'+labelStyle+'">Description courte (Executive Summary)</label>'
     + '<div style="'+helpStyle+'">2-3 lignes. Apparaîtra en slide « Executive Summary - Findings ».</div>'
-    + '<textarea id="f-desc-exec" style="'+taStyle+';min-height:50px" placeholder="ex : Process incomplet de tracking des opportunités de renouvellement dans SFDC.">'+((f.descExec || '')).replace(/</g,'&lt;')+'</textarea></div>'
+    + '<textarea id="f-desc-exec" style="'+taStyle+';min-height:50px" placeholder="ex : Process incomplet de tracking des opportunités de renouvellement dans SFDC.">'+esc(((f.descExec || '')))+'</textarea></div>'
     + '<div style="'+compactStyle+'"><label style="'+labelStyle+'">Description détaillée</label>'
     + '<div style="'+helpStyle+'">Constat complet, contexte, contrôles failed. Apparaîtra en slide détaillée du finding.</div>'
-    + '<textarea id="f-desc-detail" style="'+taStyle+';min-height:80px" placeholder="Description complète, références aux contrôles fail, contexte business...">'+(f.descDetailed || f.desc || '').replace(/</g,'&lt;')+'</textarea></div>'
+    + '<textarea id="f-desc-detail" style="'+taStyle+';min-height:80px" placeholder="Description complète, références aux contrôles fail, contexte business...">'+esc((f.descDetailed || f.desc || ''))+'</textarea></div>'
     + '<div style="'+compactStyle+'"><label style="'+labelStyle+'">Potential Risk</label>'
-    + '<textarea id="f-risk" style="'+taStyle+';min-height:50px" placeholder="ex : Missed renewals, lost revenue opportunities, contract leakage...">'+(f.potentialRisk||'').replace(/</g,'&lt;')+'</textarea></div>'
+    + '<textarea id="f-risk" style="'+taStyle+';min-height:50px" placeholder="ex : Missed renewals, lost revenue opportunities, contract leakage...">'+esc((f.potentialRisk||''))+'</textarea></div>'
     + '<div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px;'+compactStyle+'">'
     + '<div><label style="'+labelStyle+'">Owner</label>'
     + '<input id="f-owner" value="'+(f.owner||'').replace(/"/g,'&quot;')+'" placeholder="ex : Sales Ops Director" style="'+inputStyle+'"/></div>'
@@ -15167,13 +15167,13 @@ function showPrepReviewerModal(files) {
   }
   var defaultReviewer = adminUsers.length ? adminUsers[0].id : '';
 
-  var fileNames = files.map(function(f){return '<li style="font-size:11px;color:var(--text-2)">'+f.name+'</li>';}).join('');
+  var fileNames = files.map(function(f){return '<li style="font-size:11px;color:var(--text-2)">'+esc(f.name)+'</li>';}).join('');
   var prepOpts = auditors.map(function(id){
     var m = TM[id];
     return '<option value="'+id+'"'+(id===defaultPreparer?' selected':'')+'>'+((m&&m.name)||id)+'</option>';
   }).join('');
   var revOpts = allUsers.map(function(u){
-    return '<option value="'+u.id+'"'+(u.id===defaultReviewer?' selected':'')+'>'+u.name+(u.role==='admin'?' (admin)':'')+'</option>';
+    return '<option value="'+u.id+'"'+(u.id===defaultReviewer?' selected':'')+'>'+esc(u.name)+(u.role==='admin'?' (admin)':'')+'</option>';
   }).join('');
 
   var bodyHtml =
@@ -15342,7 +15342,7 @@ function buildExecTable(kc){
     html += '<div style="margin-bottom:14px;border:.5px solid var(--border);border-radius:6px;overflow:hidden;background:#fff">';
     html += '<div onclick="toggleTestingsSpSection(\''+_escJsArg(spId)+'\')" style="cursor:pointer;padding:10px 14px;background:#fafafa;border-bottom:'+(isOpen?'.5px solid var(--border)':'none')+';display:flex;align-items:center;gap:10px;user-select:none">';
     html += '<span style="font-size:11px;color:var(--text-3);width:10px;flex-shrink:0;transition:transform .15s;transform:rotate('+(isOpen?'90':'0')+'deg)">▶</span>';
-    html += '<span style="font-size:13px;font-weight:600;color:var(--text-1);flex:1">'+(''+spInfo.name).replace(/</g,'&lt;');
+    html += '<span style="font-size:13px;font-weight:600;color:var(--text-1);flex:1">'+esc(spInfo.name);
     if (spInfo.source === 'discovered') html += ' <span style="font-size:9px;color:var(--text-3);font-style:italic">(découvert via narratif)</span>';
     html += '</span>';
     html += '<span style="font-size:10px;color:var(--text-3);flex-shrink:0">'+nbFinalized+'/'+nbInSp+' finalisés</span>';
@@ -15441,7 +15441,7 @@ function _buildSingleProcessTestCard(ctrl, globalIdx, allCtrls, wcgwList, d) {
     // Code
     html += '<span style="background:#EEEDFE;color:#3C3489;font-size:9px;padding:2px 7px;border-radius:3px;font-family:monospace;letter-spacing:.4px;flex-shrink:0">'+ctrlCode+'</span>';
     // Nom
-    html += '<span style="font-size:12px;font-weight:500;color:var(--text-1);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(''+(ctrl.name||'(sans nom)')).replace(/</g,'&lt;')+'</span>';
+    html += '<span style="font-size:12px;font-weight:500;color:var(--text-1);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc((''+(ctrl.name||'(sans nom)')))+'</span>';
     // Mode
     html += '<span style="flex-shrink:0">'+modeBadge+'</span>';
     // Sample
@@ -15470,7 +15470,7 @@ function _buildSingleProcessTestCard(ctrl, globalIdx, allCtrls, wcgwList, d) {
 
     // En-tête détaillé : WCGW + meta
     html += '<div style="margin-bottom:10px">';
-    if (ctrl.description) html += '<div style="font-size:11px;color:var(--text-2);margin-bottom:6px;font-style:italic">'+(''+ctrl.description).replace(/</g,'&lt;')+'</div>';
+    if (ctrl.description) html += '<div style="font-size:11px;color:var(--text-2);margin-bottom:6px;font-style:italic">'+esc(ctrl.description)+'</div>';
     html += '<div style="font-size:10px;color:var(--text-2);display:flex;gap:8px;flex-wrap:wrap;align-items:center">';
     html += wcgwBadge;
     if (details.length) html += '<span>·</span><span>'+details.join(' · ')+'</span>';
@@ -15508,7 +15508,7 @@ function _buildSingleProcessTestCard(ctrl, globalIdx, allCtrls, wcgwList, d) {
     // Procédure de test (testNature)
     html += '<div style="margin-bottom:8px">';
     html += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Procédure de test</label>';
-    html += '<textarea onchange="setTestNature('+globalIdx+',this.value)" '+dis+' placeholder="Décrivez la procédure de test..." style="width:100%;min-height:50px;font-size:11px;padding:6px;border:1px solid var(--border);border-radius:3px;font-family:inherit;box-sizing:border-box">'+(ctrl.testNature||'').replace(/</g,'&lt;')+'</textarea>';
+    html += '<textarea onchange="setTestNature('+globalIdx+',this.value)" '+dis+' placeholder="Décrivez la procédure de test..." style="width:100%;min-height:50px;font-size:11px;padding:6px;border:1px solid var(--border);border-radius:3px;font-family:inherit;box-sizing:border-box">'+esc((ctrl.testNature||''))+'</textarea>';
     html += '</div>';
 
     // v77.3 : Section Sample Sizing — choix Control vs Substantive testing
@@ -15743,7 +15743,7 @@ function _buildSingleProcessTestCard(ctrl, globalIdx, allCtrls, wcgwList, d) {
       html += '<button class="bs" style="font-size:10px;padding:2px 7px" onclick="prefillProcessIssueDescription('+globalIdx+')" title="Pré-remplir depuis les résultats du test">📋 Pré-remplir</button>';
     }
     html += '</div>';
-    html += '<textarea id="iss-desc-proc-'+globalIdx+'" onchange="setProcessIssueDescription('+globalIdx+',this.value)" '+dis+' placeholder="Détail des anomalies trouvées, contexte, ce qui sera remonté dans le rapport..." style="width:100%;min-height:60px;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;resize:vertical;font-family:inherit;box-sizing:border-box">'+issueDesc.replace(/</g,'&lt;')+'</textarea>';
+    html += '<textarea id="iss-desc-proc-'+globalIdx+'" onchange="setProcessIssueDescription('+globalIdx+',this.value)" '+dis+' placeholder="Détail des anomalies trouvées, contexte, ce qui sera remonté dans le rapport..." style="width:100%;min-height:60px;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;resize:vertical;font-family:inherit;box-sizing:border-box">'+esc(issueDesc)+'</textarea>';
     html += '</div>';
 
     // Bouton finaliser
@@ -15782,8 +15782,8 @@ function buildDocList(docs){
   var isAdmin = CU && CU.role==='admin';
   return docs.map(function(f,fi){
     var link = f.url
-      ? '<a href="'+f.url+'" target="_blank" rel="noopener" style="color:#534AB7;text-decoration:none;font-weight:500">'+f.name+'</a>'
-      : '<span style="font-weight:500">'+f.name+'</span>';
+      ? '<a href="'+f.url+'" target="_blank" rel="noopener" style="color:#534AB7;text-decoration:none;font-weight:500">'+esc(f.name)+'</a>'
+      : '<span style="font-weight:500">'+esc(f.name)+'</span>';
 
     // Statut de revue
     var reviewStatus = f.reviewStatus || 'pending'; // 'pending' ou 'reviewed'
@@ -15907,10 +15907,12 @@ function exportDashboardPDF(){
   var planned = sortChron(allYear.filter(function(a){return(a.statut||'').startsWith('Planifié');}));
 
   function auds(ap){
-    return (ap.auditeurs||[]).map(function(id){return TM[id]?TM[id].name:id;}).join(', ')||'—';
+    return (ap.auditeurs||[]).map(function(id){return esc(TM[id]?TM[id].name:id);}).join(', ')||'—';
   }
   function detail(ap){
-    return ap.type==='Process'?(ap.domaine+' › '+ap.process):((ap.pays||[]).join(', '));
+    return ap.type==='Process'
+      ? (esc(ap.domaine||'')+' › '+esc(ap.process||''))
+      : esc((ap.pays||[]).join(', '));
   }
 
   var CSS='body{font-family:system-ui,sans-serif;padding:2rem;color:#111827;max-width:900px;margin:0 auto}'
@@ -15938,7 +15940,7 @@ function exportDashboardPDF(){
     return arr.map(function(ap){
       var ttype=ap.type==='Process'?'<span class="tag tag-proc">Process</span>':'<span class="tag tag-bu">BU</span>';
       return '<tr>'
-        +'<td style="font-weight:600;color:#111827">'+ap.titre+'</td>'
+        +'<td style="font-weight:600;color:#111827">'+esc(ap.titre)+'</td>'
         +'<td>'+ttype+'</td>'
         +'<td style="color:#6B7280">'+detail(ap)+'</td>'
         +'<td style="color:#374151">'+auds(ap)+'</td>'
@@ -15952,7 +15954,7 @@ function exportDashboardPDF(){
     +'<style>'+CSS+'</style></head><body>'
     +'<h1>Plan d\'audit — '+CY+'</h1>'
     +'<div class="sub">Généré le '+new Date().toLocaleDateString('fr-FR',{day:'numeric',month:'long',year:'numeric'})
-    +(window._dbAuditeur!=='all'?' · Auditeur : '+(TM[window._dbAuditeur]&&TM[window._dbAuditeur].name||window._dbAuditeur):'')
+    +(window._dbAuditeur!=='all'?' · Auditeur : '+esc(TM[window._dbAuditeur]&&TM[window._dbAuditeur].name||window._dbAuditeur):'')
     +' · '+allYear.length+' audit(s) au total</div>'
     +'<div class="metrics">'
     +'<div class="mc"><div class="ml">Clôturés</div><div class="mv" style="color:#059669">'+closed.length+'</div></div>'
@@ -15988,7 +15990,7 @@ function exportAuditPDF(auditId){
   if(!ap){toast('Audit introuvable');return;}
   var d=getAudData(auditId);
   var pct=calculateAuditProgress(ap);
-  var auds=(ap.auditeurs||[]).map(function(id){return TM[id]?TM[id].name:id;}).join(', ')||'—';
+  var auds=(ap.auditeurs||[]).map(function(id){return esc(TM[id]?TM[id].name:id);}).join(', ')||'—';
 
   // ── Données contrôles / tests ──────────────────────────────
   var allControls=d.controls[4]||[];
@@ -16042,12 +16044,12 @@ function exportAuditPDF(auditId){
   var adminHtml='<div class="section">'
     +'<div class="section-title">Admin</div>'
     +'<div class="grid2" style="gap:12px">'
-    +'<div><div class="lbl">Mission</div><div class="val">'+ap.titre+'</div></div>'
-    +'<div><div class="lbl">Type</div><div class="val">'+ap.type+'</div></div>'
+    +'<div><div class="lbl">Mission</div><div class="val">'+esc(ap.titre)+'</div></div>'
+    +'<div><div class="lbl">Type</div><div class="val">'+esc(ap.type)+'</div></div>'
     +'<div><div class="lbl">Auditeur(s)</div><div class="val">'+auds+'</div></div>'
-    +'<div><div class="lbl">Période</div><div class="val">'+periode+'</div></div>'
-    +'<div><div class="lbl">Statut</div><div class="val">'+pct+'% — '+(ap.statut||'Planifié')+'</div></div>'
-    +'<div><div class="lbl">Étape</div><div class="val">'+(ap.step!=null?STEPS[Math.min(ap.step,9)].s:'—')+'</div></div>'
+    +'<div><div class="lbl">Période</div><div class="val">'+esc(periode)+'</div></div>'
+    +'<div><div class="lbl">Statut</div><div class="val">'+pct+'% — '+esc(ap.statut||'Planifié')+'</div></div>'
+    +'<div><div class="lbl">Étape</div><div class="val">'+(ap.step!=null?esc(STEPS[Math.min(ap.step,9)].s):'—')+'</div></div>'
     +'</div>'
     +'</div>';
 
@@ -16072,13 +16074,13 @@ function exportAuditPDF(auditId){
     + '<div class="section-title">Risques du processus ('+auditRisks.length+')</div>';
   if (auditRisks.length) {
     var riskRows = auditRisks.map(function(r){
-      var typesStr = (r.impactTypes||[]).join(', ') || '—';
+      var typesStr = esc((r.impactTypes||[]).join(', ') || '—');
       var impactColor = ({'Minor':'#059669','Limited':'#B45309','Major':'#DC2626','Severe':'#7F1D1D'})[r.impact] || '#6B7280';
       return '<tr>'
-        + '<td style="font-weight:500">'+(r.title||'')+'</td>'
-        + '<td style="color:#6B7280;font-size:11px">'+(r.description||'—')+'</td>'
-        + '<td style="color:#6B7280">'+(r.probability||'—')+'</td>'
-        + '<td><span style="color:'+impactColor+';font-weight:600">'+(r.impact||'—')+'</span></td>'
+        + '<td style="font-weight:500">'+esc(r.title||'')+'</td>'
+        + '<td style="color:#6B7280;font-size:11px">'+esc(r.description||'—')+'</td>'
+        + '<td style="color:#6B7280">'+esc(r.probability||'—')+'</td>'
+        + '<td><span style="color:'+impactColor+';font-weight:600">'+esc(r.impact||'—')+'</span></td>'
         + '<td style="color:#6B7280;font-size:11px">'+typesStr+'</td>'
         + '</tr>';
     }).join('');
@@ -16093,8 +16095,8 @@ function exportAuditPDF(auditId){
     +'<div class="section-title">Exec Summary</div>'
     +'<div style="margin-bottom:1rem">'
     +'<div class="lbl" style="margin-bottom:6px">Overall Process Maturity</div>'
-    +'<div style="display:inline-block;padding:6px 14px;border-radius:8px;border:2px solid '+matColor+';color:'+matColor+';font-size:13px;font-weight:700">'+matLabel+'</div>'
-    +(mat.notes?'<div style="font-size:11px;color:#6B7280;margin-top:6px;font-style:italic">'+mat.notes+'</div>':'')
+    +'<div style="display:inline-block;padding:6px 14px;border-radius:8px;border:2px solid '+matColor+';color:'+matColor+';font-size:13px;font-weight:700">'+esc(matLabel)+'</div>'
+    +(mat.notes?'<div style="font-size:11px;color:#6B7280;margin-top:6px;font-style:italic">'+esc(mat.notes)+'</div>':'')
     +'</div>'
     +'<div class="grid3">'
     +'<div class="stat-box"><div class="lbl">Tests finalisés</div><div class="val" style="font-size:20px">'+finalized.length+'</div></div>'
@@ -16111,12 +16113,12 @@ function exportAuditPDF(auditId){
         ?(ctrl.result==='pass'?'<span class="badge b-pass">Pass</span>':'<span class="badge b-fail">Fail</span>')
         :'<span class="badge b-nd">Non finalisé</span>';
       return '<tr>'
-        +'<td style="font-weight:500">'+ctrl.name+'</td>'
-        +'<td style="color:#6B7280">'+ctrl.owner+'</td>'
-        +'<td style="color:#6B7280">'+ctrl.freq+'</td>'
-        +'<td style="color:#6B7280">'+ctrl.testNature+'</td>'
+        +'<td style="font-weight:500">'+esc(ctrl.name)+'</td>'
+        +'<td style="color:#6B7280">'+esc(ctrl.owner)+'</td>'
+        +'<td style="color:#6B7280">'+esc(ctrl.freq)+'</td>'
+        +'<td style="color:#6B7280">'+esc(ctrl.testNature)+'</td>'
         +'<td>'+resBadge+'</td>'
-        +'<td style="color:#DC2626;font-size:10px">'+(ctrl.result==='fail'&&ctrl.finding?ctrl.finding:'—')+'</td>'
+        +'<td style="color:#DC2626;font-size:10px">'+(ctrl.result==='fail'&&ctrl.finding?esc(ctrl.finding):'—')+'</td>'
         +'</tr>';
     }).join('');
   }
@@ -16135,9 +16137,9 @@ function exportAuditPDF(auditId){
       ?'<table><thead><tr><th>Contrôle</th><th>Owner</th><th>Fréquence</th></tr></thead><tbody>'
         +targetControls.map(function(ctrl){
           return '<tr>'
-            +'<td style="font-weight:500">'+ctrl.name+'</td>'
-            +'<td style="color:#6B7280">'+ctrl.owner+'</td>'
-            +'<td style="color:#6B7280">'+ctrl.freq+'</td>'
+            +'<td style="font-weight:500">'+esc(ctrl.name)+'</td>'
+            +'<td style="color:#6B7280">'+esc(ctrl.owner)+'</td>'
+            +'<td style="color:#6B7280">'+esc(ctrl.freq)+'</td>'
             +'</tr>';
         }).join('')
         +'</tbody></table>'
@@ -16159,17 +16161,17 @@ function exportAuditPDF(auditId){
             :'<span class="badge b-nd">Finding</span>';
           return '<div style="padding:8px 0;border-bottom:1px solid #F3F4F6">'
             +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">'+typeB
-            +'<span style="font-size:12px;font-weight:600">'+f.title+'</span></div>'
-            +'<div style="font-size:11px;color:#6B7280;padding-left:4px">'+f.desc+'</div>'
+            +'<span style="font-size:12px;font-weight:600">'+esc(f.title)+'</span></div>'
+            +'<div style="font-size:11px;color:#6B7280;padding-left:4px">'+esc(f.desc)+'</div>'
             +'</div>';
         }).join('')
       :'<div style="color:#9CA3AF;font-size:12px;font-style:italic">Aucun finding identifié.</div>')
     +'</div>';
 
   var html='<!DOCTYPE html><html><head><meta charset="UTF-8"/>'
-    +'<title>Rapport — '+ap.titre+'</title>'
+    +'<title>Rapport — '+esc(ap.titre)+'</title>'
     +'<style>'+CSS+'</style></head><body>'
-    +'<h1>Rapport d\'audit — '+ap.titre+'</h1>'
+    +'<h1>Rapport d\'audit — '+esc(ap.titre)+'</h1>'
     +'<div class="gen">Généré le '+new Date().toLocaleDateString('fr-FR',{day:'numeric',month:'long',year:'numeric'})+'</div>'
     +adminHtml+risksHtml+execHtml+ctrlHtml+targetHtml+findHtml
     +'</body></html>';
@@ -16248,8 +16250,8 @@ function showInterviewsLibrary() {
       body += '<div style="flex-shrink:0;width:36px;height:36px;border-radius:50%;background:'+color+';color:#fff;display:flex;align-items:center;justify-content:center;font-weight:500;font-size:11px">'+initials+'</div>';
       // Info
       body += '<div style="flex:1;min-width:0">';
-      body += '<div style="font-weight:500;color:var(--text-1);font-size:12px">'+(itv.intervieweName || '(sans nom)').replace(/</g,'&lt;');
-      if (role) body += ' · <span style="font-weight:400;color:var(--text-2);font-size:11px">'+role.replace(/</g,'&lt;')+'</span>';
+      body += '<div style="font-weight:500;color:var(--text-1);font-size:12px">'+esc((itv.intervieweName || '(sans nom)'));
+      if (role) body += ' · <span style="font-weight:400;color:var(--text-2);font-size:11px">'+esc(role)+'</span>';
       body += '</div>';
       body += '<div style="font-size:9px;color:var(--text-3);margin-top:3px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">';
       body += '<span>📅 '+dateStr+'</span>';
@@ -16259,7 +16261,7 @@ function showInterviewsLibrary() {
       spIds.forEach(function(spId){
         var sp = spById[spId];
         if (sp) {
-          body += '<span style="background:#F5FBF8;color:#085041;border:.5px solid #A6E2CD;padding:1px 6px;border-radius:2px;font-weight:500">'+(sp.name||'').replace(/</g,'&lt;')+'</span>';
+          body += '<span style="background:#F5FBF8;color:#085041;border:.5px solid #A6E2CD;padding:1px 6px;border-radius:2px;font-weight:500">'+esc((sp.name||''))+'</span>';
         }
       });
       // Statut analyse
@@ -16334,7 +16336,7 @@ function showInterviewModal(idx, isEdit) {
       var checked = spIds.indexOf(sp.id) >= 0 ? 'checked' : '';
       body += '<label style="display:inline-flex;align-items:center;gap:4px;font-size:10px;padding:3px 8px;background:#fff;border:.5px solid var(--border);border-radius:3px;cursor:pointer">';
       body += '<input type="checkbox" class="itv-sp" data-sp-id="'+sp.id+'" '+checked+' style="margin:0"/>';
-      body += '<span>'+(''+sp.name).replace(/</g,'&lt;')+'</span>';
+      body += '<span>'+esc(sp.name)+'</span>';
       body += '</label>';
     });
     body += '</div>';
@@ -16345,7 +16347,7 @@ function showInterviewModal(idx, isEdit) {
 
   body += '<div style="margin-bottom:10px">';
   body += '<label style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500;display:block;margin-bottom:3px">Script de l\'entretien *</label>';
-  body += '<textarea id="itv-script" placeholder="Colle ici la transcription Teams (Recap), ton compte-rendu Word, ou tes notes manuscrites mises au propre…" style="width:100%;min-height:240px;font-size:11px;padding:8px 10px;border:.5px solid var(--border);border-radius:3px;box-sizing:border-box;resize:vertical;font-family:inherit;line-height:1.5">'+script.replace(/</g,'&lt;')+'</textarea>';
+  body += '<textarea id="itv-script" placeholder="Colle ici la transcription Teams (Recap), ton compte-rendu Word, ou tes notes manuscrites mises au propre…" style="width:100%;min-height:240px;font-size:11px;padding:8px 10px;border:.5px solid var(--border);border-radius:3px;box-sizing:border-box;resize:vertical;font-family:inherit;line-height:1.5">'+esc(script)+'</textarea>';
   body += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:3px"><span id="itv-script-count">'+(script.trim().split(/\s+/).filter(Boolean).length)+'</span> mots — tu pourras analyser ce script avec Copilot plus tard</div>';
   body += '</div>';
 
@@ -16671,8 +16673,8 @@ function _renderAnalyzeStep1() {
       body += '<div style="width:28px;height:28px;border-radius:50%;background:'+color+';color:#fff;display:flex;align-items:center;justify-content:center;font-weight:500;font-size:10px">'+initials+'</div>';
       body += '<div style="min-width:0;font-size:11px">';
       body += '<div style="color:var(--text-1);font-weight:500;display:flex;flex-wrap:wrap;gap:6px;align-items:baseline">';
-      body += '<span>'+(itv.intervieweName||'').replace(/</g,'&lt;')+'</span>';
-      if (itv.intervieweRole) body += '<span style="font-weight:400;color:var(--text-2);font-size:10px">· '+itv.intervieweRole.replace(/</g,'&lt;')+'</span>';
+      body += '<span>'+esc((itv.intervieweName||''))+'</span>';
+      if (itv.intervieweRole) body += '<span style="font-weight:400;color:var(--text-2);font-size:10px">· '+esc(itv.intervieweRole)+'</span>';
       body += '</div>';
       body += '<div style="font-size:9px;color:var(--text-3);margin-top:2px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">';
       body += '<span>📅 '+dateStr+'</span>';
@@ -16722,25 +16724,25 @@ function _renderAnalyzeStep1() {
   body += '<div style="font-weight:600;margin-bottom:5px">📦 Contexte injecté dans le prompt</div>';
   body += '<div style="margin-left:0">';
   var auditObj = AUDIT_PLAN.find(function(x){return x.id===CA;});
-  body += '<div>• Audit · <strong style="font-weight:500">'+(auditObj?(auditObj.titre||auditObj.id):CA).replace(/</g,'&lt;')+'</strong></div>';
+  body += '<div>• Audit · <strong style="font-weight:500">'+esc((auditObj?(auditObj.titre||auditObj.id):CA))+'</strong></div>';
   if (isAuditTarget) {
     body += '<div>• Cible : <strong style="font-weight:500">narratif consolidé de l\'audit</strong> (toutes sections SP)</div>';
   } else if (isBuTarget) {
     body += '<div>• Cible : <strong style="font-weight:500">narratif consolidé de la BU</strong> (structuré par Process couvert) + Design Issues</div>';
   } else if (spForFc) {
-    body += '<div>• Sous-processus focus : <strong style="font-weight:500">'+spForFc.name.replace(/</g,'&lt;')+'</strong></div>';
+    body += '<div>• Sous-processus focus : <strong style="font-weight:500">'+esc(spForFc.name)+'</strong></div>';
   }
   if (isBuTarget) {
     // Pour BU : afficher Process couverts au lieu de SP
     if (wpProcNames.length) {
       var procNamesShort = wpProcNames.join(', ');
       if (procNamesShort.length > 80) procNamesShort = procNamesShort.substring(0, 78) + '…';
-      body += '<div style="word-break:break-word">• '+wpProcNames.length+' Process couvert(s) : '+procNamesShort.replace(/</g,'&lt;')+'</div>';
+      body += '<div style="word-break:break-word">• '+wpProcNames.length+' Process couvert(s) : '+esc(procNamesShort)+'</div>';
     }
   } else if (sps.length) {
     var spNamesShort = sps.map(function(sp){return sp.name;}).join(', ');
     if (spNamesShort.length > 80) spNamesShort = spNamesShort.substring(0, 78) + '…';
-    body += '<div style="word-break:break-word">• '+sps.length+' SP existants : '+spNamesShort.replace(/</g,'&lt;')+'</div>';
+    body += '<div style="word-break:break-word">• '+sps.length+' SP existants : '+esc(spNamesShort)+'</div>';
   }
   var auditRisks = d.auditRisks || [];
   if (auditRisks.length) body += '<div>• '+auditRisks.length+' risque(s) URD attaché(s)</div>';
@@ -17023,7 +17025,7 @@ function _renderAnalyzeStep2(promptToShow) {
   if (promptToShow) {
     body += '<div style="margin-bottom:14px">';
     body += '<label style="font-size:11px;color:var(--text-1);font-weight:600;display:block;margin-bottom:6px">Prompt à copier (clique pour sélectionner tout)</label>';
-    body += '<textarea readonly onclick="this.select()" style="width:100%;min-height:120px;font-size:10px;padding:8px 10px;border:.5px solid var(--border);border-radius:4px;box-sizing:border-box;font-family:monospace;background:#fafafa">'+promptToShow.replace(/</g,'&lt;')+'</textarea>';
+    body += '<textarea readonly onclick="this.select()" style="width:100%;min-height:120px;font-size:10px;padding:8px 10px;border:.5px solid var(--border);border-radius:4px;box-sizing:border-box;font-family:monospace;background:#fafafa">'+esc(promptToShow)+'</textarea>';
     body += '</div>';
   }
 
@@ -17189,12 +17191,12 @@ function _renderAnalyzePreview() {
     // Header avec nom + badge
     body += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:8px;flex-wrap:wrap">';
     body += '<div style="flex:1;min-width:0">';
-    body += '<div style="font-size:12px;font-weight:600;color:var(--text-1);margin-bottom:4px">'+(spr.name||'(sans nom)').replace(/</g,'&lt;')+'</div>';
+    body += '<div style="font-size:12px;font-weight:600;color:var(--text-1);margin-bottom:4px">'+esc((spr.name||'(sans nom)'))+'</div>';
     if (isCurrent) {
       body += '<div style="font-size:10px;color:#3C3489;background:#EEEDFE;border:.5px solid #CECBF6;padding:2px 8px;border-radius:3px;display:inline-block;font-weight:500">↻ SP du flowchart courant</div>';
     } else if (matched) {
       var matchLabel = isBuTarget ? '↻ '+matched.name : '↻ '+matched.name+(isAuditTarget?'':' (autre SP de l\'audit)');
-      body += '<div style="font-size:10px;color:var(--text-2);background:#fafafa;border:.5px solid var(--border);padding:2px 8px;border-radius:3px;display:inline-block">'+matchLabel.replace(/</g,'&lt;')+'</div>';
+      body += '<div style="font-size:10px;color:var(--text-2);background:#fafafa;border:.5px solid var(--border);padding:2px 8px;border-radius:3px;display:inline-block">'+esc(matchLabel)+'</div>';
     } else {
       var unmatchLabel = isBuTarget ? '⚠ Process non couvert' : '+ Nouveau SP (validation requise)';
       body += '<div style="font-size:10px;color:#854F0B;background:#FAEEDA;border:.5px solid #FAC775;padding:2px 8px;border-radius:3px;display:inline-block;font-weight:500">'+unmatchLabel+'</div>';
@@ -17239,7 +17241,7 @@ function _renderAnalyzePreview() {
 
 // Highlight des marqueurs WCGW/CTRL/DIVERGENCE pour la preview
 function _highlightNarrative(text) {
-  var s = (text||'').replace(/</g,'&lt;');
+  var s = esc((text||''));
   // v74 : Design Issues en 1er (couleur rouge sombre / orange foncé pour visibilité)
   s = s.replace(/(⚠\s*DESIGN ISSUE\s*[—\-–]\s*CTRL Manquant\s*:[^\n]+?(?=\.\s|\n|$)\.?)/g, '<span style="background:#FCE7E5;color:#7F1D1D;padding:2px 6px;border-radius:2px;font-weight:600;border:.5px solid #F8B4B4">$1</span>');
   s = s.replace(/(⚠\s*DESIGN ISSUE\s*[—\-–]\s*CTRL Insuffisant\s*:[^\n]+?(?=\.\s|\n|$)\.?)/g, '<span style="background:#FFEDD5;color:#9A3412;padding:2px 6px;border-radius:2px;font-weight:600;border:.5px solid #FDBA74">$1</span>');
