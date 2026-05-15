@@ -3803,11 +3803,12 @@ function renderGantt(){
 
 // État global des filtres (memorisé entre re-renders)
 var _paFilters = {
-  status: 'all',
-  audits: [],       // multi-select : ids d'audits
-  auditYears: [],   // multi-select : années d'audit
-  dlYears: [],      // multi-select : années de deadline
-  dlQuarters: [],   // multi-select : Q1..Q4
+  status: 'all',    // 'all' | 'Non démarré' | 'En cours' | 'Implémentée'
+  timing: 'all',    // 'all' | 'on_time' | 'overdue'
+  audits: [],
+  auditYears: [],
+  dlYears: [],
+  dlQuarters: [],
 };
 
 V['plans-action']=()=>`
@@ -3830,18 +3831,34 @@ function _paIsOverdue(a) {
   return deadline < new Date();
 }
 
-// v77.14a : calcule le statut affiché (peut être "En retard" même si saisi "En cours")
-function _paDisplayStatus(a) {
-  if (_paIsOverdue(a)) return 'En retard';
-  return a.status || 'Non démarré';
+// v77.14a.1 : Statut (saisie auditeur) - normalisé
+function _paStatus(a) {
+  var s = a.status || 'Non démarré';
+  if (s === 'Clôturé') return 'Implémentée'; // legacy : Clôturé = Implémentée
+  return s;
+}
+
+// v77.14a.1 : Timing (calculé) - 'on_time' | 'overdue' | 'done'
+function _paTiming(a) {
+  if (_paStatus(a) === 'Implémentée') return 'done';
+  return _paIsOverdue(a) ? 'overdue' : 'on_time';
+}
+
+// v77.14a.1 : Label timing pour affichage
+function _paTimingLabel(t) {
+  return t === 'done' ? '' : (t === 'overdue' ? 'En retard' : 'On time');
 }
 
 // v77.14a : filtrer ACTIONS selon les filtres en mémoire
 function _paFilterActions() {
   return ACTIONS.filter(function(a) {
-    // Statut
+    // v77.14a.1 : Statut (séparé du timing)
     if (_paFilters.status !== 'all') {
-      if (_paDisplayStatus(a) !== _paFilters.status) return false;
+      if (_paStatus(a) !== _paFilters.status) return false;
+    }
+    // v77.14a.1 : Timing (séparé du statut)
+    if (_paFilters.timing !== 'all') {
+      if (_paTiming(a) !== _paFilters.timing) return false;
     }
     // Audits (multi)
     if (_paFilters.audits.length > 0) {
@@ -3877,7 +3894,7 @@ function _paToggleFilter(key, value) {
 
 // v77.14a : reset tous les filtres
 function _paResetFilters() {
-  _paFilters = {status: 'all', audits: [], auditYears: [], dlYears: [], dlQuarters: []};
+  _paFilters = {status: 'all', timing: 'all', audits: [], auditYears: [], dlYears: [], dlQuarters: []};
   renderActionList();
 }
 
@@ -3892,14 +3909,32 @@ function renderActionList(){
   _renderPaFilters();
 
   // ─── 3. Render Action list ───
-  var fc = {'En retard':'var(--red)', 'Clôturé':'var(--green)', 'Implémentée':'var(--green)', 'Non démarré':'var(--gray)', 'En cours':'var(--purple)'};
+  // v77.14a.1 : couleurs par statut (saisi) vs par timing (calculé)
+  var statusColors = {
+    'Non démarré': '#9CA3AF',
+    'En cours':    '#7C73D9',
+    'Implémentée': '#16A34A',
+  };
+  var timingColors = {
+    'on_time': '#16A34A',  // vert
+    'overdue': '#DC2626',  // rouge
+  };
   document.getElementById('action-list').innerHTML = rows.map(function(a) {
-    var dispStatus = _paDisplayStatus(a);
-    var statusColor = fc[dispStatus] || 'var(--purple)';
+    var st = _paStatus(a);
+    var tm = _paTiming(a);
+    var stColor = statusColors[st] || '#9CA3AF';
     var dlHist = (a.deadlineHistory || []);
     var dlTooltip = dlHist.length
       ? dlHist.map(function(h){return h.quarter+' '+h.year;}).concat([a.quarter+' '+a.year]).join(' → ')
       : '';
+
+    // Badge Statut + Timing
+    var badges = '<span class="badge" style="background:'+stColor+';color:#fff;font-size:9px;padding:2px 7px;border-radius:3px;font-weight:500">'+esc(st)+'</span>';
+    if (tm !== 'done') {
+      badges += '<span class="badge" style="background:'+timingColors[tm]+';color:#fff;font-size:9px;padding:2px 7px;border-radius:3px;font-weight:500">'+esc(_paTimingLabel(tm))+'</span>';
+    } else {
+      badges += '<span class="badge" style="background:#16A34A;color:#fff;font-size:9px;padding:2px 7px;border-radius:3px;font-weight:500">✓ Done</span>';
+    }
 
     return '<div class="card" style="margin-bottom:6px">'
       + '<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px">'
@@ -3916,13 +3951,13 @@ function renderActionList(){
       + '</div>'
       // Badges + actions
       + '<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;flex-shrink:0">'
-      + '<span class="badge" style="background:'+statusColor+';color:#fff;font-size:9px;padding:2px 7px;border-radius:3px;font-weight:500">'+esc(dispStatus)+'</span>'
+      + '<div style="display:flex;gap:4px">'+badges+'</div>'
       + (a.fromFinding?'<span class="tag-new" style="font-size:9px">↗ Finding</span>':'')
       + '<button class="bs" style="font-size:10px;padding:3px 8px" onclick="showActionFollowUpModal(\''+_escJsArg(a.id)+'\')" title="Suivi du plan d\'action">📝 Suivi</button>'
       + '</div>'
       + '</div>'
       // Barre de progression
-      + '<div style="display:flex;align-items:center;gap:8px"><div style="flex:1;height:5px;background:var(--bg);border-radius:3px;overflow:hidden"><div style="height:100%;border-radius:3px;background:'+statusColor+';width:'+(a.pct||0)+'%"></div></div><span style="font-size:10px;color:var(--text-3)">'+(a.pct||0)+'%</span></div>'
+      + '<div style="display:flex;align-items:center;gap:8px"><div style="flex:1;height:5px;background:var(--bg);border-radius:3px;overflow:hidden"><div style="height:100%;border-radius:3px;background:'+stColor+';width:'+(a.pct||0)+'%"></div></div><span style="font-size:10px;color:var(--text-3)">'+(a.pct||0)+'%</span></div>'
       + '</div>';
   }).join('') || '<div style="font-size:12px;color:var(--text-3);padding:1rem;text-align:center;background:var(--bg-card);border-radius:6px">Aucun plan d\'action ne correspond aux filtres.</div>';
 }
@@ -3935,14 +3970,15 @@ function _renderPaMetricsAndCharts() {
   // Compteurs basés sur les actions filtrées
   var all = _paFilterActions();
   var byStatus = {};
+  var nbOverdue = 0;
   all.forEach(function(a){
-    var s = _paDisplayStatus(a);
+    var s = _paStatus(a);
     byStatus[s] = (byStatus[s] || 0) + 1;
+    if (_paTiming(a) === 'overdue') nbOverdue++;
   });
   var nbTotal = all.length;
   var nbEnCours = byStatus['En cours'] || 0;
-  var nbEnRetard = byStatus['En retard'] || 0;
-  var nbImplem = (byStatus['Implémentée'] || 0) + (byStatus['Clôturé'] || 0);
+  var nbImplem = byStatus['Implémentée'] || 0;
   var nbNonDem = byStatus['Non démarré'] || 0;
   var nbFromF = all.filter(function(a){return a.fromFinding;}).length;
 
@@ -3951,15 +3987,19 @@ function _renderPaMetricsAndCharts() {
   // ─── Metrics cards ───
   h += '<div class="metrics" style="margin-bottom:14px">';
   h += '<div class="mc"><div class="ml">Total</div><div class="mv">'+nbTotal+'</div></div>';
-  h += '<div class="mc"><div class="ml">En cours</div><div class="mv" style="color:var(--purple)">'+nbEnCours+'</div></div>';
-  h += '<div class="mc"><div class="ml">En retard</div><div class="mv" style="color:var(--red)">'+nbEnRetard+'</div></div>';
-  h += '<div class="mc"><div class="ml">Issus de findings</div><div class="mv" style="color:var(--green)">'+nbFromF+'</div></div>';
+  h += '<div class="mc"><div class="ml">En cours</div><div class="mv" style="color:#7C73D9">'+nbEnCours+'</div></div>';
+  h += '<div class="mc"><div class="ml">En retard</div><div class="mv" style="color:#DC2626">'+nbOverdue+'</div></div>';
+  h += '<div class="mc"><div class="ml">Issus de findings</div><div class="mv" style="color:#16A34A">'+nbFromF+'</div></div>';
   h += '</div>';
 
   // ─── Charts (côte à côte) ───
   if (nbTotal > 0) {
     h += '<div style="display:grid;grid-template-columns:280px 1fr;gap:14px;margin-bottom:18px">';
     h += '<div class="card" style="padding:14px"><div style="font-size:11px;font-weight:600;color:var(--text-2);margin-bottom:10px">Répartition par statut</div>';
+    // Indicateur retard au-dessus du donut
+    if (nbOverdue > 0) {
+      h += '<div style="text-align:center;margin-bottom:8px"><span style="background:#FCE7E5;color:#7F1D1D;font-size:11px;padding:3px 10px;border-radius:3px;font-weight:600">⚠ '+nbOverdue+' en retard</span></div>';
+    }
     h += _paDonutChart(byStatus, nbTotal);
     h += '</div>';
     h += '<div class="card" style="padding:14px;min-width:0"><div style="font-size:11px;font-weight:600;color:var(--text-2);margin-bottom:10px">Plans d\'action par échéance</div>';
@@ -3971,23 +4011,19 @@ function _renderPaMetricsAndCharts() {
   el.innerHTML = h;
 }
 
-// v77.14a : Donut chart SVG (statuts)
+// v77.14a.1 : Donut chart SVG (3 statuts seulement, le timing est l'indicateur au-dessus)
 function _paDonutChart(byStatus, total) {
-  var statusOrder = ['Non démarré', 'En cours', 'En retard', 'Implémentée', 'Clôturé'];
+  var statusOrder = ['Non démarré', 'En cours', 'Implémentée'];
   var colors = {
     'Non démarré': '#9CA3AF',
     'En cours':    '#7C73D9',
-    'En retard':   '#DC2626',
     'Implémentée': '#16A34A',
-    'Clôturé':     '#16A34A',
   };
   var cx = 80, cy = 80, r = 55, stroke = 22;
   var circumference = 2 * Math.PI * r;
   var offset = 0;
   var svg = '<svg width="160" height="160" viewBox="0 0 160 160" style="display:block;margin:0 auto">';
-  // Background circle
   svg += '<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="none" stroke="#F4F4F8" stroke-width="'+stroke+'"/>';
-  // Slices
   statusOrder.forEach(function(s){
     var count = byStatus[s] || 0;
     if (count === 0) return;
@@ -4000,12 +4036,10 @@ function _paDonutChart(byStatus, total) {
     svg += '><title>'+esc(s)+' : '+count+' ('+Math.round(pct*100)+'%)</title></circle>';
     offset += dashLen;
   });
-  // Centre : total
   svg += '<text x="'+cx+'" y="'+(cy-4)+'" text-anchor="middle" font-size="22" font-weight="600" fill="var(--text-1)">'+total+'</text>';
   svg += '<text x="'+cx+'" y="'+(cy+14)+'" text-anchor="middle" font-size="10" fill="var(--text-3)">plan'+(total>1?'s':'')+'</text>';
   svg += '</svg>';
 
-  // Légende
   var legend = '<div style="display:flex;flex-direction:column;gap:5px;margin-top:8px;font-size:11px">';
   statusOrder.forEach(function(s){
     var count = byStatus[s] || 0;
@@ -4018,19 +4052,33 @@ function _paDonutChart(byStatus, total) {
   return svg + legend;
 }
 
-// v77.14a : Bar chart par échéance (Q1 2026, Q2 2026, etc.)
+// v77.14a.1 : Bar chart par échéance — Option 2 : segments des barres en retard deviennent rouges
 function _paBarChartByDeadline(actions) {
-  // Grouper par "Q année"
+  // Grouper par "Q année" et calculer le timing par segment
+  // Pour chaque échéance : on compte (a) implem (b) en cours on_time (c) non dém on_time (d) en cours overdue (e) non dém overdue
   var byDl = {};
   actions.forEach(function(a){
     if (!a.year || !a.quarter) return;
     var key = a.quarter + ' ' + a.year;
-    if (!byDl[key]) byDl[key] = {nonDem:0, enCours:0, enRetard:0, implem:0, _order: a.year * 10 + parseInt(a.quarter.slice(1))};
-    var s = _paDisplayStatus(a);
-    if (s === 'Non démarré') byDl[key].nonDem++;
-    else if (s === 'En cours') byDl[key].enCours++;
-    else if (s === 'En retard') byDl[key].enRetard++;
-    else byDl[key].implem++;
+    if (!byDl[key]) {
+      byDl[key] = {
+        implem: 0,
+        enCoursOnTime: 0, enCoursOverdue: 0,
+        nonDemOnTime: 0,  nonDemOverdue: 0,
+        _order: a.year * 10 + parseInt(a.quarter.slice(1)),
+      };
+    }
+    var st = _paStatus(a);
+    var tm = _paTiming(a);
+    if (st === 'Implémentée') byDl[key].implem++;
+    else if (st === 'En cours') {
+      if (tm === 'overdue') byDl[key].enCoursOverdue++;
+      else byDl[key].enCoursOnTime++;
+    }
+    else {  // Non démarré
+      if (tm === 'overdue') byDl[key].nonDemOverdue++;
+      else byDl[key].nonDemOnTime++;
+    }
   });
   var keys = Object.keys(byDl).sort(function(a,b){return byDl[a]._order - byDl[b]._order;});
 
@@ -4038,26 +4086,32 @@ function _paBarChartByDeadline(actions) {
     return '<div style="font-size:11px;color:var(--text-3);font-style:italic;text-align:center;padding:2rem">Pas d\'échéance définie.</div>';
   }
 
-  var maxCount = Math.max.apply(null, keys.map(function(k){return byDl[k].nonDem + byDl[k].enCours + byDl[k].enRetard + byDl[k].implem;}));
+  var maxCount = Math.max.apply(null, keys.map(function(k){
+    var d = byDl[k];
+    return d.implem + d.enCoursOnTime + d.enCoursOverdue + d.nonDemOnTime + d.nonDemOverdue;
+  }));
   var barWidth = Math.min(50, Math.floor(360 / keys.length) - 6);
-  var chartHeight = 140;
+  var chartHeight = 150;
   var barAreaH = 110;
+  var labelH = 30;
   var svg = '<svg width="100%" height="'+chartHeight+'" viewBox="0 0 '+(keys.length * (barWidth + 8) + 20)+' '+chartHeight+'" style="display:block">';
-  // Axe horizontal
   svg += '<line x1="0" y1="'+barAreaH+'" x2="100%" y2="'+barAreaH+'" stroke="#E0E0E5" stroke-width="1"/>';
 
   keys.forEach(function(k, kIdx){
     var d = byDl[k];
     var xBase = kIdx * (barWidth + 8) + 8;
-    var total = d.nonDem + d.enCours + d.enRetard + d.implem;
+    var total = d.implem + d.enCoursOnTime + d.enCoursOverdue + d.nonDemOnTime + d.nonDemOverdue;
+    var overdueCount = d.enCoursOverdue + d.nonDemOverdue;
     var yCur = barAreaH;
 
-    // Stacker du bas vers le haut : Implémentée → En cours → Non démarré → En retard
+    // Empiler du bas vers le haut : Implémentée → En cours (on time) → Non démarré (on time) → En retard (en cours + non dém)
+    // Les segments "overdue" sont en rouge (peu importe leur statut)
     var segments = [
-      {count: d.implem, color: '#16A34A', label: 'Implémentée'},
-      {count: d.enCours, color: '#7C73D9', label: 'En cours'},
-      {count: d.nonDem, color: '#9CA3AF', label: 'Non démarré'},
-      {count: d.enRetard, color: '#DC2626', label: 'En retard'},
+      {count: d.implem,          color: '#16A34A', label: 'Implémentée'},
+      {count: d.enCoursOnTime,   color: '#7C73D9', label: 'En cours (on time)'},
+      {count: d.nonDemOnTime,    color: '#9CA3AF', label: 'Non démarré (on time)'},
+      {count: d.enCoursOverdue,  color: '#DC2626', label: 'En cours (en retard)'},
+      {count: d.nonDemOverdue,   color: '#DC2626', label: 'Non démarré (en retard)'},
     ];
     segments.forEach(function(seg){
       if (seg.count === 0) return;
@@ -4066,11 +4120,19 @@ function _paBarChartByDeadline(actions) {
       svg += '<rect x="'+xBase+'" y="'+yCur+'" width="'+barWidth+'" height="'+segH+'" fill="'+seg.color+'"><title>'+esc(k)+' · '+esc(seg.label)+' : '+seg.count+'</title></rect>';
     });
 
-    // Label total au-dessus de la barre
+    // Label "N" + "⚠N" si en retard, au-dessus de la barre
     if (total > 0) {
-      svg += '<text x="'+(xBase + barWidth/2)+'" y="'+(yCur - 4)+'" text-anchor="middle" font-size="10" font-weight="600" fill="var(--text-2)">'+total+'</text>';
+      var topY = yCur - 4;
+      var totalLabel = String(total);
+      var labelX = xBase + barWidth/2;
+      if (overdueCount > 0) {
+        // "12" en gris foncé + " ⚠4" en rouge
+        svg += '<text x="'+labelX+'" y="'+topY+'" text-anchor="middle" font-size="10" font-weight="600" fill="var(--text-2)">'+totalLabel+' <tspan fill="#DC2626">⚠'+overdueCount+'</tspan></text>';
+      } else {
+        svg += '<text x="'+labelX+'" y="'+topY+'" text-anchor="middle" font-size="10" font-weight="600" fill="var(--text-2)">'+totalLabel+'</text>';
+      }
     }
-    // Label de l'échéance en bas
+    // Label échéance en bas
     svg += '<text x="'+(xBase + barWidth/2)+'" y="'+(barAreaH + 18)+'" text-anchor="middle" font-size="10" fill="var(--text-3)">'+esc(k)+'</text>';
   });
   svg += '</svg>';
@@ -4078,10 +4140,10 @@ function _paBarChartByDeadline(actions) {
   // Légende
   var legend = '<div style="display:flex;gap:14px;margin-top:6px;font-size:10px;flex-wrap:wrap;justify-content:center">';
   var legItems = [
-    {color: '#DC2626', label: 'En retard'},
     {color: '#9CA3AF', label: 'Non démarré'},
     {color: '#7C73D9', label: 'En cours'},
     {color: '#16A34A', label: 'Implémentée'},
+    {color: '#DC2626', label: 'En retard'},
   ];
   legItems.forEach(function(l){
     legend += '<div style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;background:'+l.color+';border-radius:2px"></span><span>'+esc(l.label)+'</span></div>';
@@ -4113,20 +4175,31 @@ function _renderPaFilters() {
   var dlYears = Object.keys(dlYearsSet).sort();
   var dlQuarters = Object.keys(dlQuartersSet).sort();
 
-  var nbFiltersActive = _paFilters.audits.length + _paFilters.auditYears.length + _paFilters.dlYears.length + _paFilters.dlQuarters.length + (_paFilters.status !== 'all' ? 1 : 0);
+  var nbFiltersActive = _paFilters.audits.length + _paFilters.auditYears.length + _paFilters.dlYears.length + _paFilters.dlQuarters.length + (_paFilters.status !== 'all' ? 1 : 0) + (_paFilters.timing !== 'all' ? 1 : 0);
 
   var h = '<div class="card" style="margin-bottom:1rem;padding:10px 14px">';
   h += '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">';
   h += '<div style="font-size:11px;font-weight:600;color:var(--text-2);flex-shrink:0">Filtres</div>';
 
-  // Statut (single select)
+  // Statut (saisi) - mono select
   h += '<div style="display:flex;align-items:center;gap:4px">';
   h += '<span style="font-size:10px;color:var(--text-3)">Statut :</span>';
   h += '<select onchange="_paFilters.status=this.value;renderActionList()" style="font-size:11px;padding:3px 6px;border:.5px solid var(--border);border-radius:3px">';
   h += '<option value="all"'+(_paFilters.status==='all'?' selected':'')+'>Tous</option>';
-  ['Non démarré','En cours','En retard','Implémentée','Clôturé'].forEach(function(s){
+  ['Non démarré','En cours','Implémentée'].forEach(function(s){
     h += '<option value="'+esc(s)+'"'+(_paFilters.status===s?' selected':'')+'>'+esc(s)+'</option>';
   });
+  h += '</select>';
+  h += '</div>';
+
+  // Timing (calculé) - mono select
+  h += '<div style="display:flex;align-items:center;gap:4px">';
+  h += '<span style="font-size:10px;color:var(--text-3)">Timing :</span>';
+  h += '<select onchange="_paFilters.timing=this.value;renderActionList()" style="font-size:11px;padding:3px 6px;border:.5px solid var(--border);border-radius:3px">';
+  h += '<option value="all"'+(_paFilters.timing==='all'?' selected':'')+'>Tous</option>';
+  h += '<option value="on_time"'+(_paFilters.timing==='on_time'?' selected':'')+'>On time</option>';
+  h += '<option value="overdue"'+(_paFilters.timing==='overdue'?' selected':'')+'>En retard</option>';
+  h += '<option value="done"'+(_paFilters.timing==='done'?' selected':'')+'>Done</option>';
   h += '</select>';
   h += '</div>';
 
@@ -4232,8 +4305,8 @@ function showActionFollowUpModal(actionId) {
   body += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">';
   body += '<div><label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:3px">Statut</label>';
   body += '<select id="fu-status" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px">';
-  ['Non démarré','En cours','Implémentée','Clôturé'].forEach(function(s){
-    body += '<option value="'+esc(s)+'"'+(ac.status===s?' selected':'')+'>'+esc(s)+'</option>';
+  ['Non démarré','En cours','Implémentée'].forEach(function(s){
+    body += '<option value="'+esc(s)+'"'+(_paStatus(ac)===s?' selected':'')+'>'+esc(s)+'</option>';
   });
   body += '</select></div>';
   body += '<div><label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:3px">Avancement (%)</label>';
