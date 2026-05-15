@@ -558,6 +558,24 @@ async function spUpsert(listName, afId, fields) {
   }
 }
 
+// v77.14b.1 : variante qui propage l'erreur (utilisée par saveAction pour fallback)
+async function _spUpsertOrThrow(listName, afId, fields) {
+  // Blocage viewer
+  if (typeof CU !== 'undefined' && CU && CU.role === 'viewer') {
+    console.warn('[SP] Save bloqué — utilisateur en lecture seule');
+    if (typeof toast === 'function') toast('Accès en lecture seule');
+    throw new Error('Read-only');
+  }
+  var spId = await findSpItemId(listName, afId);
+  if (spId) {
+    await updateItem(listName, spId, fields);
+  } else {
+    var created = await createItem(listName, Object.assign({ af_id: afId }, fields));
+    _spIdCache[listName + '::' + afId] = created.id;
+  }
+  console.log('[SP] Saved', listName, afId);
+}
+
 async function spDelete(listName, afId) {
   // Blocage viewer : interdit toute suppression
   if (typeof CU !== 'undefined' && CU && CU.role === 'viewer') {
@@ -960,16 +978,25 @@ async function saveAuditPlan(ap) {
   });
 }
 
+// v77.14b.1 : Cache du flag "les nouveaux champs sont supportés sur AF_Actions"
+// Initialement on suppose oui, mais on bascule à false dès qu'un 400 "not recognized" arrive
+var _afActionsSupportsExtendedFields = true;
+
 async function saveAction(ac) {
   // v77.13.2 fix : SharePoint refuse le champ 'title' (non reconnu).
   // On utilise uniquement 'Title' qui est le champ natif SP.
-  // v77.14a : ajout des nouveaux champs (auditId, ownerName, ownerEmail, deadlineHistory, etc.)
-  // Les arrays sont sérialisés en JSON dans des champs texte.
-  await spUpsert('AF_Actions', ac.id, {
+  // v77.14a : nouveaux champs (auditId, ownerName, ownerEmail, deadlineHistory, etc.)
+  // v77.14b.1 : fallback automatique si les nouveaux champs n'existent pas dans la liste SP
+
+  // Champs de base (toujours envoyés)
+  var basePayload = {
     audit:ac.audit, resp:ac.resp, dept:ac.dept, ent:ac.ent,
     year:ac.year, quarter:ac.quarter, status:ac.status, pct:ac.pct,
     from_finding:ac.fromFinding||false, finding_title:ac.findingTitle||'', Title:ac.title,
-    // v77.14a
+  };
+
+  // Champs étendus (envoyés seulement si supportés)
+  var extendedPayload = {
     audit_id: ac.auditId || '',
     audit_year: ac.auditYear || null,
     finding_id: ac.findingId || '',
@@ -980,7 +1007,35 @@ async function saveAction(ac) {
     follow_up_by: ac.followUpBy || '',
     follow_up_date: ac.followUpDate || '',
     follow_up_notes: ac.followUpNotes || '',
-  });
+  };
+
+  if (_afActionsSupportsExtendedFields) {
+    try {
+      await _spUpsertOrThrow('AF_Actions', ac.id, Object.assign({}, basePayload, extendedPayload));
+      return;
+    } catch(e) {
+      // Si erreur "Field 'xxx' is not recognized" → désactiver les champs étendus pour cette session
+      if (e && e.message && /Field '.+' is not recognized/i.test(e.message)) {
+        console.warn('[SP] AF_Actions ne supporte pas les nouveaux champs étendus (audit_id, owner_email, etc.). Fallback sur les champs de base. Pour activer les nouveaux champs, ajoute les colonnes dans la liste SharePoint AF_Actions.');
+        _afActionsSupportsExtendedFields = false;
+        // On continue avec basePayload seulement
+      } else {
+        // Autre erreur → on log et on remonte avec toast
+        console.error('[SP] saveAction error', e.message);
+        if (typeof toast === 'function') toast('Erreur sauvegarde: ' + e.message);
+        throw e;
+      }
+    }
+  }
+
+  // Fallback : seulement les champs de base
+  try {
+    await _spUpsertOrThrow('AF_Actions', ac.id, basePayload);
+  } catch(e) {
+    console.error('[SP] saveAction error (fallback)', e.message);
+    if (typeof toast === 'function') toast('Erreur sauvegarde: ' + e.message);
+    throw e;
+  }
 }
 
 async function addHistoryDB(type, msg, userName) {
