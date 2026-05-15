@@ -3812,7 +3812,12 @@ var _paFilters = {
 };
 
 V['plans-action']=()=>`
-  <div class="topbar"><div class="tbtitle">Suivi des plans d'action</div><button class="bp" onclick="showNewActionModal()">+ Ajouter</button></div>
+  <div class="topbar"><div class="tbtitle">Suivi des plans d'action</div>
+    <div style="display:flex;gap:6px">
+      <button class="bs" style="font-size:11px;padding:5px 11px" onclick="showRelancesModal()">📧 Préparer les relances</button>
+      <button class="bp" onclick="showNewActionModal()">+ Ajouter</button>
+    </div>
+  </div>
   <div class="content">
     <div id="pa-metrics-and-charts"></div>
     <div id="pa-filters"></div>
@@ -3936,11 +3941,22 @@ function renderActionList(){
       badges += '<span class="badge" style="background:#16A34A;color:#fff;font-size:9px;padding:2px 7px;border-radius:3px;font-weight:500">✓ Done</span>';
     }
 
+    // v77.14b : afficher Owner (Personne) + email avec icônes
+    var ownerDisplay = '';
+    var ownerName = a.ownerName || a.dept || '';
+    var ownerEmail = a.ownerEmail || '';
+    if (ownerName || ownerEmail) {
+      ownerDisplay = '👤 <strong>'+esc(ownerName || '?')+'</strong>';
+      if (ownerEmail) ownerDisplay += ' · 📧 <a href="mailto:'+esc(ownerEmail)+'" style="color:var(--purple);text-decoration:none" onclick="event.stopPropagation()">'+esc(ownerEmail)+'</a>';
+    } else {
+      ownerDisplay = '👤 <em style="color:var(--text-3)">non défini</em>';
+    }
+
     return '<div class="card" style="margin-bottom:6px">'
       + '<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px">'
       + '<div style="flex:1;min-width:0">'
       + '<div style="font-size:12px;font-weight:500">'+esc(a.title)+'</div>'
-      + '<div style="font-size:11px;color:var(--text-2);margin-top:3px">Audit : '+esc(a.audit)+' · Resp : '+esc(a.resp)+' · Dept : <strong>'+esc(a.dept)+'</strong>'
+      + '<div style="font-size:11px;color:var(--text-2);margin-top:3px">Audit : '+esc(a.audit)+' · Resp : '+esc(a.resp)+' · '+ownerDisplay
       + (a.findingTitle ? ' · <span style="color:var(--text-3)">"'+esc(a.findingTitle)+'"</span>' : '')
       + '</div>'
       + '<div style="font-size:10px;color:var(--text-3);margin-top:3px">'
@@ -3953,7 +3969,10 @@ function renderActionList(){
       + '<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;flex-shrink:0">'
       + '<div style="display:flex;gap:4px">'+badges+'</div>'
       + (a.fromFinding?'<span class="tag-new" style="font-size:9px">↗ Finding</span>':'')
+      + '<div style="display:flex;gap:4px">'
+      + '<button class="bs" style="font-size:10px;padding:3px 8px" onclick="showSingleRelance(\''+_escJsArg(a.id)+'\')" title="Préparer un email de relance">📧</button>'
       + '<button class="bs" style="font-size:10px;padding:3px 8px" onclick="showActionFollowUpModal(\''+_escJsArg(a.id)+'\')" title="Suivi du plan d\'action">📝 Suivi</button>'
+      + '</div>'
       + '</div>'
       + '</div>'
       // Barre de progression
@@ -4281,6 +4300,422 @@ document.addEventListener('click', function(e){
 });
 
 // ══════════════════════════════════════════════════════════════
+//  v77.14b : OWNER PICKER M365 (annuaire + fallback email libre)
+// ══════════════════════════════════════════════════════════════
+// État global temporaire des pickers actifs (un par modale)
+var _ownerPickerState = {};
+
+// Génère le HTML d'un widget Owner Picker.
+// idPrefix : préfixe unique des éléments (ex: 'fu-owner' → fu-owner-input, fu-owner-results)
+// initName/initEmail : valeurs courantes
+// Retourne le HTML à insérer.
+function _renderOwnerPicker(idPrefix, initName, initEmail) {
+  var displayValue = '';
+  if (initName && initEmail) displayValue = initName + ' <' + initEmail + '>';
+  else if (initName) displayValue = initName;
+  else if (initEmail) displayValue = initEmail;
+
+  // Stocker l'état initial
+  _ownerPickerState[idPrefix] = {name: initName||'', email: initEmail||''};
+
+  var h = '<div class="owner-picker-wrap" style="position:relative">';
+  h += '<input type="text" id="'+idPrefix+'-input" value="'+esc(displayValue)+'" placeholder="Tape un nom ou un email..." autocomplete="off" oninput="_ownerPickerSearch(\''+_escJsArg(idPrefix)+'\',this.value)" onkeydown="_ownerPickerKeyDown(event,\''+_escJsArg(idPrefix)+'\')" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box"/>';
+  h += '<div id="'+idPrefix+'-results" style="display:none;position:absolute;top:100%;left:0;right:0;margin-top:2px;background:#fff;border:.5px solid var(--border);border-radius:4px;max-height:200px;overflow-y:auto;z-index:20;box-shadow:0 2px 8px rgba(0,0,0,0.1)"></div>';
+  h += '</div>';
+  return h;
+}
+
+// Trigger search avec debounce
+var _ownerPickerDebounce = {};
+function _ownerPickerSearch(idPrefix, query) {
+  // Clear debounce précédent
+  if (_ownerPickerDebounce[idPrefix]) clearTimeout(_ownerPickerDebounce[idPrefix]);
+
+  // Mettre à jour l'état immédiatement avec ce que l'user tape (fallback email libre)
+  _ownerPickerParseInput(idPrefix, query);
+
+  _ownerPickerDebounce[idPrefix] = setTimeout(function(){
+    _ownerPickerDoSearch(idPrefix, query);
+  }, 250); // 250ms debounce
+}
+
+async function _ownerPickerDoSearch(idPrefix, query) {
+  var resultsEl = document.getElementById(idPrefix+'-results');
+  if (!resultsEl) return;
+  query = (query || '').trim();
+  if (query.length < 2) {
+    resultsEl.style.display = 'none';
+    return;
+  }
+
+  resultsEl.style.display = 'block';
+  resultsEl.innerHTML = '<div style="padding:8px;font-size:11px;color:var(--text-3);font-style:italic">Recherche...</div>';
+
+  try {
+    var users = await graphSearchUsers(query);
+    var html = '';
+
+    if (users.length > 0) {
+      users.forEach(function(u){
+        var name = u.displayName || '';
+        var email = u.mail || u.userPrincipalName || '';
+        var title = u.jobTitle || '';
+        html += '<div onclick="_ownerPickerSelect(\''+_escJsArg(idPrefix)+'\',\''+_escJsArg(name)+'\',\''+_escJsArg(email)+'\')" style="padding:6px 9px;cursor:pointer;border-bottom:.5px solid #F0F0F4;font-size:11px;display:flex;flex-direction:column;gap:2px" onmouseover="this.style.background=\'#F5F4FE\'" onmouseout="this.style.background=\'\'">';
+        html += '<div><span style="color:#3C3489;margin-right:5px">👤</span><strong style="font-weight:500">'+esc(name)+'</strong></div>';
+        html += '<div style="font-size:10px;color:var(--text-3);padding-left:18px">'+esc(email)+(title?' · '+esc(title):'')+'</div>';
+        html += '</div>';
+      });
+    } else {
+      // Aucun résultat → proposer la saisie libre si ça ressemble à un email
+      var isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(query);
+      if (isEmail) {
+        html += '<div onclick="_ownerPickerSelect(\''+_escJsArg(idPrefix)+'\',\'\',\''+_escJsArg(query)+'\')" style="padding:8px 9px;cursor:pointer;font-size:11px;color:#854F0B;background:#FFF7ED" onmouseover="this.style.background=\'#FAEEDA\'" onmouseout="this.style.background=\'#FFF7ED\'">';
+        html += '<div>✏ Utiliser cet email externe : <strong>'+esc(query)+'</strong></div>';
+        html += '<div style="font-size:9px;color:var(--text-3);margin-top:2px">Cliquer pour valider (pas trouvé dans l\'annuaire)</div>';
+        html += '</div>';
+      } else {
+        html += '<div style="padding:8px 9px;font-size:11px;color:var(--text-3);font-style:italic">Aucun utilisateur trouvé pour « '+esc(query)+' ». Saisis un email complet pour un owner externe.</div>';
+      }
+    }
+
+    resultsEl.innerHTML = html;
+  } catch(e) {
+    console.warn(e);
+    resultsEl.innerHTML = '<div style="padding:8px;font-size:11px;color:#993C1D">Erreur de recherche. Saisis un email manuellement.</div>';
+  }
+}
+
+// Quand l'user tape, parse l'input : "Nom <email>" ou juste un email ou juste un nom
+function _ownerPickerParseInput(idPrefix, raw) {
+  if (!_ownerPickerState[idPrefix]) _ownerPickerState[idPrefix] = {};
+  raw = (raw || '').trim();
+
+  var emailMatch = raw.match(/<([^\s@>]+@[^\s@>]+\.[^\s@>]+)>/);
+  if (emailMatch) {
+    _ownerPickerState[idPrefix].email = emailMatch[1];
+    _ownerPickerState[idPrefix].name = raw.replace(/\s*<[^>]+>\s*/, '').trim();
+    return;
+  }
+  // Sinon : est-ce que c'est juste un email pur ?
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw)) {
+    _ownerPickerState[idPrefix].email = raw;
+    _ownerPickerState[idPrefix].name = '';
+    return;
+  }
+  // Sinon : c'est un nom (sans email pour l'instant)
+  _ownerPickerState[idPrefix].name = raw;
+  _ownerPickerState[idPrefix].email = ''; // reset
+}
+
+// Sélectionner un user depuis la dropdown
+function _ownerPickerSelect(idPrefix, name, email) {
+  _ownerPickerState[idPrefix] = {name: name||'', email: email||''};
+  var input = document.getElementById(idPrefix+'-input');
+  if (input) {
+    var disp = '';
+    if (name && email) disp = name + ' <' + email + '>';
+    else if (email) disp = email;
+    else disp = name;
+    input.value = disp;
+  }
+  var results = document.getElementById(idPrefix+'-results');
+  if (results) results.style.display = 'none';
+}
+
+// Récupérer les valeurs name/email du picker
+function _ownerPickerGetValues(idPrefix) {
+  // S'assurer de re-parser au cas où l'user n'a pas sélectionné dans la dropdown
+  var input = document.getElementById(idPrefix+'-input');
+  if (input) _ownerPickerParseInput(idPrefix, input.value);
+  return _ownerPickerState[idPrefix] || {name:'', email:''};
+}
+
+// Gérer Escape / Enter sur l'input
+function _ownerPickerKeyDown(e, idPrefix) {
+  if (e.key === 'Escape') {
+    var results = document.getElementById(idPrefix+'-results');
+    if (results) results.style.display = 'none';
+  }
+}
+
+// Fermer dropdowns au click extérieur
+document.addEventListener('click', function(e){
+  if (!e.target.closest('.owner-picker-wrap')) {
+    document.querySelectorAll('.owner-picker-wrap > div[id$="-results"]').forEach(function(d){ d.style.display = 'none'; });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════
+//  v77.14b : MODALE "PRÉPARER LES RELANCES" + MAILS
+// ══════════════════════════════════════════════════════════════
+// Template par défaut (l'user peut éditer dans la modale)
+var _emailTemplate = {
+  subject: '[AuditFlow] Relance — Plans d\'action {{audit}}',
+  body: 'Bonjour {{owner_first_name}},\n\n'
+      + 'Je reviens vers toi concernant les plans d\'action suivants pour lesquels tu es identifié(e) comme owner :\n\n'
+      + '{{actions_list}}\n\n'
+      + 'Peux-tu m\'indiquer l\'avancement et les éventuels blocages ?\n\n'
+      + 'Merci d\'avance,\n{{sender_name}}',
+};
+
+function _prenom(name) {
+  if (!name) return '';
+  var s = String(name).trim();
+  // "Prénom NOM" → "Prénom"
+  var parts = s.split(/\s+/);
+  return parts[0] || s;
+}
+
+// Liste les actions ouvertes (statut ≠ Implémentée), avec ou sans email
+function _listActionsToRelance() {
+  return ACTIONS.filter(function(a){
+    return _paStatus(a) !== 'Implémentée';
+  });
+}
+
+// Modale principale "Préparer les relances"
+function showRelancesModal() {
+  var actions = _listActionsToRelance();
+  if (!actions.length) {
+    toast('Aucune action ouverte à relancer.');
+    return;
+  }
+
+  // État local : actions sélectionnées (id → true)
+  if (typeof _relanceSelections === 'undefined') _relanceSelections = {};
+  // Par défaut, on coche TOUTES les actions qui ont un email valide
+  actions.forEach(function(a){
+    if (a.ownerEmail && !(a.id in _relanceSelections)) {
+      _relanceSelections[a.id] = true;
+    }
+  });
+
+  var body = _renderRelancesModalBody(actions);
+
+  openModal('📧 Préparer les relances', body, async function(){
+    // Au "OK" : générer les emails
+    _generateRelanceEmails(actions);
+  }, {wide: true});
+}
+
+function _renderRelancesModalBody(actions) {
+  // Statistiques
+  var withEmail = actions.filter(function(a){return a.ownerEmail;});
+  var withoutEmail = actions.filter(function(a){return !a.ownerEmail;});
+  var nbSelected = actions.filter(function(a){return _relanceSelections[a.id];}).length;
+
+  // Groupe par owner (email)
+  var byOwner = {};
+  actions.forEach(function(a){
+    if (!_relanceSelections[a.id] || !a.ownerEmail) return;
+    var key = a.ownerEmail.toLowerCase();
+    if (!byOwner[key]) byOwner[key] = {email: a.ownerEmail, name: a.ownerName || '', actions: []};
+    byOwner[key].actions.push(a);
+    if (a.ownerName && !byOwner[key].name) byOwner[key].name = a.ownerName;
+  });
+  var nbOwners = Object.keys(byOwner).length;
+
+  var h = '';
+  // Bandeau résumé
+  h += '<div style="background:#F5F4FE;border:.5px solid #CECBF6;border-radius:4px;padding:9px 12px;margin-bottom:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">';
+  h += '<span style="font-size:11px;color:#3C3489;font-weight:500">📊 '+actions.length+' actions ouvertes · '+withEmail.length+' avec email · '+nbSelected+' sélectionnées → '+nbOwners+' email(s) à préparer</span>';
+  h += '<span style="flex:1"></span>';
+  h += '<button class="bs" style="font-size:10px;padding:3px 8px" onclick="_relanceSelectAll(true)">Tout cocher</button>';
+  h += '<button class="bs" style="font-size:10px;padding:3px 8px" onclick="_relanceSelectAll(false)">Tout décocher</button>';
+  h += '</div>';
+
+  // Liste des actions
+  h += '<div style="max-height:300px;overflow-y:auto;border:.5px solid var(--border);border-radius:4px;margin-bottom:14px">';
+
+  // D'abord les actions AVEC email
+  if (withEmail.length) {
+    h += '<div style="padding:5px 10px;background:#F8F8FC;font-size:10px;font-weight:600;color:var(--text-2);border-bottom:.5px solid var(--border)">Actions avec email ('+withEmail.length+')</div>';
+    withEmail.forEach(function(a){
+      h += _renderRelanceActionRow(a, true);
+    });
+  }
+  // Puis les actions SANS email (non sélectionnables)
+  if (withoutEmail.length) {
+    h += '<div style="padding:5px 10px;background:#FEF3F2;font-size:10px;font-weight:600;color:#993C1D;border-bottom:.5px solid var(--border);border-top:.5px solid var(--border)">⚠ Actions sans email ('+withoutEmail.length+') — non envoyables</div>';
+    withoutEmail.forEach(function(a){
+      h += _renderRelanceActionRow(a, false);
+    });
+  }
+  h += '</div>';
+
+  // Template d'email
+  h += '<div style="margin-bottom:14px"><div style="font-size:11px;font-weight:600;color:var(--text-2);margin-bottom:6px">Modèle d\'email <span style="font-weight:400;color:var(--text-3);font-size:10px">(variables : {{owner_first_name}}, {{audit}}, {{actions_list}}, {{sender_name}})</span></div>';
+  h += '<div style="margin-bottom:6px"><label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:2px">Sujet</label><input id="relance-subject" value="'+esc(_emailTemplate.subject)+'" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box"/></div>';
+  h += '<label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:2px">Corps</label>';
+  h += '<textarea id="relance-body" style="width:100%;min-height:130px;font-size:11px;padding:6px 8px;border:1px solid var(--border);border-radius:3px;font-family:inherit;resize:vertical;box-sizing:border-box;line-height:1.5">'+esc(_emailTemplate.body)+'</textarea>';
+  h += '</div>';
+
+  // Bouton récap
+  if (nbOwners > 0) {
+    h += '<div style="text-align:center;padding:8px;background:#E8F5E9;border:.5px solid #A6E2CD;border-radius:4px;font-size:11px;color:#085041;font-weight:500">📧 Au « OK » : '+nbOwners+' email(s) Outlook seront préparés. Tu cliqueras « Envoyer » dans chaque.</div>';
+  } else {
+    h += '<div style="text-align:center;padding:8px;background:#FEF3F2;border:.5px solid #FCA5A5;border-radius:4px;font-size:11px;color:#7F1D1D">Aucune action sélectionnée avec email valide.</div>';
+  }
+  return h;
+}
+
+function _renderRelanceActionRow(a, hasEmail) {
+  var isChecked = _relanceSelections[a.id];
+  var isOverdue = _paTiming(a) === 'overdue';
+  var st = _paStatus(a);
+
+  var row = '<div style="padding:7px 10px;border-bottom:.5px solid #F0F0F4;display:flex;align-items:flex-start;gap:8px;font-size:11px'+(hasEmail?'':';opacity:0.55')+'">';
+  if (hasEmail) {
+    row += '<input type="checkbox" '+(isChecked?'checked':'')+' onchange="_relanceToggleAction(\''+_escJsArg(a.id)+'\')" style="margin-top:2px"/>';
+  } else {
+    row += '<span style="width:13px;text-align:center;color:#993C1D">⚠</span>';
+  }
+  row += '<div style="flex:1;min-width:0">';
+  // Ligne 1 : tags + titre
+  row += '<div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap">';
+  if (isOverdue) row += '<span style="background:#DC2626;color:#fff;font-size:9px;padding:1px 5px;border-radius:3px">⏰ EN RETARD</span>';
+  else row += '<span style="background:#9CA3AF;color:#fff;font-size:9px;padding:1px 5px;border-radius:3px">'+esc(st)+'</span>';
+  row += '<span style="font-size:9px;color:var(--text-3)">'+esc(a.quarter)+' '+a.year+'</span>';
+  row += '<span style="font-weight:500;font-size:11px">'+esc(a.title)+'</span>';
+  row += '</div>';
+  // Ligne 2 : owner + audit
+  row += '<div style="font-size:10px;color:var(--text-3);margin-top:2px">';
+  if (a.ownerName || a.ownerEmail) {
+    row += '👤 '+esc(a.ownerName||'(sans nom)')+(a.ownerEmail?' · 📧 '+esc(a.ownerEmail):'');
+  } else {
+    row += '👤 Pas d\'owner défini · <a href="#" onclick="event.preventDefault();showActionFollowUpModal(\''+_escJsArg(a.id)+'\')" style="color:#993C1D">renseigner →</a>';
+  }
+  row += ' · '+esc(a.audit);
+  row += '</div>';
+  row += '</div>';
+  row += '</div>';
+  return row;
+}
+
+function _relanceToggleAction(actionId) {
+  if (_relanceSelections[actionId]) delete _relanceSelections[actionId];
+  else _relanceSelections[actionId] = true;
+  // Re-render juste la modale (pas la page)
+  var modalBody = document.querySelector('#modal .md');
+  if (modalBody) {
+    var actions = _listActionsToRelance();
+    var bodyEl = modalBody.querySelector('div:not(.md-header):not(.md-footer)') || modalBody;
+    // On refait simplement le HTML du body — pas optimal mais simple
+    // En fait il faut refaire seulement la partie résumé + liste
+    // Plus simple : retrouver les sections par id et update
+    // Approach simpler: re-render la modale via openModal
+    showRelancesModal_refresh();
+  }
+}
+
+function _relanceSelectAll(checked) {
+  var actions = _listActionsToRelance();
+  actions.forEach(function(a){
+    if (!a.ownerEmail) return; // skip sans email
+    if (checked) _relanceSelections[a.id] = true;
+    else delete _relanceSelections[a.id];
+  });
+  showRelancesModal_refresh();
+}
+
+// Helper pour re-render la modale (en conservant le template editable)
+function showRelancesModal_refresh() {
+  // Sauvegarder l'état du template avant re-render
+  var subjEl = document.getElementById('relance-subject');
+  var bodyEl = document.getElementById('relance-body');
+  if (subjEl) _emailTemplate.subject = subjEl.value;
+  if (bodyEl) _emailTemplate.body = bodyEl.value;
+  closeModal();
+  setTimeout(showRelancesModal, 50);
+}
+
+// Génère les emails et ouvre Outlook
+function _generateRelanceEmails(actions) {
+  // Sauvegarder le template (au cas où user l'a édité)
+  var subjEl = document.getElementById('relance-subject');
+  var bodyEl = document.getElementById('relance-body');
+  if (subjEl) _emailTemplate.subject = subjEl.value;
+  if (bodyEl) _emailTemplate.body = bodyEl.value;
+
+  // Group par owner (email)
+  var byOwner = {};
+  actions.forEach(function(a){
+    if (!_relanceSelections[a.id] || !a.ownerEmail) return;
+    var key = a.ownerEmail.toLowerCase();
+    if (!byOwner[key]) byOwner[key] = {email: a.ownerEmail, name: a.ownerName || '', actions: []};
+    byOwner[key].actions.push(a);
+    if (a.ownerName && !byOwner[key].name) byOwner[key].name = a.ownerName;
+  });
+  var ownerKeys = Object.keys(byOwner);
+  if (!ownerKeys.length) {
+    toast('Aucune action sélectionnée avec email valide.');
+    return;
+  }
+
+  var senderName = (typeof CU !== 'undefined' && CU ? CU.name : '');
+  var nbSent = 0;
+
+  ownerKeys.forEach(function(k, idx){
+    var info = byOwner[k];
+    // Audit = liste unique des audits de ses actions
+    var audits = {};
+    info.actions.forEach(function(a){audits[a.audit||'—'] = true;});
+    var auditStr = Object.keys(audits).join(', ');
+
+    // Liste textuelle des actions
+    var actionsList = info.actions.map(function(a, i){
+      var dlStr = (a.quarter||'?')+' '+(a.year||'?');
+      var statusStr = _paTiming(a) === 'overdue' ? '⏰ EN RETARD' : 'Échéance '+dlStr;
+      var t = (i+1)+'. ['+statusStr+'] '+a.title;
+      if (a.findingTitle) t += '\n   (Finding : '+a.findingTitle+')';
+      return t;
+    }).join('\n\n');
+
+    // Substituer les variables
+    var subject = _emailTemplate.subject
+      .replace(/\{\{audit\}\}/g, auditStr)
+      .replace(/\{\{owner_first_name\}\}/g, _prenom(info.name) || 'l\'équipe')
+      .replace(/\{\{owner_name\}\}/g, info.name || '')
+      .replace(/\{\{sender_name\}\}/g, senderName);
+    var body = _emailTemplate.body
+      .replace(/\{\{audit\}\}/g, auditStr)
+      .replace(/\{\{owner_first_name\}\}/g, _prenom(info.name) || 'l\'équipe')
+      .replace(/\{\{owner_name\}\}/g, info.name || '')
+      .replace(/\{\{actions_list\}\}/g, actionsList)
+      .replace(/\{\{sender_name\}\}/g, senderName);
+
+    // Construire l'URL mailto
+    var mailto = 'mailto:' + encodeURIComponent(info.email)
+      + '?subject=' + encodeURIComponent(subject)
+      + '&body=' + encodeURIComponent(body);
+
+    // Ouvrir avec petit délai pour éviter que le navigateur bloque
+    setTimeout(function(){
+      window.location.href = mailto;
+    }, idx * 800); // 800ms entre chaque
+    nbSent++;
+  });
+
+  toast(nbSent+' email(s) Outlook préparé(s) ✓');
+}
+
+// Relance individuelle d'une seule action (icône 📧 sur la card)
+function showSingleRelance(actionId) {
+  var a = ACTIONS.find(function(x){return x.id === actionId;});
+  if (!a) return;
+  if (!a.ownerEmail) {
+    if (confirm('Cette action n\'a pas d\'owner email renseigné. Ouvrir le suivi pour le renseigner ?')) {
+      showActionFollowUpModal(actionId);
+    }
+    return;
+  }
+  // Reset sélections et ne cocher que cette action
+  _relanceSelections = {};
+  _relanceSelections[actionId] = true;
+  showRelancesModal();
+}
+
+// ══════════════════════════════════════════════════════════════
 //  MODALE SUIVI DU PLAN D'ACTION (v77.14a)
 // ══════════════════════════════════════════════════════════════
 function showActionFollowUpModal(actionId) {
@@ -4314,9 +4749,10 @@ function showActionFollowUpModal(actionId) {
   body += '</div>';
 
   // ─── Owner (modifiable en cas de réorga) ───
-  body += '<div style="margin-bottom:10px"><label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:3px">Owner (Department / Personne)</label>';
-  body += '<input id="fu-dept" type="text" value="'+esc(ac.dept||'')+'" placeholder="ex : Finance, IT, John Doe..." style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box"/>';
-  body += '<div style="font-size:9px;color:var(--text-3);margin-top:2px;font-style:italic">Modifie si réorganisation ou changement de responsable.</div>';
+  // v77.14b : Owner Picker (remplace l'ancien champ dept libre)
+  body += '<div style="margin-bottom:10px"><label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:3px">Owner (Personne)</label>';
+  body += _renderOwnerPicker('fu-owner', ac.ownerName||ac.dept||'', ac.ownerEmail||'');
+  body += '<div style="font-size:9px;color:var(--text-3);margin-top:2px;font-style:italic">Recherche dans l\'annuaire Microsoft 365. Pour un owner externe : tape l\'email complet puis valide.</div>';
   body += '</div>';
 
   // ─── Deadline avec bouton "Changer" + historique ───
@@ -4367,7 +4803,8 @@ function showActionFollowUpModal(actionId) {
   openModal('Suivi du plan d\'action', body, async function(){
     var newStatus = document.getElementById('fu-status').value;
     var newPct = parseInt(document.getElementById('fu-pct').value) || 0;
-    var newDept = document.getElementById('fu-dept').value.trim();
+    // v77.14b : lire le picker au lieu du champ dept
+    var ownerVals = _ownerPickerGetValues('fu-owner');
     var newYear = parseInt(document.getElementById('fu-year').value);
     var newQuarter = document.getElementById('fu-quarter').value;
     var newFollowUpBy = document.getElementById('fu-by').value.trim();
@@ -4397,7 +4834,11 @@ function showActionFollowUpModal(actionId) {
 
     ac.status = newStatus;
     ac.pct = newPct;
-    ac.dept = newDept || ac.dept;
+    // v77.14b : Owner name + email (remplace dept)
+    ac.ownerName = ownerVals.name;
+    ac.ownerEmail = ownerVals.email;
+    // Conserver dept pour rétrocompat affichage (legacy actions)
+    ac.dept = ownerVals.name || ownerVals.email || ac.dept;
     ac.year = newYear;
     ac.quarter = newQuarter;
     ac.followUpBy = newFollowUpBy;
@@ -4420,7 +4861,7 @@ async function showNewActionModal(){
     '<div><label>Titre</label><input id="pa-title" placeholder="ex : Revue des accès ERP"/></div>'
     +'<div><label>Lié à l\'audit</label><select id="pa-audit">'+AUDIT_PLAN.map(function(a){return'<option value="'+_escAttr(a.id)+'">'+esc(a.titre)+'</option>';}).join('')+'</select></div>'
     +'<div><label>Responsable</label><select id="pa-resp"><option>Selma H.</option><option>Nisrine E.</option></select></div>'
-    +'<div><label>Département owner</label><input id="pa-dept" placeholder="ex : Finance, IT, RH..."/></div>'
+    +'<div><label>Owner (Personne)</label>'+_renderOwnerPicker('pa-owner','','')+'<div style="font-size:9px;color:var(--text-3);margin-top:2px;font-style:italic">Recherche annuaire M365 ou email externe.</div></div>'
     +'<div><label>Entité</label><select id="pa-ent"><option>Groupe</option><option>74S</option><option>SBS</option><option>AXW</option></select></div>'
     +'<div class="g2"><div><label>Année</label><select id="pa-yr"><option>2025</option><option>2026</option><option>2027</option><option>2028</option></select></div><div><label>Trimestre</label><select id="pa-q"><option>Q1</option><option>Q2</option><option>Q3</option><option>Q4</option></select></div></div>',
     async function(){
@@ -4428,13 +4869,17 @@ async function showNewActionModal(){
       if(!title){toast('Titre obligatoire');return;}
       var auditId = document.getElementById('pa-audit').value;
       var apObj = AUDIT_PLAN.find(function(a){return a.id===auditId;});
+      var ownerVals = _ownerPickerGetValues('pa-owner');
       var newAc = {
         id:'ac'+Date.now(),title,
         audit: apObj ? apObj.titre : auditId,
         auditId: auditId,
         auditYear: apObj ? apObj.annee : null,
         resp: document.getElementById('pa-resp').value,
-        dept: document.getElementById('pa-dept').value||'—',
+        // v77.14b : Owner name + email (remplace dept)
+        ownerName: ownerVals.name,
+        ownerEmail: ownerVals.email,
+        dept: ownerVals.name || ownerVals.email || '—',
         ent: document.getElementById('pa-ent').value,
         year: parseInt(document.getElementById('pa-yr').value),
         quarter: document.getElementById('pa-q').value,
@@ -14366,17 +14811,33 @@ function _renderSingleMgtResp(f, resp, respIdx, totalResp) {
 
 // v77.13 : rendu d'un seul plan d'action
 function _renderSingleAction(resp, a, aIdx) {
+  // v77.14b : migration douce — si pas de ownerName/ownerEmail mais un ancien owner (texte libre)
+  if (typeof a.ownerName === 'undefined' && a.owner) {
+    // Heuristique : si "owner" ressemble à un email, mettre dans ownerEmail
+    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a.owner)) {
+      a.ownerEmail = a.owner;
+      a.ownerName = '';
+    } else {
+      a.ownerName = a.owner;
+      a.ownerEmail = '';
+    }
+  }
+  var pickerId = 'mr-owner-'+resp.id+'-'+a.id;
+
   var html = '';
   html += '<div style="background:#fff;border:.5px solid var(--border);border-radius:4px;padding:8px;margin-bottom:5px">';
-  html += '<div style="display:grid;grid-template-columns:3fr 1.2fr 1.5fr auto;gap:6px;align-items:flex-start">';
+  html += '<div style="display:grid;grid-template-columns:3fr 1.7fr 1.5fr auto;gap:6px;align-items:flex-start">';
 
   // Action
   html += '<div><label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Action #'+(aIdx+1)+'</label>';
   html += '<input style="font-size:11px;width:100%;padding:4px 7px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box" placeholder="Action corrective..." value="'+(a.action||'').replace(/"/g,'&quot;')+'" onchange="setActionField(\''+_escJsArg(resp.id)+'\',\''+_escJsArg(a.id)+'\',\'action\',this.value)"/></div>';
 
-  // Owner
-  html += '<div><label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Owner</label>';
-  html += '<input style="font-size:11px;width:100%;padding:4px 7px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box" placeholder="ex: Finance, IT..." value="'+(a.owner||'').replace(/"/g,'&quot;')+'" onchange="setActionField(\''+_escJsArg(resp.id)+'\',\''+_escJsArg(a.id)+'\',\'owner\',this.value)"/></div>';
+  // Owner Picker (v77.14b)
+  html += '<div><label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Owner (Personne)</label>';
+  html += _renderOwnerPicker(pickerId, a.ownerName||'', a.ownerEmail||'');
+  // Hook pour persister quand l'user blur
+  html += '<input type="hidden" data-mr-owner-hook="'+_escAttr(pickerId)+'" data-mr-id="'+_escAttr(resp.id)+'" data-action-id="'+_escAttr(a.id)+'"/>';
+  html += '</div>';
 
   // Deadline
   html += '<div><label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Deadline</label>';
@@ -14400,6 +14861,36 @@ function _renderSingleAction(resp, a, aIdx) {
   html += '</div>'; // wrapper
 
   return html;
+}
+
+// v77.14b : Persister les valeurs du Owner Picker des MR actions au blur de l'input
+// On bind un seul listener global
+document.addEventListener('blur', function(e){
+  if (!e.target || e.target.tagName !== 'INPUT') return;
+  if (!e.target.id || !e.target.id.startsWith('mr-owner-')) return;
+  // Trouver le hidden hook avec data-mr-id et data-action-id
+  var hookSelector = '[data-mr-owner-hook="'+e.target.id.replace('-input','')+'"]';
+  var hook = document.querySelector(hookSelector);
+  if (!hook) return;
+  var pickerId = hook.getAttribute('data-mr-owner-hook');
+  var respId = hook.getAttribute('data-mr-id');
+  var actionId = hook.getAttribute('data-action-id');
+  var vals = _ownerPickerGetValues(pickerId);
+  // Persister via setActionField (ajouter ownerName + ownerEmail)
+  _setActionOwnerFromPicker(respId, actionId, vals.name, vals.email);
+}, true);
+
+async function _setActionOwnerFromPicker(respId, actionId, ownerName, ownerEmail) {
+  var d = getAudData(CA);
+  var r = d.mgtResp.find(function(x){return x.id === respId;});
+  if (!r) return;
+  var a = (r.actions || []).find(function(x){return x.id === actionId;});
+  if (!a) return;
+  a.ownerName = ownerName;
+  a.ownerEmail = ownerEmail;
+  // Garder owner pour rétrocompat lecture
+  a.owner = ownerName || ownerEmail || a.owner;
+  await saveAuditData(CA);
 }
 
 // ─── Handlers (Statut + Notes + Documents) ────────────────────
@@ -15677,7 +16168,12 @@ function pushAllMgtResp(){
     if (!f) return;
     var actionsForThisMr = [];
     (r.actions || []).forEach(function(a){
-      if (!a.action || !a.owner) return;
+      // v77.14b : action complète = libellé + au moins un nom ou email
+      var hasOwner = !!(a.owner || a.ownerName || a.ownerEmail);
+      if (!a.action || !hasOwner) return;
+      // Fallback : si ownerName/Email pas définis, retomber sur a.owner
+      var ownerName = a.ownerName || (a.owner && !/@/.test(a.owner) ? a.owner : '');
+      var ownerEmail = a.ownerEmail || (a.owner && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a.owner) ? a.owner : '');
       var newAc = {
         id: 'ac'+Date.now()+Math.random().toString(36).slice(2,7),
         title: a.action,
@@ -15685,7 +16181,10 @@ function pushAllMgtResp(){
         auditId: CA,
         auditYear: ap?.annee || null,
         resp: CU?.name || '—',
-        dept: a.owner,
+        // v77.14b : Owner Personne + Email (remplace l'ancien dept libre)
+        ownerName: ownerName,
+        ownerEmail: ownerEmail,
+        dept: ownerName || ownerEmail || a.owner || '',
         ent: ap?.type==='BU' ? ap.entite : 'Groupe',
         year: a.year,
         quarter: a.quarter,

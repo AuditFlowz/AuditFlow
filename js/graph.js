@@ -43,6 +43,7 @@ var GRAPH_SCOPES = [
   'Sites.ReadWrite.All',
   'Files.ReadWrite',
   'User.Read',
+  'User.ReadBasic.All', // v77.14b : recherche annuaire M365 pour Owner Picker
   'Calendars.ReadWrite',
   'Mail.Send',
   'OnlineMeetings.ReadWrite'
@@ -568,6 +569,63 @@ async function spDelete(listName, afId) {
     var spId = await findSpItemId(listName, afId);
     if (spId) { await deleteItem(listName, spId); delete _spIdCache[listName + '::' + afId]; }
   } catch(e) { console.error('[SP] Delete error', listName, afId, e.message); }
+}
+
+// ════════════════════════════════════════════════════════════
+//  v77.14b : Recherche d'utilisateurs Microsoft 365 (annuaire)
+// ════════════════════════════════════════════════════════════
+// Cache simple pour éviter de spam Graph API (clé: query, valeur: résultats)
+var _graphUserCache = {};
+
+// Recherche d'utilisateurs M365 par nom ou email. Retourne max 10 résultats.
+// Format de retour : [{displayName, mail, jobTitle, userPrincipalName}, ...]
+// Gère gracieusement les erreurs (permissions manquantes, etc.) → retourne []
+async function graphSearchUsers(query) {
+  query = (query || '').trim();
+  if (query.length < 2) return [];
+
+  // Cache HIT
+  if (_graphUserCache[query]) return _graphUserCache[query];
+
+  try {
+    // L'API /users supporte $search avec ConsistencyLevel: eventual
+    // Recherche fuzzy sur displayName, mail, userPrincipalName, givenName, surname
+    var token = await getGraphToken();
+    if (!token) {
+      console.warn('[Graph] Pas de token pour search users');
+      return [];
+    }
+    // Échapper les caractères spéciaux dans la query
+    var safeQuery = query.replace(/"/g, '');
+    var url = 'https://graph.microsoft.com/v1.0/users'
+      + '?$search="displayName:' + encodeURIComponent(safeQuery) + '" OR "mail:' + encodeURIComponent(safeQuery) + '"'
+      + '&$select=displayName,mail,jobTitle,userPrincipalName'
+      + '&$top=10';
+
+    var res = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Authorization': 'Bearer ' + token,
+        'Content-Type': 'application/json',
+        'ConsistencyLevel': 'eventual', // requis pour $search
+      },
+    });
+
+    if (!res.ok) {
+      // 403 = permission manquante (User.Read.All), 401 = token, autres = bug
+      var errTxt = await res.text();
+      console.warn('[Graph] search users failed', res.status, errTxt);
+      _graphUserCache[query] = []; // cache aussi l'échec pour pas re-tenter
+      return [];
+    }
+    var data = await res.json();
+    var users = (data.value || []).filter(function(u){ return u.mail; }); // sans mail = inutile
+    _graphUserCache[query] = users;
+    return users;
+  } catch(e) {
+    console.warn('[Graph] graphSearchUsers exception', e.message);
+    return [];
+  }
 }
 
 // ════════════════════════════════════════════════════════════
