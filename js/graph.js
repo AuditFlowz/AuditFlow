@@ -56,16 +56,10 @@ async function handleGraphRedirect() {
 }
 
 async function getGraphToken() {
-  // Récupérer depuis sessionStorage si dispo
-  if (!_graphToken) {
-    try {
-      var stored = sessionStorage.getItem('af_graph_token');
-      if (stored) {
-        var parsed = JSON.parse(stored);
-        if (parsed && parsed.exp > Date.now() + 60000) _graphToken = parsed;
-      }
-    } catch(e) {}
-  }
+  // MSAL gère son propre cache en sessionStorage (cf. getMsalApp).
+  // On ne stocke plus le token séparément pour réduire la surface d'attaque XSS :
+  // un seul endroit à voler au lieu de deux, et on évite les incohérences quand
+  // MSAL renouvelle silencieusement.
   if (_graphToken && _graphToken.exp > Date.now() + 60000) return _graphToken.token;
 
   // Verrou : si une acquisition est déjà en cours, attendre
@@ -88,7 +82,6 @@ async function _doGetGraphToken() {
           token: redirectResp.accessToken,
           exp: redirectResp.expiresOn ? redirectResp.expiresOn.getTime() : Date.now() + 3500000,
         };
-        sessionStorage.setItem('af_graph_token', JSON.stringify(_graphToken));
         console.log('[MSAL] Token via redirection ✓');
         return _graphToken.token;
       }
@@ -118,7 +111,6 @@ async function _doGetGraphToken() {
           token: tokenResp.accessToken,
           exp: tokenResp.expiresOn ? tokenResp.expiresOn.getTime() : Date.now() + 3500000,
         };
-        sessionStorage.setItem('af_graph_token', JSON.stringify(_graphToken));
         console.log('[MSAL] Token acquis silencieusement (cache) ✓');
         return _graphToken.token;
       } catch(e) {
@@ -139,7 +131,6 @@ async function _doGetGraphToken() {
           token: ssoResp.accessToken,
           exp: ssoResp.expiresOn ? ssoResp.expiresOn.getTime() : Date.now() + 3500000,
         };
-        sessionStorage.setItem('af_graph_token', JSON.stringify(_graphToken));
         console.log('[MSAL] Token acquis via ssoSilent ✓');
         return _graphToken.token;
       } catch(e) {
@@ -163,7 +154,6 @@ async function _doGetGraphToken() {
       token: popupResp.accessToken,
       exp: popupResp.expiresOn ? popupResp.expiresOn.getTime() : Date.now() + 3500000,
     };
-    sessionStorage.setItem('af_graph_token', JSON.stringify(_graphToken));
     console.log('[MSAL] Token acquis via popup ✓');
     return _graphToken.token;
 
@@ -184,7 +174,7 @@ async function graphCall(method, url, body) {
   if (!res.ok) {
     var err = await res.text();
     console.error('[Graph]', method, url, res.status, err);
-    throw new Error('Graph API error ' + res.status);
+    throw new Error('Graph API error ' + res.status + ': ' + err);
   }
   if (res.status === 204) return null;
   return await res.json();
