@@ -25,6 +25,14 @@ var _settings = {
   site_web:    '',
 };
 
+// Clé localStorage scopée par utilisateur connecté.
+// Évite que sur un poste partagé, les paramètres d'un user soient appliqués
+// à un autre. Si CU n'est pas dispo (cas anormal), on utilise une clé générique.
+function _settingsKey() {
+  var email = (typeof CU !== 'undefined' && CU && CU.email) ? CU.email : 'anonymous';
+  return 'af_settings:' + email;
+}
+
 // ── Vue HTML ──────────────────────────────────────────────────
 V['settings'] = function(){
   return `
@@ -212,7 +220,7 @@ I['settings'] = async function(){
 // ── Chargement depuis localStorage (SharePoint à venir) ──────
 async function settingsLoad(){
   try {
-    var stored = localStorage.getItem('af_settings');
+    var stored = localStorage.getItem(_settingsKey());
     var data = stored ? JSON.parse(stored) : null;
     if(data){
       if(data.settings){
@@ -235,7 +243,7 @@ async function settingsLoad(){
 function settingsRestoreUI(){
   // Nom
   var nameEl = document.getElementById('settings-org-name');
-  if(nameEl) nameEl.value = _settings.org_name || CU.organization_name || '';
+  if(nameEl) nameEl.value = _settings.org_name || (CU && CU.name) || '';
 
   // Couleur
   var color = _settings.color || '#534AB7';
@@ -344,7 +352,7 @@ function settingsUpdateSidebarPreview(){
   var sideImg   = document.getElementById('settings-sidebar-preview');
   var sideName  = document.getElementById('settings-sidebar-name');
 
-  var name = (nameEl ? nameEl.value : '') || CU.organization_name || 'AuditFlow';
+  var name = (nameEl ? nameEl.value : '') || (CU && CU.name) || 'AuditFlow';
   if(sideName) sideName.textContent = name;
 
   if(!sideImg) return;
@@ -378,13 +386,12 @@ async function settingsSave(){
 
   try {
     var payload = {
-      organization_id:   CU.organization_id,
       settings:          _settings,          // tout en JSONB
       org_name_override: _settings.org_name, // colonne dénormalisée
     };
 
     // Sauvegarder en localStorage
-    localStorage.setItem('af_settings', JSON.stringify(payload));
+    localStorage.setItem(_settingsKey(), JSON.stringify(payload));
 
     // Appliquer immédiatement dans l'UI
     settingsApplyToApp();
@@ -427,7 +434,7 @@ function settingsApplyToApp(){
 // Appelé depuis launchApp() dans app.js après connexion réussie
 async function settingsApplyOnLoad(){
   try {
-    var stored = localStorage.getItem('af_settings');
+    var stored = localStorage.getItem(_settingsKey());
     if(stored){
       var data = JSON.parse(stored);
       if(data && data.settings){
