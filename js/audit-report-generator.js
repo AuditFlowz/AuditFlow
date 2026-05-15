@@ -785,17 +785,42 @@ async function generateAuditReportPptx(auditId, options) {
       designIssuesBySpId[spId].push(iss);
     });
 
+    // v77.12 : tests fail orphelins (non liés à un finding) par SP
+    // Un test fail = ctrl avec design='existing', finalized=true, anomalies.count > 0
+    const linkedCtrlIds = new Set();
+    findings.forEach(f => (f.controlIds || []).forEach(id => linkedCtrlIds.add(id)));
+    const orphanFailedBySpId = {};
+    const orphanTargetsBySpId = {};
+    controls.forEach(c => {
+      if (linkedCtrlIds.has(c.id)) return; // déjà lié à un finding
+      const spId = _ctrlSpId(c) || '__transverse';
+      // Test fail = existing + finalized + anomalies > 0
+      const aCount = Number((c.anomalies || {}).count) || 0;
+      if (c.design === 'existing' && c.finalized && aCount > 0) {
+        if (!orphanFailedBySpId[spId]) orphanFailedBySpId[spId] = [];
+        orphanFailedBySpId[spId].push(c);
+      } else if (c.design === 'target') {
+        // Target orphelin
+        if (!orphanTargetsBySpId[spId]) orphanTargetsBySpId[spId] = [];
+        orphanTargetsBySpId[spId].push(c);
+      }
+    });
+
     // Itérer dans l'ordre des SP (kickoffPrep en premier, puis discovered, puis transverse)
     const orderedSpIds = spList.map(s => s.id);
     if ((findingsBySpId['__transverse'] && findingsBySpId['__transverse'].length) ||
-        (designIssuesBySpId['__transverse'] && designIssuesBySpId['__transverse'].length)) {
+        (designIssuesBySpId['__transverse'] && designIssuesBySpId['__transverse'].length) ||
+        (orphanFailedBySpId['__transverse'] && orphanFailedBySpId['__transverse'].length) ||
+        (orphanTargetsBySpId['__transverse'] && orphanTargetsBySpId['__transverse'].length)) {
       orderedSpIds.push('__transverse');
     }
-    // Filtrer pour ne garder que les SP avec findings OU design issues validées
+    // Filtrer pour ne garder que les SP avec findings OU design issues OU orphan tests/targets
     const spIdsWithContent = orderedSpIds.filter(spId => {
       const hasFindings = findingsBySpId[spId] && findingsBySpId[spId].length;
       const hasDesignIssues = designIssuesBySpId[spId] && designIssuesBySpId[spId].length;
-      return hasFindings || hasDesignIssues;
+      const hasOrphanFailed = orphanFailedBySpId[spId] && orphanFailedBySpId[spId].length;
+      const hasOrphanTargets = orphanTargetsBySpId[spId] && orphanTargetsBySpId[spId].length;
+      return hasFindings || hasDesignIssues || hasOrphanFailed || hasOrphanTargets;
     });
 
     spIdsWithContent.forEach((spId, spIdx) => {
@@ -804,9 +829,11 @@ async function generateAuditReportPptx(auditId, options) {
         : (spList.find(s => s.id === spId) || {id: spId, name: spId, source: 'unknown'});
       const spFindings = findingsBySpId[spId] || [];
       const spDesignIssues = designIssuesBySpId[spId] || [];
+      const spOrphanFailed = orphanFailedBySpId[spId] || [];
+      const spOrphanTargets = orphanTargetsBySpId[spId] || [];
 
       // Une slide par SP (potentiellement paginée si trop de contenu)
-      ar_addSpFindingsSlide(pres, spInfo, spFindings, spDesignIssues, controls, issues, _allTestsForStructure, findings, spIdx + 1, spIdsWithContent.length);
+      ar_addSpFindingsSlide(pres, spInfo, spFindings, spDesignIssues, spOrphanFailed, spOrphanTargets, controls, issues, _allTestsForStructure, findings, spIdx + 1, spIdsWithContent.length);
     });
   }
 
@@ -1772,7 +1799,7 @@ function ar_addFindingsMapSlide(pres, spBuckets, findings) {
 // controls / issues / allTests : globaux pour résoudre les références
 // findings : liste globale (pour numérotation des findings F1, F2...)
 // idx, total : numérotation des SP
-function ar_addSpFindingsSlide(pres, spInfo, spFindings, spDesignIssues, controls, issues, allTests, findings, idx, total) {
+function ar_addSpFindingsSlide(pres, spInfo, spFindings, spDesignIssues, spOrphanFailedCtrls, spOrphanTargetCtrls, controls, issues, allTests, findings, idx, total) {
   const s = pres.addSlide();
   // v77.11.4 : pas de sous-titre redondant ("Sub-Process X/Y") — le nom du SP est déjà dans le bandeau
   ar_addTitleBar(pres, s, spInfo.name, null);
@@ -1819,6 +1846,52 @@ function ar_addSpFindingsSlide(pres, spInfo, spFindings, spDesignIssues, control
       valign: "top",
     });
     yPos += diH + 0.15;
+  }
+
+  // v77.12 : Section "Tests fail orphelins" (test fail non liés à un finding du SP)
+  if (spOrphanFailedCtrls && spOrphanFailedCtrls.length > 0) {
+    s.addText("Failed Tests (not yet linked to a finding)", {
+      x: 0.5, y: yPos, w: 12.3, h: 0.3,
+      fontSize: 13, bold: true, color: AR_COLORS.red, fontFace: "Calibri",
+    });
+    yPos += 0.32;
+    const orphanParas = spOrphanFailedCtrls.map(c => {
+      const aCount = Number((c.anomalies || {}).count) || 0;
+      const sCount = (c.sample || {}).count || '—';
+      const ctrlCode = c.code || ('CTRL-' + (controls.indexOf(c) + 1));
+      return {
+        text: ctrlCode + ' ' + (c.name || '(unnamed)') + ' — ' + aCount + ' anomaly' + (aCount > 1 ? 'ies' : '') + ' / ' + sCount,
+        options: {bullet: {code: '25A0'}, fontSize: 10, color: AR_COLORS.red, fontFace: "Calibri", paraSpaceAfter: 2},
+      };
+    });
+    const orphanH = Math.min(spOrphanFailedCtrls.length * 0.28, 1.5);
+    s.addText(orphanParas, {
+      x: 0.6, y: yPos, w: 12.2, h: orphanH,
+      valign: "top",
+    });
+    yPos += orphanH + 0.15;
+  }
+
+  // v77.12 : Section "Targets orphelins" (contrôles cibles non liés à un finding du SP)
+  if (spOrphanTargetCtrls && spOrphanTargetCtrls.length > 0) {
+    s.addText("Target Controls Missing (not yet in place)", {
+      x: 0.5, y: yPos, w: 12.3, h: 0.3,
+      fontSize: 13, bold: true, color: '854F0B', fontFace: "Calibri",
+    });
+    yPos += 0.32;
+    const tgParas = spOrphanTargetCtrls.map(c => {
+      const ctrlCode = c.code || ('CTRL-T' + (controls.indexOf(c) + 1));
+      return {
+        text: ctrlCode + ' ' + (c.name || '(unnamed)') + (c.owner ? ' — Owner: ' + c.owner : ''),
+        options: {bullet: {code: '25A0'}, fontSize: 10, color: '854F0B', fontFace: "Calibri", paraSpaceAfter: 2},
+      };
+    });
+    const tgH = Math.min(spOrphanTargetCtrls.length * 0.28, 1.5);
+    s.addText(tgParas, {
+      x: 0.6, y: yPos, w: 12.2, h: tgH,
+      valign: "top",
+    });
+    yPos += tgH + 0.15;
   }
 
   // Si des findings : section "Findings"

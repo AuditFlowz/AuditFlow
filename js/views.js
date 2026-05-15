@@ -5585,67 +5585,41 @@ function renderAuditReportGenerateBanner() {
   var hasDraft = !!(draftR && draftR.webUrl);
   var hasFinal = !!(finalR && finalR.webUrl);
 
-  var html = '<div class="card" style="margin-bottom:.75rem;background:linear-gradient(135deg,#FAEEDA 0%,#FFF4D9 100%);border:.5px solid #FAC775;padding:10px 14px">';
-
-  // Ligne unique : titre + indicateurs inline + bouton principal
-  html += '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">';
-  html += '<div style="font-size:13px;font-weight:600;color:#854F0B;flex-shrink:0">📄 Audit Report</div>';
-  // Indicateurs compacts
-  html += '<div style="display:flex;gap:10px;font-size:10px;color:#854F0B;flex:1;min-width:0;flex-wrap:wrap">';
-  html += '<span>'+(findingsCount?'✓':'○')+' Findings '+findingsComplete+'/'+findingsCount+'</span>';
-  html += '<span>'+(testedControls.length?'✓':'○')+' Tests '+testedControls.length+'</span>';
-  html += '<span>'+(maturityFilled?'✓':'○')+' Maturity</span>';
-  html += '<span>'+(mgtRespCount?'✓':'○')+' MR '+mgtRespCount+'</span>';
-  html += '</div>';
-  // Boutons inline
-  html += '<div style="display:flex;gap:6px;flex-shrink:0">';
+  // v77.12 : banner ultra-compact — 1 seule ligne avec tout
+  var html = '<div class="card" style="margin-bottom:.75rem;background:#FFF7ED;border:.5px solid #FAC775;padding:6px 12px">';
+  html += '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:11px">';
+  // Titre
+  html += '<span style="font-weight:600;color:#854F0B;flex-shrink:0">📄 Report</span>';
+  // Indicateurs ultra-compacts
+  html += '<span style="color:#854F0B;font-size:10px">F '+findingsComplete+'/'+findingsCount+' · T '+testedControls.length+' · M '+(maturityFilled?'✓':'○')+' · MR '+mgtRespCount+'</span>';
+  // Séparateur
+  html += '<span style="flex:1"></span>';
+  // Statut draft/final inline
+  if (hasFinal) {
+    html += '<span style="color:#085041;font-size:10px">📌 Final '+(finalR.finalizedAt||'').slice(0,10)+'</span>';
+    var finalEditUrl = toEditableOfficeUrl(finalR.webUrl);
+    html += '<a href="'+finalEditUrl.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener" style="font-size:10px;padding:3px 8px;background:#3C3489;color:#fff;border-radius:3px;text-decoration:none;font-weight:500">✏ Final</a>';
+  } else if (hasDraft) {
+    html += '<span style="color:#854F0B;font-size:10px">📝 Draft '+(draftR.uploadedAt||'').slice(0,10)+'</span>';
+    var draftEditUrl = toEditableOfficeUrl(draftR.webUrl);
+    html += '<a href="'+draftEditUrl.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener" style="font-size:10px;padding:3px 8px;background:#854F0B;color:#fff;border-radius:3px;text-decoration:none;font-weight:500">✏ Draft</a>';
+    html += '<button class="bp" style="font-size:10px;padding:3px 8px;background:#3C3489;color:#fff;border:none;border-radius:3px;font-weight:500" onclick="finalizeReport()" title="Marquer comme version finale">📌 Final</button>';
+  }
+  // Boutons d'action principaux
   if (!hasDraft) {
-    html += '<button class="bp" style="font-size:11px;padding:5px 11px;background:#854F0B;color:#fff;font-weight:500" onclick="publishReportRegenerate()" title="Générer le rapport (draft)">⬇ Générer draft</button>';
-    html += '<button class="bs" style="font-size:11px;padding:5px 9px;border:.5px solid #854F0B;color:#854F0B" onclick="publishReportUpload()" title="Importer un PPT existant comme draft">📁 Importer</button>';
+    html += '<button class="bp" style="font-size:11px;padding:4px 10px;background:#854F0B;color:#fff;font-weight:500" onclick="publishReportRegenerate()">⬇ Générer</button>';
+    html += '<button class="bs" style="font-size:11px;padding:4px 8px;border:.5px solid #854F0B;color:#854F0B" onclick="publishReportUpload()" title="Importer PPT existant">📁</button>';
   } else {
-    html += '<button class="bs" style="font-size:11px;padding:5px 9px;border:.5px solid #FAC775;color:#854F0B" onclick="publishReportRegenerate()" title="Régénérer le draft">🔄 Régénérer</button>';
-    html += '<button class="bs" style="font-size:11px;padding:5px 9px;border:.5px solid #FAC775;color:#854F0B" onclick="publishReportUpload()" title="Remplacer le draft par un fichier">📁 Remplacer</button>';
+    html += '<button class="bs" style="font-size:11px;padding:4px 8px;border:.5px solid #FAC775;color:#854F0B" onclick="publishReportRegenerate()" title="Régénérer">🔄</button>';
+    html += '<button class="bs" style="font-size:11px;padding:4px 8px;border:.5px solid #FAC775;color:#854F0B" onclick="publishReportUpload()" title="Remplacer">📁</button>';
   }
   html += '</div>';
-  html += '</div>';
-
-  // Avertissements complétude (uniquement si problème)
-  if (!findingsCount) {
-    html += '<div style="font-size:10px;color:#854F0B;margin-top:8px;font-style:italic">⚠ Aucun finding défini.</div>';
-  } else if (findingsComplete < findingsCount) {
-    html += '<div style="font-size:10px;color:#854F0B;margin-top:8px;font-style:italic">ⓘ '+(findingsCount-findingsComplete)+' finding(s) incomplet(s) — apparaîtront avec « — » dans le rapport.</div>';
+  // Avertissement compact si problème (sur 1 ligne)
+  if (findingsCount && findingsComplete < findingsCount) {
+    html += '<div style="font-size:9px;color:#BA7517;font-style:italic;margin-top:4px">ⓘ '+(findingsCount-findingsComplete)+' finding(s) incomplet(s)</div>';
+  } else if (hasDraft && !hasFinal) {
+    html += '<div style="font-size:9px;color:#BA7517;font-style:italic;margin-top:4px">Pas de version finale — MR pas envoyable tant que non marqué final</div>';
   }
-
-  // Bandeaux draft / final (compacts sur 1 ligne)
-  if (hasDraft || hasFinal) {
-    html += '<div style="display:flex;flex-direction:column;gap:4px;margin-top:8px">';
-    if (hasDraft) {
-      var draftDate = (draftR.uploadedAt||'').slice(0,10);
-      var draftEditUrl = toEditableOfficeUrl(draftR.webUrl);
-      html += '<div style="font-size:10px;color:#854F0B;padding:5px 10px;background:#FFF4D9;border:.5px solid #FAC775;border-radius:3px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">';
-      html += '<span>📝 <strong style="font-weight:500">Draft</strong> · '+draftDate+(draftR.uploadedBy?' · '+draftR.uploadedBy.replace(/</g,'&lt;'):'')+'</span>';
-      html += '<span style="flex:1"></span>';
-      html += '<a href="'+draftEditUrl.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener" style="font-size:10px;padding:2px 7px;background:#854F0B;color:#fff;border:.5px solid #854F0B;border-radius:3px;text-decoration:none;font-weight:500">✏ Modifier</a>';
-      if (!hasFinal) {
-        html += '<button class="bp" style="font-size:10px;padding:2px 7px;background:#3C3489;color:#fff;border:none;border-radius:3px;font-weight:500" onclick="finalizeReport()" title="Marquer comme version finale">📌 Marquer final</button>';
-      }
-      html += '</div>';
-    }
-    if (hasFinal) {
-      var finalDate = (finalR.finalizedAt||'').slice(0,10);
-      var finalEditUrl = toEditableOfficeUrl(finalR.webUrl);
-      html += '<div style="font-size:10px;color:#085041;padding:5px 10px;background:#E1F5EE;border:.5px solid #A6E2CD;border-radius:3px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">';
-      html += '<span>📌 <strong style="font-weight:500">Final</strong> · '+finalDate+(finalR.finalizedBy?' · '+finalR.finalizedBy.replace(/</g,'&lt;'):'')+'</span>';
-      html += '<span style="flex:1"></span>';
-      html += '<a href="'+finalEditUrl.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener" style="font-size:10px;padding:2px 7px;background:#3C3489;color:#fff;border:.5px solid #3C3489;border-radius:3px;text-decoration:none;font-weight:500">✏ Modifier</a>';
-      html += '<a href="'+finalR.webUrl.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener" style="font-size:10px;padding:2px 7px;background:#fff;color:#085041;border:.5px solid #A6E2CD;border-radius:3px;text-decoration:none">Ouvrir →</a>';
-      html += '</div>';
-    } else if (hasDraft) {
-      html += '<div style="font-size:9px;color:#BA7517;font-style:italic;padding:2px 10px">Pas de version finale — la demande MR ne pourra être envoyée qu\'après marquage final.</div>';
-    }
-    html += '</div>';
-  }
-
   html += '</div>';
   return html;
 }
@@ -10773,25 +10747,10 @@ function renderTestsSection() {
   var d = getAudData(CA);
   var step5c = d.controls[4]||[];
   var keyExist = step5c.filter(function(c){return c.clef && c.design==='existing';});
-  var targets = step5c.filter(function(c){return c.design==='target';});
   var html = '<div class="card" style="margin-bottom:.75rem">';
   html += '<div style="font-size:12px;font-weight:600;color:var(--text-2);margin-bottom:4px">Testings — Contrôles clefs existants</div>';
-  html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:10px;font-style:italic">Pour chaque contrôle clef existant, documente la procédure de test, la population, l\'échantillon testé et les anomalies identifiées. L\'extrapolation est calculée automatiquement (ratio simple). Les contrôles Target (à mettre en place) seront pris en compte directement à l\'étape Findings sans test.</div>';
+  html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:10px;font-style:italic">Pour chaque contrôle clef existant, documente la procédure de test, la population, l\'échantillon testé et les anomalies identifiées. L\'extrapolation est calculée automatiquement (ratio simple).<br>v77.12 : Les contrôles Target n\'apparaissent plus ici (ils ne se testent pas). Tu les retrouveras directement à l\'étape Report comme issues à inclure dans les findings.</div>';
   html += buildExecTable(keyExist);
-  if (targets.length) {
-    html += '<div style="margin-top:14px;padding-top:10px;border-top:1px dashed var(--border)">';
-    html += '<div style="font-size:11px;font-weight:600;color:#854F0B;margin-bottom:4px">Contrôles Target (non testés — alimenteront les Findings)</div>';
-    html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:6px;font-style:italic">Ces contrôles n\'existent pas encore. Pas de test à réaliser. Ils apparaîtront automatiquement à l\'étape Report comme déficiences à adresser.</div>';
-    targets.forEach(function(c, idx){
-      var ctrlCode = c.code || ('CTRL-T'+(idx+1));
-      html += '<div style="background:#FFF7ED;border:.5px solid #FED7AA;border-radius:4px;padding:6px 10px;margin-bottom:4px;display:flex;align-items:center;gap:8px">';
-      html += '<span class="badge" style="background:#FAEEDA;color:#854F0B;font-size:9px">Target</span>';
-      html += '<div style="flex:1;font-size:11px"><span style="color:var(--text-3);font-size:10px;margin-right:5px">'+ctrlCode+'</span>'+c.name+'</div>';
-      if (c.owner) html += '<span style="font-size:10px;color:var(--text-3)">Owner : '+c.owner+'</span>';
-      html += '</div>';
-    });
-    html += '</div>';
-  }
   html += '</div>';
   return html;
 }
@@ -12875,159 +12834,366 @@ async function removeBuFinding(idx) {
   toast('Finding supprimé');
 }
 
+// v77.12 : Vue Findings refondée par sous-processus
+// Chaque section SP regroupe toutes les Issues (Design + Test fail + Target) du SP
+// + les Findings du SP. L'auditeur sélectionne directement les Issues et crée un Finding.
 function renderFindingsSection() {
   var d = getAudData(CA);
   if (!d.findings) d.findings = [];
+  _ensureIssues(d);
   var step5c = d.controls[4]||[];
-  // Contrôles "à traiter" = fail (test finalisé fail) ou target
-  var failedCtrls = step5c.filter(_isCtrlFailedExisting);
-  var targetCtrls = step5c.filter(function(c){return c.design==='target';});
-  var problematicCtrls = failedCtrls.concat(targetCtrls);
+  var wcgwList = (d.wcgw && d.wcgw[4]) || [];
 
-  // Helper : récupérer un contrôle par son ID
-  function getCtrl(id) {
-    return step5c.find(function(c){return c.id === id;});
-  }
-  // Contrôles déjà liés à au moins un finding
-  var linkedCtrlIds = new Set();
-  d.findings.forEach(function(f){
-    (f.controlIds||[]).forEach(function(id){linkedCtrlIds.add(id);});
+  // ─── 1. Construire la liste maîtresse des sous-processus ───
+  var spList = [];
+  var seenSpIds = {};
+  var kickoffSps = (d.kickoffPrep && Array.isArray(d.kickoffPrep.subProcesses)) ? d.kickoffPrep.subProcesses : [];
+  kickoffSps.forEach(function(sp){
+    if (!sp || !sp.id || seenSpIds[sp.id]) return;
+    seenSpIds[sp.id] = true;
+    spList.push({id: sp.id, name: sp.name || '(sans nom)', source: 'kickoff'});
   });
-  // Contrôles problématiques pas encore liés
-  var unlinkedProblems = problematicCtrls.filter(function(c){return c.id && !linkedCtrlIds.has(c.id);});
+  var narrative = d.consolidatedNarrative || '';
+  var sectionRegex = /^##\s+(.+)$/gm;
+  var mm;
+  while ((mm = sectionRegex.exec(narrative)) !== null) {
+    var sectionName = (mm[1] || '').trim();
+    if (!sectionName) continue;
+    var matched = spList.find(function(s){return s.name.toLowerCase() === sectionName.toLowerCase();});
+    if (matched) continue;
+    spList.push({id: 'sp_discovered_'+spList.length, name: sectionName, source: 'discovered'});
+  }
+
+  // ─── 2. Helper : résoudre le SP d'un contrôle via WCGW ───
+  function ctrlSpId(ctrl) {
+    if (!ctrl) return '__transverse';
+    if (ctrl.subProcessId) return ctrl.subProcessId;
+    if (ctrl.wcgwId) {
+      var w = wcgwList.find(function(x){return x.id === ctrl.wcgwId;});
+      if (w && w.subProcessId) return w.subProcessId;
+    }
+    return '__transverse';
+  }
+
+  // ─── 3. Helper : résoudre le SP d'un finding ───
+  function findingSpId(f) {
+    if (f.subProcessId) return f.subProcessId; // explicite
+    // Auto : SP majoritaire des contrôles liés
+    var ctrlIds = f.controlIds || [];
+    var spCount = {};
+    ctrlIds.forEach(function(cId){
+      var ctrl = step5c.find(function(c){return c.id === cId;});
+      var spId = ctrlSpId(ctrl);
+      if (spId) spCount[spId] = (spCount[spId] || 0) + 1;
+    });
+    var best = null, bestCount = 0;
+    Object.keys(spCount).forEach(function(s){
+      if (spCount[s] > bestCount) { best = s; bestCount = spCount[s]; }
+    });
+    return best || '__transverse';
+  }
+
+  // ─── 4. Distribuer Issues + Findings dans les SP ───
+  var bySp = {};  // { spId: { designIssues: [], failedCtrls: [], targetCtrls: [], findings: [] } }
+  function getBucket(spId) {
+    if (!bySp[spId]) bySp[spId] = {designIssues: [], failedCtrls: [], targetCtrls: [], findings: []};
+    return bySp[spId];
+  }
+
+  // Design issues VALIDÉES
+  var validatedDi = d.issues.filter(function(i){return i.source === 'design' && i.validationStatus === 'validated';});
+  validatedDi.forEach(function(iss){
+    var spId = iss.relatedSpId || '__transverse';
+    getBucket(spId).designIssues.push(iss);
+  });
+
+  // Contrôles testés FAIL
+  var failedCtrls = step5c.filter(_isCtrlFailedExisting);
+  failedCtrls.forEach(function(c){
+    getBucket(ctrlSpId(c)).failedCtrls.push(c);
+  });
+
+  // Contrôles TARGET
+  var targetCtrls = step5c.filter(function(c){return c.design === 'target';});
+  targetCtrls.forEach(function(c){
+    getBucket(ctrlSpId(c)).targetCtrls.push(c);
+  });
+
+  // Findings
+  d.findings.forEach(function(f){
+    getBucket(findingSpId(f)).findings.push(f);
+  });
+
+  // ─── 5. Ordre des SP : kickoff/discovered puis transverse à la fin ───
+  var orderedSpIds = spList.map(function(s){return s.id;}).filter(function(id){return bySp[id];});
+  if (bySp['__transverse']) orderedSpIds.push('__transverse');
+
+  // Si aucun SP avec contenu (audit vide)
+  if (!orderedSpIds.length) {
+    return '<div class="card" style="margin-bottom:.75rem">'
+      +'<div style="font-size:12px;font-weight:600;color:var(--text-2);margin-bottom:6px">Findings par sous-processus</div>'
+      +'<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:.5rem;text-align:center;border:1px dashed var(--border);border-radius:4px">Aucune issue identifiée pour le moment. Termine les étapes précédentes (Design Issues, Tests) pour voir les sous-processus.</div>'
+      +'</div>';
+  }
+
+  // ─── 6. Rendu ───
+  // État d'ouverture des sections (init si pas déjà)
+  if (typeof _openFindingsSpSections === 'undefined') _openFindingsSpSections = {};
+  // État sélection issues (en mémoire, vidé entre sessions)
+  if (typeof _selectedIssuesForFinding === 'undefined') _selectedIssuesForFinding = {};
 
   var html = '<div class="card" style="margin-bottom:.75rem">';
   html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">';
-  html += '<div style="font-size:12px;font-weight:600;color:var(--text-2)">Findings <span style="font-size:10px;font-weight:400;color:var(--text-3)">('+d.findings.length+')</span></div>';
-  html += '<button class="bs" style="font-size:11px;padding:3px 9px" onclick="showAddFindingModal()">+ Ajouter un finding</button>';
+  html += '<div style="font-size:12px;font-weight:600;color:var(--text-2)">Findings par sous-processus <span style="font-size:10px;font-weight:400;color:var(--text-3)">('+d.findings.length+' findings · '+orderedSpIds.length+' SP)</span></div>';
+  html += '<button class="bs" style="font-size:11px;padding:3px 9px" onclick="showAddFindingModal()" title="Créer un finding sans sélection d\'issues">+ Finding libre</button>';
   html += '</div>';
-  html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:10px;font-style:italic">Chaque finding peut regrouper plusieurs déficiences (contrôles fail, contrôles target). Articulez votre constat puis liez les contrôles concernés.</div>';
+  html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:10px;font-style:italic">Coche les issues que tu veux regrouper dans un finding puis clique « Créer finding depuis sélection ». Tu peux aussi créer un finding libre via le bouton ci-dessus.</div>';
 
-  // v74 : Section "Design Issues validées à traiter" (Process uniquement, depuis l'étape ITW)
-  // Les Design Issues validated qui n'ont pas encore de finding rattaché
-  _ensureIssues(d);
-  var validatedDesignIssues = d.issues.filter(function(i){
-    return i.source === 'design' && i.validationStatus === 'validated';
-  });
-  // Issues déjà rattachées à au moins un finding (via f.designIssueIds)
-  var linkedDiIds = new Set();
-  d.findings.forEach(function(f){
-    (f.designIssueIds || []).forEach(function(id){linkedDiIds.add(id);});
-  });
-  var unlinkedDi = validatedDesignIssues.filter(function(i){return !linkedDiIds.has(i.id);});
+  orderedSpIds.forEach(function(spId){
+    var spInfo = (spId === '__transverse')
+      ? {id:'__transverse', name:'Transverse / Sans sous-processus', source:'fallback'}
+      : (spList.find(function(s){return s.id === spId;}) || {id:spId, name:spId, source:'unknown'});
+    var bucket = bySp[spId];
+    var nbIssues = bucket.designIssues.length + bucket.failedCtrls.length + bucket.targetCtrls.length;
+    var nbFindings = bucket.findings.length;
+    var isOpen = _openFindingsSpSections[spId] !== false; // ouvert par défaut
 
-  if (unlinkedDi.length) {
-    html += '<div style="background:#FEF2F2;border:.5px solid #FCA5A5;border-radius:6px;padding:10px;margin-bottom:12px">';
-    html += '<div style="font-size:11px;font-weight:600;color:#7F1D1D;margin-bottom:6px">⚠ Design Issues à traiter dans un finding ('+unlinkedDi.length+')</div>';
-    html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:6px;font-style:italic">Défaillances de design validées à l\'étape ITW/Narratif. Créez un finding pour les inclure.</div>';
-    unlinkedDi.forEach(function(iss){
-      var subtype = iss.subtype || 'weak';
-      var typeLabel = subtype === 'missing'
-        ? '<span class="badge" style="background:#FCE7E5;color:#7F1D1D;font-size:9px;border:.5px solid #F8B4B4">⚑ Manquant</span>'
-        : '<span class="badge" style="background:#FFEDD5;color:#9A3412;font-size:9px;border:.5px solid #FDBA74">⚠ Insuffisant</span>';
-      html += '<div style="background:#fff;border:.5px solid var(--border);border-radius:4px;padding:7px 9px;margin-bottom:4px;display:flex;align-items:flex-start;gap:8px">';
-      html += '<div style="flex-shrink:0;padding-top:1px">'+typeLabel+'</div>';
-      html += '<div style="flex:1;font-size:11px;min-width:0">';
-      html += '<div style="font-weight:500;color:var(--text-1)">'+(iss.title||'(sans titre)').replace(/</g,'&lt;')+'</div>';
-      if (iss.controlName) html += '<div style="color:var(--text-3);font-size:9px;font-style:italic;margin-top:2px">Contrôle : '+iss.controlName.replace(/</g,'&lt;')+'</div>';
-      // v75 : root cause badge inline
-      var rcCat = _getRootCauseCategory(iss.rootCauseCategory);
-      if (rcCat) {
-        html += '<div style="margin-top:4px;display:flex;align-items:center;gap:4px;flex-wrap:wrap">';
-        html += '<span style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500">🎯 RC :</span>';
-        html += '<span style="font-size:9px;font-weight:500;color:'+rcCat.color+';background:'+rcCat.color+'15;border:.5px solid '+rcCat.color+'40;padding:1px 6px;border-radius:2px">'+rcCat.shortLabel+'</span>';
-        if (iss.rootCauseExplanation) {
-          var rcShort = iss.rootCauseExplanation.length > 110 ? iss.rootCauseExplanation.substring(0, 108) + '…' : iss.rootCauseExplanation;
-          html += '<span style="font-size:9px;color:var(--text-3);font-style:italic">'+rcShort.replace(/</g,'&lt;')+'</span>';
+    html += '<div style="margin-bottom:14px;border:.5px solid var(--border);border-radius:6px;overflow:hidden;background:#fff">';
+    // Header SP
+    html += '<div onclick="toggleFindingsSpSection(\''+_escJsArg(spId)+'\')" style="cursor:pointer;padding:9px 14px;background:#fafafa;border-bottom:'+(isOpen?'.5px solid var(--border)':'none')+';display:flex;align-items:center;gap:10px;user-select:none">';
+    html += '<span style="font-size:11px;color:var(--text-3);width:10px;flex-shrink:0;transition:transform .15s;transform:rotate('+(isOpen?'90':'0')+'deg)">▶</span>';
+    html += '<span style="font-size:13px;font-weight:600;color:var(--text-1);flex:1">'+(''+spInfo.name).replace(/</g,'&lt;');
+    if (spInfo.source === 'discovered') html += ' <span style="font-size:9px;color:var(--text-3);font-style:italic">(découvert)</span>';
+    html += '</span>';
+    html += '<span style="font-size:10px;color:var(--text-3);flex-shrink:0">'+nbIssues+' issue'+(nbIssues>1?'s':'')+' · '+nbFindings+' finding'+(nbFindings>1?'s':'')+'</span>';
+    html += '</div>';
+
+    if (isOpen) {
+      html += '<div style="padding:10px 12px">';
+
+      // ─── 6a. Section ISSUES (sélectionnables) ───
+      if (nbIssues > 0) {
+        html += '<div style="font-size:11px;font-weight:600;color:var(--text-2);margin-bottom:6px">Issues identifiées ('+nbIssues+')</div>';
+        html += '<div style="display:flex;flex-direction:column;gap:3px;margin-bottom:8px">';
+
+        // Design issues
+        bucket.designIssues.forEach(function(iss){
+          var checkId = 'di:'+iss.id;
+          var isChecked = !!_selectedIssuesForFinding[checkId];
+          var subtype = iss.subtype || 'weak';
+          var typeLabel = subtype === 'missing'
+            ? '<span class="badge" style="background:#FCE7E5;color:#7F1D1D;font-size:9px;flex-shrink:0">⚠ Design Manquant</span>'
+            : '<span class="badge" style="background:#FFEDD5;color:#9A3412;font-size:9px;flex-shrink:0">⚠ Design Insuffisant</span>';
+          html += '<label style="display:flex;align-items:flex-start;gap:8px;padding:5px 8px;background:'+(isChecked?'#EEEDFE':'#fff')+';border:.5px solid '+(isChecked?'#CECBF6':'var(--border)')+';border-radius:3px;cursor:pointer;font-size:11px">';
+          html += '<input type="checkbox" '+(isChecked?'checked':'')+' onchange="toggleIssueSelection(\''+_escJsArg(checkId)+'\')" style="margin-top:2px;flex-shrink:0"/>';
+          html += typeLabel;
+          html += '<div style="flex:1;min-width:0">';
+          html += '<div style="font-weight:500">'+(iss.title||'(sans titre)').replace(/</g,'&lt;')+'</div>';
+          if (iss.controlName) html += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:1px">Contrôle : '+iss.controlName.replace(/</g,'&lt;')+'</div>';
+          html += '</div>';
+          html += '</label>';
+        });
+
+        // Tests fail
+        bucket.failedCtrls.forEach(function(c){
+          var checkId = 'ft:'+c.id;
+          var isChecked = !!_selectedIssuesForFinding[checkId];
+          var ctrlCode = c.code || c.id;
+          var aCount = (c.anomalies && c.anomalies.count) || '?';
+          var sCount = (c.sample && c.sample.count) || '?';
+          html += '<label style="display:flex;align-items:flex-start;gap:8px;padding:5px 8px;background:'+(isChecked?'#EEEDFE':'#fff')+';border:.5px solid '+(isChecked?'#CECBF6':'var(--border)')+';border-radius:3px;cursor:pointer;font-size:11px">';
+          html += '<input type="checkbox" '+(isChecked?'checked':'')+' onchange="toggleIssueSelection(\''+_escJsArg(checkId)+'\')" style="margin-top:2px;flex-shrink:0"/>';
+          html += '<span class="badge bfl" style="font-size:9px;flex-shrink:0">❌ Test fail</span>';
+          html += '<div style="flex:1;min-width:0">';
+          html += '<div><span style="color:var(--text-3);font-size:10px;margin-right:5px;font-family:monospace">'+ctrlCode+'</span>'+(c.name||'').replace(/</g,'&lt;')+'</div>';
+          html += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:1px">'+aCount+' anomalie'+(Number(aCount)>1?'s':'')+' / '+sCount+' testé'+(Number(sCount)>1?'s':'')+'</div>';
+          html += '</div>';
+          html += '</label>';
+        });
+
+        // Targets
+        bucket.targetCtrls.forEach(function(c){
+          var checkId = 'tg:'+c.id;
+          var isChecked = !!_selectedIssuesForFinding[checkId];
+          var ctrlCode = c.code || c.id;
+          html += '<label style="display:flex;align-items:flex-start;gap:8px;padding:5px 8px;background:'+(isChecked?'#EEEDFE':'#fff')+';border:.5px solid '+(isChecked?'#CECBF6':'var(--border)')+';border-radius:3px;cursor:pointer;font-size:11px">';
+          html += '<input type="checkbox" '+(isChecked?'checked':'')+' onchange="toggleIssueSelection(\''+_escJsArg(checkId)+'\')" style="margin-top:2px;flex-shrink:0"/>';
+          html += '<span class="badge" style="background:#FAEEDA;color:#854F0B;font-size:9px;flex-shrink:0">🎯 Target manquant</span>';
+          html += '<div style="flex:1;min-width:0">';
+          html += '<div><span style="color:var(--text-3);font-size:10px;margin-right:5px;font-family:monospace">'+ctrlCode+'</span>'+(c.name||'').replace(/</g,'&lt;')+'</div>';
+          if (c.owner) html += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:1px">Owner : '+c.owner.replace(/</g,'&lt;')+'</div>';
+          html += '</div>';
+          html += '</label>';
+        });
+
+        html += '</div>';
+
+        // Bouton "Créer finding depuis sélection" (compte sélections du SP)
+        var nbSelectedSp = 0;
+        bucket.designIssues.forEach(function(i){if (_selectedIssuesForFinding['di:'+i.id]) nbSelectedSp++;});
+        bucket.failedCtrls.forEach(function(c){if (_selectedIssuesForFinding['ft:'+c.id]) nbSelectedSp++;});
+        bucket.targetCtrls.forEach(function(c){if (_selectedIssuesForFinding['tg:'+c.id]) nbSelectedSp++;});
+
+        html += '<div style="display:flex;gap:6px;margin-bottom:10px">';
+        if (nbSelectedSp > 0) {
+          html += '<button class="bp" style="font-size:11px;padding:5px 11px;background:#3C3489;color:#fff" onclick="createFindingFromSelection(\''+_escJsArg(spId)+'\')">+ Créer finding depuis '+nbSelectedSp+' issue'+(nbSelectedSp>1?'s':'')+'</button>';
+          html += '<button class="bs" style="font-size:11px;padding:5px 11px" onclick="clearIssueSelectionForSp(\''+_escJsArg(spId)+'\')">Désélectionner</button>';
+        } else {
+          html += '<span style="font-size:10px;color:var(--text-3);font-style:italic">Coche au-dessus pour créer un finding depuis les issues sélectionnées</span>';
         }
         html += '</div>';
       }
-      html += '</div>';
-      html += '</div>';
-    });
-    html += '</div>';
-  }
 
-  // Section "Contrôles à traiter" non encore liés
-  if (unlinkedProblems.length) {
-    html += '<div style="background:#FFF7ED;border:.5px solid #FED7AA;border-radius:6px;padding:10px;margin-bottom:12px">';
-    html += '<div style="font-size:11px;font-weight:600;color:#854F0B;margin-bottom:6px">⚠ Contrôles à traiter dans un finding ('+unlinkedProblems.length+')</div>';
-    html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:6px;font-style:italic">Ces contrôles fail ou target ne sont rattachés à aucun finding. Créez ou éditez un finding pour les inclure.</div>';
-    unlinkedProblems.forEach(function(c){
-      var ctrlCode = c.code || c.id;
-      var typeLabel = c.design === 'target'
-        ? '<span class="badge" style="background:#FAEEDA;color:#854F0B;font-size:9px">🎯 Target</span>'
-        : '<span class="badge bfl" style="font-size:9px">❌ Fail</span>';
-      html += '<div style="background:#fff;border:.5px solid var(--border);border-radius:4px;padding:5px 8px;margin-bottom:3px;display:flex;align-items:center;gap:8px">';
-      html += typeLabel;
-      html += '<div style="flex:1;font-size:11px"><span style="color:var(--text-3);font-size:10px;margin-right:5px">'+ctrlCode+'</span>'+c.name+'</div>';
-      html += '</div>';
-    });
-    html += '</div>';
-  }
-
-  // Liste des findings
-  if (!d.findings.length) {
-    html += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:.5rem;text-align:center;border:1px dashed var(--border);border-radius:4px">Aucun finding rédigé. Cliquez sur « + Ajouter un finding » pour commencer.</div>';
-  } else {
-    d.findings.forEach(function(f, idx){
-      var linkedCtrls = (f.controlIds||[]).map(getCtrl).filter(Boolean);
-      html += '<div style="border:.5px solid var(--border);border-radius:6px;padding:12px;margin-bottom:10px;background:#fff">';
-      html += '<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px">';
-      html += '<span class="badge bpc" style="font-size:10px;flex-shrink:0">Finding '+(idx+1)+'</span>';
-      html += '<div style="flex:1">';
-      html += '<div style="font-size:13px;font-weight:600">'+(f.title||'(sans titre)')+'</div>';
-      // Description courte (Exec Summary) - en gras pour distinction
-      var execTxt = f.descExec || (f.desc && f.desc.length<200 ? f.desc : '');
-      var detailTxt = f.descDetailed || f.desc || '';
-      if (execTxt) html += '<div style="font-size:11px;color:var(--text-2);margin-top:4px;white-space:pre-wrap;font-style:italic">📋 <span style="color:var(--text-3);font-style:normal;font-size:9px">EXEC SUMMARY:</span> '+execTxt+'</div>';
-      if (detailTxt && detailTxt !== execTxt) html += '<div style="font-size:11px;color:var(--text-2);margin-top:4px;white-space:pre-wrap">📄 <span style="color:var(--text-3);font-size:9px">DETAILED:</span> '+detailTxt+'</div>';
-      // Métadonnées : Owner + Risk level
-      var metaParts = [];
-      if (f.owner) metaParts.push('<strong>Owner:</strong> '+f.owner);
-      if (f.probability && f.impact) {
-        var probLabel = {rare:'Rare',unlikely:'Unlikely',possible:'Possible',probable:'Probable'}[f.probability]||f.probability;
-        var impLabel  = {minor:'Minor',limited:'Limited',major:'Major',severe:'Severe'}[f.impact]||f.impact;
-        metaParts.push('<strong>Risk:</strong> '+probLabel+' × '+impLabel);
-      }
-      if (metaParts.length) {
-        html += '<div style="font-size:10px;color:var(--text-3);margin-top:4px">'+metaParts.join(' · ')+'</div>';
-      }
-      if (f.potentialRisk) {
-        html += '<div style="font-size:10px;color:var(--text-3);margin-top:4px;padding:5px 8px;background:#FFF7ED;border-left:2px solid #F2A900;border-radius:3px"><strong>Potential Risk:</strong> '+f.potentialRisk+'</div>';
-      }
-      html += '</div>';
-      html += '<button class="bs" style="font-size:10px;padding:1px 6px" onclick="showEditFindingModal('+idx+')">Éditer</button>';
-      html += '<button class="bd" style="font-size:10px;padding:1px 5px" onclick="removeManualFinding('+idx+')">×</button>';
-      html += '</div>';
-
-      // Contrôles liés
-      html += '<div style="margin-top:8px;padding-top:8px;border-top:.5px dashed var(--border)">';
-      html += '<div style="font-size:10px;font-weight:600;color:var(--text-2);margin-bottom:4px">Contrôles liés ('+linkedCtrls.length+')</div>';
-      if (!linkedCtrls.length) {
-        html += '<div style="font-size:10px;color:var(--text-3);font-style:italic;padding:4px">Aucun contrôle lié. Éditez le finding pour rattacher les déficiences.</div>';
-      } else {
-        linkedCtrls.forEach(function(c){
-          var ctrlCode = c.code || c.id;
-          var typeLabel = c.design === 'target'
-            ? '<span class="badge" style="background:#FAEEDA;color:#854F0B;font-size:9px">🎯 Target</span>'
-            : c.result === 'fail'
-            ? '<span class="badge bfl" style="font-size:9px">❌ Fail</span>'
-            : '<span class="badge bdn" style="font-size:9px">✓ Pass</span>';
-          html += '<div style="background:#fafafa;border:.5px solid var(--border);border-radius:4px;padding:5px 8px;margin-bottom:3px;display:flex;align-items:center;gap:8px">';
-          html += typeLabel;
-          html += '<div style="flex:1;font-size:11px"><span style="color:var(--text-3);font-size:10px;margin-right:5px">'+ctrlCode+'</span>'+c.name+'</div>';
-          if (c.testComment) html += '<span style="font-size:10px;color:var(--text-3);font-style:italic;max-width:200px;text-overflow:ellipsis;overflow:hidden;white-space:nowrap" title="'+c.testComment.replace(/"/g,'&quot;')+'">'+c.testComment+'</span>';
+      // ─── 6b. Section FINDINGS du SP ───
+      if (nbFindings > 0) {
+        html += '<div style="font-size:11px;font-weight:600;color:var(--text-2);margin-bottom:6px;margin-top:'+(nbIssues?'10px':'0')+'">Findings ('+nbFindings+')</div>';
+        bucket.findings.forEach(function(f){
+          var idx = d.findings.indexOf(f);
+          html += '<div style="border:.5px solid var(--border);border-radius:5px;padding:9px 11px;margin-bottom:6px;background:#fff">';
+          html += '<div style="display:flex;align-items:flex-start;gap:8px">';
+          html += '<span class="badge bpc" style="font-size:10px;flex-shrink:0">F'+(idx+1)+'</span>';
+          html += '<div style="flex:1;min-width:0">';
+          html += '<div style="font-size:12px;font-weight:600">'+(f.title||'(sans titre)').replace(/</g,'&lt;')+'</div>';
+          var execTxt = f.descExec || '';
+          if (execTxt) html += '<div style="font-size:10px;color:var(--text-2);margin-top:3px;font-style:italic">'+execTxt.replace(/</g,'&lt;')+'</div>';
+          // Méta : owner + risk + nombre d'issues liées
+          var nbDi = (f.designIssueIds||[]).length;
+          var nbCtl = (f.controlIds||[]).length;
+          var metaParts = [];
+          if (f.owner) metaParts.push('Owner: '+f.owner);
+          if (f.probability && f.impact) {
+            var probLabel = {rare:'Rare',unlikely:'Unlikely',possible:'Possible',probable:'Probable'}[f.probability]||f.probability;
+            var impLabel  = {minor:'Minor',limited:'Limited',major:'Major',severe:'Severe'}[f.impact]||f.impact;
+            metaParts.push('Risk: '+probLabel+' × '+impLabel);
+          }
+          if (nbDi || nbCtl) metaParts.push((nbDi+nbCtl)+' issue'+((nbDi+nbCtl)>1?'s':'')+' liées');
+          if (metaParts.length) html += '<div style="font-size:9px;color:var(--text-3);margin-top:3px">'+metaParts.join(' · ')+'</div>';
+          html += '</div>';
+          html += '<div style="display:flex;gap:4px;flex-shrink:0">';
+          html += '<button class="bs" style="font-size:10px;padding:3px 7px" onclick="showFindingModal({finding:'+JSON.stringify(f).replace(/"/g,'&quot;')+', idx:'+idx+'})" title="Éditer">✏</button>';
+          html += '<button class="bs" style="font-size:10px;padding:3px 7px;color:#993C1D" onclick="deleteFinding('+idx+')" title="Supprimer">🗑</button>';
+          html += '</div>';
+          html += '</div>';
           html += '</div>';
         });
       }
+
+      if (!nbIssues && !nbFindings) {
+        html += '<div style="font-size:10px;color:var(--text-3);font-style:italic;padding:6px">Aucune issue identifiée pour ce sous-processus.</div>';
+      }
+
       html += '</div>';
-      html += '</div>';
-    });
-  }
+    }
+    html += '</div>';
+  });
 
   html += '</div>';
   return html;
+}
+
+// v77.12 : toggle sélection d'une issue (id format : "di:xxx" / "ft:xxx" / "tg:xxx")
+function toggleIssueSelection(checkId) {
+  if (typeof _selectedIssuesForFinding === 'undefined') _selectedIssuesForFinding = {};
+  if (_selectedIssuesForFinding[checkId]) delete _selectedIssuesForFinding[checkId];
+  else _selectedIssuesForFinding[checkId] = true;
+  // Re-render léger : on garde la position de scroll
+  var scrollY = window.scrollY;
+  var detContent = document.getElementById('det-content');
+  if (detContent) {
+    detContent.innerHTML = renderDetContent();
+    setTimeout(function(){ window.scrollTo(0, scrollY); }, 0);
+  }
+}
+
+// v77.12 : toggle section SP dans la vue Findings
+function toggleFindingsSpSection(spId) {
+  if (typeof _openFindingsSpSections === 'undefined') _openFindingsSpSections = {};
+  if (_openFindingsSpSections[spId] === false) {
+    delete _openFindingsSpSections[spId];
+  } else {
+    _openFindingsSpSections[spId] = false;
+  }
+  var scrollY = window.scrollY;
+  var detContent = document.getElementById('det-content');
+  if (detContent) {
+    detContent.innerHTML = renderDetContent();
+    setTimeout(function(){ window.scrollTo(0, scrollY); }, 0);
+  }
+}
+
+// v77.12 : vider les sélections d'issues d'un SP (utilisé après création de finding ou bouton "Désélectionner")
+function clearIssueSelectionForSp(spId) {
+  if (typeof _selectedIssuesForFinding === 'undefined') return;
+  var d = getAudData(CA);
+  _ensureIssues(d);
+  var step5c = d.controls[4]||[];
+  var wcgwList = (d.wcgw && d.wcgw[4]) || [];
+  function ctrlSpId(ctrl) {
+    if (!ctrl) return '__transverse';
+    if (ctrl.subProcessId) return ctrl.subProcessId;
+    if (ctrl.wcgwId) {
+      var w = wcgwList.find(function(x){return x.id === ctrl.wcgwId;});
+      if (w && w.subProcessId) return w.subProcessId;
+    }
+    return '__transverse';
+  }
+  // Vider toutes les sélections d'issues appartenant à ce SP
+  var toDelete = [];
+  Object.keys(_selectedIssuesForFinding).forEach(function(checkId){
+    var parts = checkId.split(':');
+    var type = parts[0], id = parts[1];
+    if (type === 'di') {
+      var iss = d.issues.find(function(i){return i.id === id;});
+      if (iss && (iss.relatedSpId || '__transverse') === spId) toDelete.push(checkId);
+    } else if (type === 'ft' || type === 'tg') {
+      var ctrl = step5c.find(function(c){return c.id === id;});
+      if (ctrl && ctrlSpId(ctrl) === spId) toDelete.push(checkId);
+    }
+  });
+  toDelete.forEach(function(k){delete _selectedIssuesForFinding[k];});
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+// v77.12 : créer un finding depuis les issues sélectionnées d'un SP
+function createFindingFromSelection(spId) {
+  if (typeof _selectedIssuesForFinding === 'undefined') return;
+  var d = getAudData(CA);
+  _ensureIssues(d);
+  var step5c = d.controls[4]||[];
+  var wcgwList = (d.wcgw && d.wcgw[4]) || [];
+  function ctrlSpId(ctrl) {
+    if (!ctrl) return '__transverse';
+    if (ctrl.subProcessId) return ctrl.subProcessId;
+    if (ctrl.wcgwId) {
+      var w = wcgwList.find(function(x){return x.id === ctrl.wcgwId;});
+      if (w && w.subProcessId) return w.subProcessId;
+    }
+    return '__transverse';
+  }
+  // Extraire les IDs sélectionnés du SP
+  var preDesignIssueIds = [];
+  var preCtrlIds = [];
+  Object.keys(_selectedIssuesForFinding).forEach(function(checkId){
+    if (!_selectedIssuesForFinding[checkId]) return;
+    var parts = checkId.split(':');
+    var type = parts[0], id = parts[1];
+    if (type === 'di') {
+      var iss = d.issues.find(function(i){return i.id === id;});
+      if (iss && (iss.relatedSpId || '__transverse') === spId) preDesignIssueIds.push(id);
+    } else if (type === 'ft' || type === 'tg') {
+      var ctrl = step5c.find(function(c){return c.id === id;});
+      if (ctrl && ctrlSpId(ctrl) === spId) preCtrlIds.push(id);
+    }
+  });
+  // Ouvrir la modale finding pré-remplie
+  // On utilise un objet "preselection" pour passer les sélections à la modale
+  _findingPreselection = {
+    subProcessId: spId === '__transverse' ? '__transverse' : spId,
+    designIssueIds: preDesignIssueIds,
+    controlIds: preCtrlIds,
+  };
+  showFindingModal(null); // null = nouveau finding
+  // Le clear des sélections se fait après confirmation dans la modale
 }
 function renderHeaderAndMaturitySection() {
   var d = getAudData(CA);
@@ -14408,6 +14574,13 @@ function showFindingModal(existing) {
   var currentDesignIssueIds = (f.designIssueIds || []);
   var currentSubProcessId = f.subProcessId || '';
 
+  // v77.12 : si pre-selection depuis "Créer finding depuis sélection", on l'applique
+  if (!existing && typeof _findingPreselection !== 'undefined' && _findingPreselection) {
+    if (_findingPreselection.subProcessId) currentSubProcessId = _findingPreselection.subProcessId;
+    if (_findingPreselection.designIssueIds) currentDesignIssueIds = _findingPreselection.designIssueIds.slice();
+    if (_findingPreselection.controlIds) currentCtrlIds = _findingPreselection.controlIds.slice();
+  }
+
   // v77.11 : Liste des design issues disponibles (issues.source === 'design')
   var allIssues = Array.isArray(d.issues) ? d.issues : [];
   var designIssues = allIssues.filter(function(iss){return iss.source === 'design';});
@@ -14617,6 +14790,14 @@ function showFindingModal(existing) {
         createdAt: new Date().toISOString(),
       });
       addHist('add', 'Finding "'+title+'" créé');
+    }
+    // v77.12 : vider la pré-sélection après création
+    if (!existing && typeof _findingPreselection !== 'undefined') {
+      _findingPreselection = null;
+    }
+    // v77.12 : vider aussi les sélections d'issues (les issues sont maintenant rattachées)
+    if (typeof _selectedIssuesForFinding !== 'undefined') {
+      _selectedIssuesForFinding = {};
     }
     await saveAuditData(CA);
     document.getElementById('det-content').innerHTML = renderDetContent();
