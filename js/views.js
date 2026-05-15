@@ -4665,12 +4665,27 @@ function _buildRelanceEmails(actions) {
     info.actions.forEach(function(a){audits[a.audit||'—'] = true;});
     var auditStr = Object.keys(audits).join(', ');
 
-    var actionsList = info.actions.map(function(a, i){
-      var dlStr = (a.quarter||'?')+' '+(a.year||'?');
-      var statusStr = _paTiming(a) === 'overdue' ? '⏰ EN RETARD' : 'Échéance '+dlStr;
-      var t = (i+1)+'. ['+statusStr+'] '+a.title;
-      if (a.findingTitle) t += '\n   (Finding : '+a.findingTitle+')';
-      return t;
+    // v77.14b.3 : Grouper les actions par audit pour la liste textuelle
+    var actionsByAudit = {};
+    info.actions.forEach(function(a){
+      var auditKey = a.audit || '—';
+      if (!actionsByAudit[auditKey]) actionsByAudit[auditKey] = [];
+      actionsByAudit[auditKey].push(a);
+    });
+    var auditNames = Object.keys(actionsByAudit);
+
+    var globalIdx = 0; // numéro continu à travers les audits
+    var actionsList = auditNames.map(function(auditName){
+      var section = '=== ' + auditName + ' ===\n\n';
+      section += actionsByAudit[auditName].map(function(a){
+        globalIdx++;
+        var dlStr = (a.quarter||'?')+' '+(a.year||'?');
+        var statusStr = _paTiming(a) === 'overdue' ? '⏰ EN RETARD - Échéance '+dlStr : 'Échéance '+dlStr;
+        var t = globalIdx+'. ['+statusStr+'] '+a.title;
+        if (a.findingTitle) t += '\n   (Finding : '+a.findingTitle+')';
+        return t;
+      }).join('\n\n');
+      return section;
     }).join('\n\n');
 
     var subject = _emailTemplate.subject
