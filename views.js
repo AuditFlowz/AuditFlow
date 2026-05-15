@@ -35,6 +35,670 @@ if (typeof _getRootCauseCategory === 'undefined') {
 // ─── Constantes ───────────────────────────────────────────────
 var STEP_PCT=[10,20,30,40,50,60,70,80,90,100];
 
+// ══════════════════════════════════════════════════════════════
+//  v77 : SAMPLE SIZING & TESTING COVERAGE
+//  Référentiel : standards d'audit interne (formule binomiale +
+//  tables AICPA pré-calculées)
+// ══════════════════════════════════════════════════════════════
+
+// Score Z pour un niveau de confiance donné (cf. tables stats standard)
+// Confidence en pourcentage (80-99), retourne le Z correspondant.
+function _zScore(confidencePercent) {
+  var c = Math.max(80, Math.min(99, Number(confidencePercent) || 95));
+  // Mapping standard (extension d'une table classique)
+  var Z_MAP = {
+    80: 1.282, 81: 1.311, 82: 1.341, 83: 1.372, 84: 1.405,
+    85: 1.440, 86: 1.476, 87: 1.514, 88: 1.555, 89: 1.598,
+    90: 1.645, 91: 1.695, 92: 1.751, 93: 1.812, 94: 1.881,
+    95: 1.960, 96: 2.054, 97: 2.170, 98: 2.326, 99: 2.576,
+  };
+  // Si pas exact, interpole linéairement
+  var c1 = Math.floor(c), c2 = Math.ceil(c);
+  if (c1 === c2) return Z_MAP[c1] || 1.96;
+  var z1 = Z_MAP[c1] || 1.96;
+  var z2 = Z_MAP[c2] || 1.96;
+  return z1 + (z2 - z1) * (c - c1);
+}
+
+// Calcul de la taille d'échantillon recommandée (formule binomiale + correction petite pop)
+// N : taille population (number > 0)
+// confidence : pourcentage (80-99), ex 95
+// EDR : Expected Deviation Rate (% attendu), ex 5 = 5%
+// TDR : Tolerable Deviation Rate (% tolérable), ex 5 = 5%
+// Retourne : {n, formula, note} ou null si entrées invalides
+function _calcSampleSize(N, confidence, EDR, TDR) {
+  N = Number(N);
+  if (!N || N <= 0) return null;
+  var conf = Number(confidence) || 95;
+  var edr = (Number(EDR) || 0) / 100; // ex 0.05
+  var tdr = (Number(TDR) || 5) / 100; // ex 0.05
+  if (tdr <= edr) {
+    return {n: null, formula: '', note: '⚠ TDR doit être supérieur à EDR'};
+  }
+  var Z = _zScore(conf);
+  // Formule infinie (sans correction)
+  var p = Math.max(0.001, Math.min(0.999, edr || 0.05));
+  var E = tdr - edr; // marge d'erreur réelle = TDR - EDR
+  if (E <= 0) E = 0.05;
+  var nInfinite = (Z * Z * p * (1 - p)) / (E * E);
+  // Correction petite population (finite population correction factor)
+  var nFinite = nInfinite / (1 + (nInfinite - 1) / N);
+  var n = Math.ceil(nFinite);
+  if (n > N) n = N;
+  return {
+    n: n,
+    nInfinite: Math.ceil(nInfinite),
+    Z: Z,
+    formula: 'n = ('+Z.toFixed(3)+'² × '+(p*100).toFixed(1)+'% × '+((1-p)*100).toFixed(1)+'%) / '+(E*100).toFixed(1)+'%² → '+Math.ceil(nInfinite)+(N<10000?' → corrigé pour N='+N+' : '+n:''),
+    note: '',
+  };
+}
+
+// v77.3 : Table frequency-based pour CONTROL TESTING
+// Référence : pratiques Big4 / IIA (SAS 39, SAS 111)
+// Sample size dépend de la fréquence du contrôle, pas de la population.
+// 2 niveaux : High confidence (audit critique) ou Low confidence (audit standard)
+var CONTROL_FREQ_TABLE = [
+  {id: 'annual',     label: 'Annual',          shortLabel: 'Annuel',         popPerYear: 1,   high: 1,  low: 1},
+  {id: 'quarterly',  label: 'Quarterly',       shortLabel: 'Trimestriel',    popPerYear: 4,   high: 2,  low: 2},
+  {id: 'monthly',    label: 'Monthly',         shortLabel: 'Mensuel',        popPerYear: 12,  high: 3,  low: 2},
+  {id: 'weekly',     label: 'Weekly',          shortLabel: 'Hebdomadaire',   popPerYear: 52,  high: 8,  low: 5},
+  {id: 'daily',      label: 'Daily',           shortLabel: 'Quotidien',      popPerYear: 250, high: 25, low: 15},
+  {id: 'continuous', label: 'Multiple/day',    shortLabel: 'Continu',        popPerYear: 999, high: 60, low: 25},
+];
+
+// Lookup taille d'échantillon pour control testing selon fréquence + niveau de confiance
+// frequency : id de la table (annual, quarterly, monthly, weekly, daily, continuous)
+// confidenceLevel : 'high' | 'low'
+// Retourne : {n, freqLabel, freqPopPerYear, confidenceLevel} ou null
+function _calcControlSampleByFreq(frequency, confidenceLevel) {
+  var row = CONTROL_FREQ_TABLE.find(function(r){return r.id === frequency;});
+  if (!row) return null;
+  var n = (confidenceLevel === 'low') ? row.low : row.high;
+  return {
+    n: n,
+    freqLabel: row.label,
+    freqShortLabel: row.shortLabel,
+    freqPopPerYear: row.popPerYear,
+    confidenceLevel: confidenceLevel === 'low' ? 'low' : 'high',
+  };
+}
+
+
+// ══════════════════════════════════════════════════════════════
+//  v77.4 : ANALYSIS MODE (multi-attributs)
+// ══════════════════════════════════════════════════════════════
+
+// Initialise la config Analysis sur un test (sources et attributs par défaut)
+function _ensureAnalysisConfig(t) {
+  if (!t.analysisConfig) {
+    t.analysisConfig = {
+      sources: ['Source 1', 'Source 2'],
+      attributes: ['Attribut 1'],
+    };
+  }
+  if (!Array.isArray(t.analysisConfig.sources)) t.analysisConfig.sources = ['Source 1', 'Source 2'];
+  if (!Array.isArray(t.analysisConfig.attributes)) t.analysisConfig.attributes = ['Attribut 1'];
+  if (t.analysisConfig.sources.length < 2) t.analysisConfig.sources.push('Source '+(t.analysisConfig.sources.length+1));
+  if (t.analysisConfig.attributes.length < 1) t.analysisConfig.attributes.push('Attribut 1');
+  if (!t.analysisData) t.analysisData = { items: [], importedAt: null, fileName: null };
+  return t.analysisConfig;
+}
+
+// Génère un fichier .xlsx template pour une analyse
+// config : {sources: ['Contrat','ERP'], attributes: ['Date','Valeur']}
+// recommendedN : nombre de lignes pré-générées (sample size)
+// retourne : déclenche le download du fichier
+function _generateAnalysisTemplate(config, recommendedN, fileName) {
+  if (typeof XLSX === 'undefined') {
+    toast('Erreur : librairie Excel non chargée. Recharge la page.');
+    return;
+  }
+  var sources = config.sources || [];
+  var attributes = config.attributes || [];
+  if (sources.length < 2 || attributes.length < 1) {
+    toast('Définis au moins 2 sources et 1 attribut.');
+    return;
+  }
+
+  // Construire les en-têtes : ID, puis pour chaque attribut × source, puis Commentaire
+  var headers = ['ID Item'];
+  attributes.forEach(function(attr){
+    sources.forEach(function(src){
+      headers.push(attr+' ('+src+')');
+    });
+  });
+  headers.push('Commentaire');
+
+  // Lignes vides pré-générées (sample size + 5 extra pour marge)
+  var nbLines = Math.max(Number(recommendedN) || 10, 1) + 5;
+  var data = [headers];
+  for (var i = 0; i < nbLines; i++) {
+    var row = ['ITEM-'+String(i+1).padStart(3,'0')];
+    for (var j = 0; j < attributes.length * sources.length; j++) row.push('');
+    row.push('');
+    data.push(row);
+  }
+
+  // Ligne d'instructions en haut (en commentaire visuel)
+  var instructions = [
+    '# INSTRUCTIONS — Remplis ce template avec les données de chaque item de ton échantillon.',
+    '# Pour chaque attribut, renseigne la valeur observée dans chaque source.',
+    '# Les divergences seront calculées automatiquement à l\'import dans AuditFlow.',
+  ];
+
+  // Préparer la feuille
+  var ws = XLSX.utils.aoa_to_sheet([]);
+  XLSX.utils.sheet_add_aoa(ws, [[instructions[0]]], {origin: 'A1'});
+  XLSX.utils.sheet_add_aoa(ws, [[instructions[1]]], {origin: 'A2'});
+  XLSX.utils.sheet_add_aoa(ws, [[instructions[2]]], {origin: 'A3'});
+  XLSX.utils.sheet_add_aoa(ws, data, {origin: 'A5'});
+
+  // Largeurs colonnes auto (32 chars pour ID + Commentaire, 22 pour les data)
+  ws['!cols'] = headers.map(function(h, i){
+    if (i === 0 || i === headers.length - 1) return {wch: 32};
+    return {wch: 22};
+  });
+
+  // Créer le workbook
+  var wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Analysis');
+
+  // Télécharger
+  XLSX.writeFile(wb, fileName || 'analyse_template.xlsx');
+}
+
+// Parse un fichier .xlsx importé pour une analyse
+// File : un objet File depuis input[type=file]
+// config : {sources, attributes} — pour valider les colonnes
+// callback : function(result, error) — result = {items: [...], errors: [...]}
+function _parseAnalysisExcel(file, config, callback) {
+  if (typeof XLSX === 'undefined') {
+    callback(null, 'Librairie Excel non chargée');
+    return;
+  }
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      var data = new Uint8Array(e.target.result);
+      var workbook = XLSX.read(data, {type: 'array', cellDates: false});
+      var firstSheetName = workbook.SheetNames[0];
+      var ws = workbook.Sheets[firstSheetName];
+      // Convertir en tableau de tableaux
+      var allRows = XLSX.utils.sheet_to_json(ws, {header: 1, defval: '', raw: false});
+
+      // Trouver la ligne d'en-tête : commence par "ID Item"
+      var headerRowIdx = -1;
+      for (var i = 0; i < allRows.length; i++) {
+        if (allRows[i] && (''+allRows[i][0]).trim() === 'ID Item') {
+          headerRowIdx = i;
+          break;
+        }
+      }
+      if (headerRowIdx === -1) {
+        callback(null, 'En-tête "ID Item" introuvable. Utilise le template téléchargé.');
+        return;
+      }
+
+      var headers = allRows[headerRowIdx].map(function(h){return (''+h).trim();});
+      var sources = config.sources || [];
+      var attributes = config.attributes || [];
+
+      // Construire mapping colonne → {attribute, source}
+      var colMap = {}; // index → {attr, src}
+      headers.forEach(function(h, idx){
+        if (idx === 0 || h === 'Commentaire') return;
+        // Format attendu : "Attr (Source)"
+        var m = h.match(/^(.+?)\s*\((.+?)\)\s*$/);
+        if (m) {
+          var attr = m[1].trim();
+          var src = m[2].trim();
+          // Vérifier qu'on a bien les attr et src dans la config
+          if (attributes.indexOf(attr) >= 0 && sources.indexOf(src) >= 0) {
+            colMap[idx] = {attr: attr, src: src};
+          }
+        }
+      });
+      var commentColIdx = headers.indexOf('Commentaire');
+
+      // Parser les lignes de données
+      var items = [];
+      var errors = [];
+      for (var r = headerRowIdx + 1; r < allRows.length; r++) {
+        var row = allRows[r];
+        if (!row || !row.length) continue;
+        var itemId = (''+(row[0]||'')).trim();
+        if (!itemId) continue; // ligne vide
+
+        var values = {}; // {attr: {src: value}}
+        attributes.forEach(function(a){ values[a] = {}; sources.forEach(function(s){ values[a][s] = ''; }); });
+
+        Object.keys(colMap).forEach(function(colIdx){
+          var info = colMap[colIdx];
+          var v = (''+(row[colIdx]||'')).trim();
+          values[info.attr][info.src] = v;
+        });
+
+        var comment = commentColIdx >= 0 ? (''+(row[commentColIdx]||'')).trim() : '';
+
+        items.push({id: itemId, values: values, comment: comment});
+      }
+
+      if (items.length === 0) {
+        callback(null, 'Aucune ligne de données trouvée dans le fichier.');
+        return;
+      }
+
+      callback({items: items, errors: errors, fileName: file.name}, null);
+    } catch (err) {
+      callback(null, 'Erreur lecture Excel : '+(err.message||err));
+    }
+  };
+  reader.onerror = function() { callback(null, 'Erreur lecture du fichier'); };
+  reader.readAsArrayBuffer(file);
+}
+
+// Calcule les divergences sur les données d'une analyse
+// items : [{id, values:{attr:{src: value}}, comment}]
+// config : {sources, attributes}
+// Retourne : {
+//   totalItems: N,
+//   itemsWithDivergence: N,
+//   itemsWithoutDivergence: N,
+//   divergencesByAttribute: {attr: {count, items: [id, id, ...]}},
+//   itemDetails: [{id, hasDivergence, divergentAttrs: [attr, ...]}]
+// }
+function _calcAnalysisResults(items, config) {
+  var sources = config.sources || [];
+  var attributes = config.attributes || [];
+  var result = {
+    totalItems: items.length,
+    itemsWithDivergence: 0,
+    itemsWithoutDivergence: 0,
+    divergencesByAttribute: {},
+    itemDetails: [],
+  };
+  attributes.forEach(function(a){
+    result.divergencesByAttribute[a] = {count: 0, items: []};
+  });
+
+  items.forEach(function(item){
+    var divergentAttrs = [];
+    attributes.forEach(function(attr){
+      var vals = (item.values || {})[attr] || {};
+      // Récupérer les valeurs non vides pour cet attribut
+      var nonEmpty = sources.map(function(s){return (vals[s] || '').trim();}).filter(function(v){return v !== '';});
+      if (nonEmpty.length < 2) return; // pas assez de données pour comparer
+      // Exact match : toutes les valeurs doivent être identiques
+      var first = nonEmpty[0];
+      var allSame = nonEmpty.every(function(v){return v === first;});
+      if (!allSame) {
+        divergentAttrs.push(attr);
+        result.divergencesByAttribute[attr].count++;
+        result.divergencesByAttribute[attr].items.push(item.id);
+      }
+    });
+    var hasDivergence = divergentAttrs.length > 0;
+    if (hasDivergence) result.itemsWithDivergence++;
+    else result.itemsWithoutDivergence++;
+    result.itemDetails.push({id: item.id, hasDivergence: hasDivergence, divergentAttrs: divergentAttrs});
+  });
+
+  return result;
+}
+
+// État global temporaire pour l'upload Excel d'une analyse
+// (pour éviter de passer t et globalIdx via DOM attributes)
+var _pendingAnalysisUpload = null;
+
+// ══════════════════════════════════════════════════════════════
+//  v77.9 : TEST EVIDENCE (preuves attachées aux tests)
+// ══════════════════════════════════════════════════════════════
+// Architecture : on réutilise d.docs[] (système Documents existant).
+// Les preuves de test sont taggées : doc.attachedToTestId = <testId>
+// et doc.isEvidence = true pour filtrer dans l'UI Documents.
+
+// Récupère les preuves attachées à un test donné
+function _getTestEvidence(testId) {
+  var d = getAudData(CA);
+  if (!Array.isArray(d.docs)) return [];
+  return d.docs.filter(function(doc){
+    return doc && doc.isEvidence && doc.attachedToTestId === testId;
+  });
+}
+
+// Identifie le testId selon le contexte
+// process : ctrl.id (l'id stable du contrôle)
+// bu : t.id (l'id stable du test)
+function _getTestStableId(context, idOrIdx, wppId) {
+  var d = getAudData(CA);
+  if (context === 'process') {
+    var ctrl = d.controls && d.controls[4] && d.controls[4][idOrIdx];
+    return ctrl ? ctrl.id : null;
+  } else {
+    var wp = (d.workProgramBU && d.workProgramBU.processes) || [];
+    var wpp = wp.find(function(x){return x.id===wppId;});
+    if (!wpp) return null;
+    var t = (wpp.tests||[]).find(function(x){return x.id===idOrIdx;});
+    return t ? t.id : null;
+  }
+}
+
+// Upload de preuves : trigger un file picker, push dans d.docs avec tags
+function attachTestEvidence(context, idOrIdx, wppId) {
+  var testId = _getTestStableId(context, idOrIdx, wppId);
+  if (!testId) { toast('Test introuvable'); return; }
+
+  var inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = '.pdf,.xlsx,.xls,.docx,.doc,.pptx,.ppt,.csv,.txt,.png,.jpg,.jpeg,.webp';
+  inp.multiple = true;
+  inp.onchange = async function(){
+    if (!inp.files.length) return;
+    var d = getAudData(CA);
+    if (!d.docs) d.docs = [];
+    var files = Array.from(inp.files);
+    toast('Upload preuve(s) en cours...');
+    for (var i=0; i<files.length; i++) {
+      var file = files[i];
+      var newDoc = null;
+      if (typeof uploadDoc === 'function') {
+        try {
+          newDoc = await uploadDoc(CA, file, CS, CU?CU.name:'Inconnu');
+        } catch(e){
+          console.warn('[Evidence] upload échoué:', e.message);
+        }
+      }
+      if (!newDoc) {
+        newDoc = {
+          id: 'doc_'+Date.now()+'_'+i,
+          name: file.name,
+          step: CS,
+          size: formatFileSize ? formatFileSize(file.size) : '—',
+          uploadedBy: CU ? CU.name : '—',
+          uploadedAt: new Date().toISOString(),
+          reviewStatus: 'none',
+        };
+      }
+      // v77.9 : marquer comme preuve attachée au test
+      newDoc.isEvidence = true;
+      newDoc.attachedToTestId = testId;
+      d.docs.push(newDoc);
+    }
+    await saveAuditData(CA);
+    document.getElementById('det-content').innerHTML = renderDetContent();
+    toast(files.length+' preuve(s) attachée(s) ✓');
+  };
+  inp.click();
+}
+
+// Supprime une preuve (du SharePoint et de d.docs)
+async function removeTestEvidence(docId) {
+  var d = getAudData(CA);
+  if (!Array.isArray(d.docs)) return;
+  var doc = d.docs.find(function(x){return x.id===docId;});
+  if (!doc) return;
+  if (!confirm('Supprimer la preuve "'+doc.name+'" ?')) return;
+  // Suppression du fichier SharePoint si possible
+  if (doc.itemId && typeof deleteDoc === 'function') {
+    try { await deleteDoc(CA, doc.itemId, doc.name); } catch(e){ console.warn('[Evidence] delete SP failed:', e); }
+  }
+  d.docs = d.docs.filter(function(x){return x.id!==docId;});
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+  toast('Preuve supprimée');
+}
+
+// Rendu de la section "Preuves" pour un test
+function _renderTestEvidenceSection(context, idOrIdx, wppId, dis) {
+  var testId = _getTestStableId(context, idOrIdx, wppId);
+  if (!testId) return '';
+  var evidence = _getTestEvidence(testId);
+
+  var h = '';
+  h += '<div style="background:#fafafa;border:.5px solid var(--border);border-radius:4px;padding:10px;margin-bottom:8px">';
+  h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:6px">';
+  h += '<div style="font-size:10px;font-weight:600;color:var(--text-2);text-transform:uppercase;letter-spacing:.4px">📎 Preuves attachées ('+evidence.length+')</div>';
+  if (!dis) {
+    var ctxArg = "'"+context+"'";
+    var idArg = (context === 'process') ? idOrIdx : "'"+_escJsArg(idOrIdx)+"'";
+    var wppArg = (context === 'bu') ? ",'"+_escJsArg(wppId)+"'" : ",null";
+    h += '<button onclick="attachTestEvidence('+ctxArg+','+idArg+wppArg+')" style="font-size:11px;padding:5px 11px;background:#3C3489;color:#fff;border:none;border-radius:3px;cursor:pointer;font-weight:500">+ Ajouter une preuve</button>';
+  }
+  h += '</div>';
+  if (!evidence.length) {
+    h += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:4px 0">Aucune preuve attachée. Utilise « + Ajouter une preuve » pour joindre des captures, extracts Excel, PDF, etc.</div>';
+  } else {
+    h += '<div style="display:flex;flex-direction:column;gap:4px">';
+    evidence.forEach(function(doc){
+      h += '<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:#fff;border:.5px solid var(--border);border-radius:3px;font-size:11px">';
+      h += '<span style="font-size:14px">📄</span>';
+      h += '<div style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">';
+      if (doc.url) {
+        h += '<a href="'+_escAttr(doc.url)+'" target="_blank" style="color:#3C3489;text-decoration:none;font-weight:500">'+_escAttr(doc.name)+'</a>';
+      } else {
+        h += '<span style="font-weight:500">'+_escAttr(doc.name)+'</span>';
+      }
+      h += '<span style="color:var(--text-3);font-size:10px;margin-left:8px">· '+_escAttr(doc.size||'')+'</span>';
+      h += '</div>';
+      if (!dis) {
+        h += '<button onclick="removeTestEvidence(\''+_escJsArg(doc.id)+'\')" style="font-size:11px;padding:2px 7px;background:#fff;color:#993C1D;border:.5px solid var(--border);border-radius:3px;cursor:pointer" title="Supprimer">×</button>';
+      }
+      h += '</div>';
+    });
+    h += '</div>';
+  }
+  h += '</div>';
+  return h;
+}
+
+// Rendu UI complet de la config Analysis pour un test
+// t : le test (Process ctrl ou BU test)
+// idOrIdx : globalIdx pour Process, t.id pour BU
+// context : 'process' | 'bu'
+// dis : 'disabled' ou ''
+// wppId : (BU uniquement) wpp.id
+function _renderAnalysisConfigUI(t, idOrIdx, context, dis, wppId) {
+  _ensureAnalysisConfig(t);
+  var cfg = t.analysisConfig;
+  var data = t.analysisData || {items: [], importedAt: null, fileName: null};
+  var sp = t.samplingPlan || {confidence:95, EDR:5, TDR:5};
+  var popN = Number((t.population || {}).count) || 0;
+
+  // Identifier la fonction setter selon le contexte
+  var setSampling, setAnalysisField, setAnalysisItem, setAnalysisSources, setAnalysisAttributes, uploadFnArgs;
+  if (context === 'process') {
+    setSampling = 'setProcessSamplingField('+idOrIdx;
+    setAnalysisSources = 'setProcessAnalysisSources('+idOrIdx;
+    setAnalysisAttributes = 'setProcessAnalysisAttributes('+idOrIdx;
+    uploadFnArgs = '\'process\','+idOrIdx;
+  } else {
+    setSampling = 'setTestingsBuSamplingField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(idOrIdx)+'\'';
+    setAnalysisSources = 'setBuAnalysisSources(\''+_escJsArg(wppId)+'\',\''+_escJsArg(idOrIdx)+'\'';
+    setAnalysisAttributes = 'setBuAnalysisAttributes(\''+_escJsArg(wppId)+'\',\''+_escJsArg(idOrIdx)+'\'';
+    uploadFnArgs = '\'bu\',\''+_escJsArg(wppId)+'\',\''+_escJsArg(idOrIdx)+'\'';
+  }
+
+  var h = '';
+
+  // ─── Population (saisie dédiée au mode Analysis) ───
+  // Identifier le setter SubField selon le contexte
+  var setPopField;
+  if (context === 'process') {
+    setPopField = 'setProcessTestSubField('+idOrIdx+',\'population\',\'count\',this.value)';
+  } else {
+    setPopField = 'setTestingsBuSubField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(idOrIdx)+'\',\'population\',\'count\',this.value)';
+  }
+  h += '<div style="margin-bottom:10px">';
+  h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Taille de la population <span style="cursor:help;color:#3C3489" title="Nombre total d\'items dans la population (ex: nombre total de contrats actifs). Sert à calculer la taille d\'échantillon binomiale recommandée.">ⓘ</span></label>';
+  h += '<input type="number" min="0" '+(dis||'')+' value="'+_escAttr(popN||'')+'" placeholder="ex: 1200" onchange="'+setPopField+'" style="width:200px;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;text-align:right;box-sizing:border-box"/>';
+  h += '</div>';
+
+  // ─── Sample sizing (binomial, comme substantif) ───
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px">';
+  h += '<div>';
+  h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Confiance <span style="cursor:help;color:#3C3489" title="Probabilité que le taux d\'erreur réel soit dans la fourchette annoncée. 95% = standard audit.">ⓘ</span></label>';
+  h += '<div style="display:flex;align-items:center;gap:4px"><input type="number" min="80" max="99" step="1" '+(dis||'')+' value="'+sp.confidence+'" onchange="'+setSampling+',\'confidence\',this.value)" style="flex:1;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;text-align:right;box-sizing:border-box"/><span style="font-size:11px;color:var(--text-3)">%</span></div>';
+  h += '</div>';
+  h += '<div>';
+  h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">EDR (% attendu) <span style="cursor:help;color:#3C3489" title="Expected Deviation Rate : taux d\'erreur que tu anticipes. Si pas d\'historique : 5%.">ⓘ</span></label>';
+  h += '<div style="display:flex;align-items:center;gap:4px"><input type="number" min="0" max="50" step="0.5" '+(dis||'')+' value="'+sp.EDR+'" onchange="'+setSampling+',\'EDR\',this.value)" style="flex:1;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;text-align:right;box-sizing:border-box"/><span style="font-size:11px;color:var(--text-3)">%</span></div>';
+  h += '</div>';
+  h += '<div>';
+  h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">TDR (% tolérable) <span style="cursor:help;color:#3C3489" title="Tolerable Deviation Rate : taux d\'erreur max acceptable. Doit être > EDR.">ⓘ</span></label>';
+  h += '<div style="display:flex;align-items:center;gap:4px"><input type="number" min="1" max="50" step="0.5" '+(dis||'')+' value="'+sp.TDR+'" onchange="'+setSampling+',\'TDR\',this.value)" style="flex:1;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;text-align:right;box-sizing:border-box"/><span style="font-size:11px;color:var(--text-3)">%</span></div>';
+  h += '</div>';
+  h += '</div>';
+
+  // Résultat sample size
+  var recommended = popN > 0 ? _calcSampleSize(popN, sp.confidence, sp.EDR, sp.TDR) : null;
+  if (popN > 0 && recommended && recommended.n) {
+    var fullPopRecommended = recommended.n >= popN;
+    if (fullPopRecommended) {
+      h += '<div style="background:#EEEDFE;border:.5px solid #CECBF6;border-radius:3px;padding:8px 10px;font-size:11px;color:#3C3489;margin-bottom:10px">';
+      h += '<strong style="font-weight:600">📌 Test exhaustif recommandé — N='+popN+'</strong> · Teste 100% des éléments.';
+      h += '</div>';
+    } else {
+      h += '<div style="background:#fff;border:.5px solid var(--border);border-radius:3px;padding:8px 10px;margin-bottom:10px">';
+      h += '<span style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.3px;font-weight:500">Taille d\'échantillon recommandée</span> ';
+      h += '<span style="font-size:14px;font-weight:600;color:#3C3489;margin-left:8px">'+recommended.n+'</span>';
+      h += '<span style="font-size:10px;color:var(--text-3);margin-left:6px">sur '+popN+' ('+((recommended.n/popN)*100).toFixed(1)+'%)</span>';
+      h += '</div>';
+    }
+  } else if (popN === 0) {
+    h += '<div style="font-size:10px;color:var(--text-3);font-style:italic;padding:4px 0 8px">Saisis la taille de la population (ci-dessous) pour calculer la taille d\'échantillon.</div>';
+  }
+
+  // ─── Configuration sources + attributs ───
+  h += '<div style="background:#fff;border:.5px solid var(--border);border-radius:4px;padding:10px;margin-bottom:8px">';
+  h += '<div style="font-size:10px;font-weight:600;color:var(--text-2);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">📋 Configuration de l\'analyse</div>';
+
+  // Sources (2-3)
+  h += '<div style="margin-bottom:10px">';
+  h += '<div style="font-size:10px;color:var(--text-3);margin-bottom:4px">Sources de données ('+cfg.sources.length+'/3) <span style="font-style:italic">— ex : Contrat, ERP, Relevé banque</span></div>';
+  cfg.sources.forEach(function(src, srcIdx){
+    h += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">';
+    h += '<span style="font-size:10px;color:var(--text-3);min-width:60px">Source '+(srcIdx+1)+'</span>';
+    if (!dis) {
+      h += '<input type="text" value="'+_escAttr(src)+'" placeholder="Nom de la source" onchange="'+setAnalysisSources+',\'update\','+srcIdx+',this.value)" style="flex:1;font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box"/>';
+      if (cfg.sources.length > 2) {
+        h += '<button onclick="'+setAnalysisSources+',\'remove\','+srcIdx+',null)" style="font-size:11px;padding:3px 7px;background:#fff;color:#993C1D;border:.5px solid var(--border);border-radius:3px;cursor:pointer">×</button>';
+      }
+    } else {
+      h += '<span style="flex:1;font-size:11px;padding:4px 7px">'+(''+src).replace(/</g,'&lt;')+'</span>';
+    }
+    h += '</div>';
+  });
+  if (!dis && cfg.sources.length < 3) {
+    h += '<button onclick="'+setAnalysisSources+',\'add\',null,null)" style="font-size:10px;padding:4px 8px;background:#fff;border:.5px solid var(--border);border-radius:3px;cursor:pointer;color:#3C3489;font-weight:500">+ Ajouter une source</button>';
+  }
+  h += '</div>';
+
+  // Attributs (1-5)
+  h += '<div>';
+  h += '<div style="font-size:10px;color:var(--text-3);margin-bottom:4px">Attributs à comparer ('+cfg.attributes.length+'/5) <span style="font-style:italic">— ex : Date, Valeur, Devise</span></div>';
+  cfg.attributes.forEach(function(attr, attrIdx){
+    h += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">';
+    h += '<span style="font-size:10px;color:var(--text-3);min-width:60px">Attribut '+(attrIdx+1)+'</span>';
+    if (!dis) {
+      h += '<input type="text" value="'+_escAttr(attr)+'" placeholder="Nom de l\'attribut" onchange="'+setAnalysisAttributes+',\'update\','+attrIdx+',this.value)" style="flex:1;font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box"/>';
+      if (cfg.attributes.length > 1) {
+        h += '<button onclick="'+setAnalysisAttributes+',\'remove\','+attrIdx+',null)" style="font-size:11px;padding:3px 7px;background:#fff;color:#993C1D;border:.5px solid var(--border);border-radius:3px;cursor:pointer">×</button>';
+      }
+    } else {
+      h += '<span style="flex:1;font-size:11px;padding:4px 7px">'+(''+attr).replace(/</g,'&lt;')+'</span>';
+    }
+    h += '</div>';
+  });
+  if (!dis && cfg.attributes.length < 5) {
+    h += '<button onclick="'+setAnalysisAttributes+',\'add\',null,null)" style="font-size:10px;padding:4px 8px;background:#fff;border:.5px solid var(--border);border-radius:3px;cursor:pointer;color:#3C3489;font-weight:500">+ Ajouter un attribut</button>';
+  }
+  h += '</div>';
+
+  h += '</div>';
+
+  // ─── Boutons Excel ───
+  if (!dis) {
+    var nValue = recommended && recommended.n ? recommended.n : 10;
+    h += '<div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">';
+    h += '<button onclick="downloadAnalysisTemplate('+uploadFnArgs+','+nValue+')" style="font-size:11px;padding:6px 12px;background:#fff;border:.5px solid var(--border);border-radius:3px;cursor:pointer;color:#3C3489;font-weight:500">📥 Télécharger template Excel</button>';
+    h += '<button onclick="triggerAnalysisUpload('+uploadFnArgs+')" style="font-size:11px;padding:6px 12px;background:#3C3489;color:#fff;border:none;border-radius:3px;cursor:pointer;font-weight:500">📤 Importer résultats Excel</button>';
+    h += '<input type="file" id="ana-file-input-'+idOrIdx+'" accept=".xlsx,.xls" style="display:none" onchange="handleAnalysisFileSelected(event,'+uploadFnArgs+')"/>';
+    h += '</div>';
+  }
+
+  // ─── Résultats ───
+  if (data.items && data.items.length > 0) {
+    var results = _calcAnalysisResults(data.items, cfg);
+    var anomalyPct = results.totalItems > 0 ? (results.itemsWithDivergence / results.totalItems) * 100 : 0;
+    var anoColor = anomalyPct >= 15 ? '#993C1D' : anomalyPct >= 5 ? '#854F0B' : '#085041';
+    var anoBg = anomalyPct >= 15 ? '#FCEBEB' : anomalyPct >= 5 ? '#FAEEDA' : '#E1F5EE';
+    var anoBorder = anomalyPct >= 15 ? '#F2C2C0' : anomalyPct >= 5 ? '#FAC775' : '#A6E2CD';
+    h += '<div style="background:'+anoBg+';border:.5px solid '+anoBorder+';border-radius:4px;padding:10px 12px;margin-top:6px">';
+    h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:6px">';
+    h += '<div style="font-size:11px;font-weight:600;color:'+anoColor+'">📊 Résultats de l\'analyse</div>';
+    if (data.fileName) {
+      h += '<div style="font-size:9px;color:var(--text-3);font-style:italic">'+(''+data.fileName).replace(/</g,'&lt;')+(data.importedAt?' · importé le '+new Date(data.importedAt).toLocaleDateString('fr-FR'):'')+'</div>';
+    }
+    h += '</div>';
+    h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:11px;color:'+anoColor+';margin-bottom:8px">';
+    h += '<div><strong style="font-weight:600">'+results.totalItems+'</strong> items analysés · <strong style="font-weight:600">'+results.itemsWithoutDivergence+'</strong> sans divergence</div>';
+    h += '<div><strong style="font-weight:600">'+results.itemsWithDivergence+'</strong> items avec ≥1 divergence ('+anomalyPct.toFixed(1)+'%)</div>';
+    h += '</div>';
+    h += '<div style="font-size:11px;color:var(--text-2);margin-top:6px">';
+    h += '<strong style="font-weight:600">Divergences par attribut :</strong>';
+    h += '<ul style="margin:4px 0 0 0;padding-left:20px">';
+    Object.keys(results.divergencesByAttribute).forEach(function(attr){
+      var info = results.divergencesByAttribute[attr];
+      var pct = results.totalItems > 0 ? (info.count / results.totalItems) * 100 : 0;
+      var itemsStr = info.items.slice(0, 5).join(', ') + (info.items.length > 5 ? ' …' : '');
+      h += '<li style="margin-bottom:2px"><strong style="font-weight:500">'+(''+attr).replace(/</g,'&lt;')+'</strong> : '+info.count+'/'+results.totalItems+' ('+pct.toFixed(1)+'%)'+(info.items.length?' → '+itemsStr.replace(/</g,'&lt;'):'')+'</li>';
+    });
+    h += '</ul>';
+    h += '</div>';
+    if (!dis) {
+      h += '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">';
+      h += '<button onclick="showAnalysisDetailModal('+uploadFnArgs+')" style="font-size:10px;padding:4px 9px;background:#fff;border:.5px solid var(--border);border-radius:3px;cursor:pointer;font-weight:500">📋 Voir détail item par item</button>';
+      if (results.itemsWithDivergence > 0) {
+        h += '<button onclick="createIssueFromAnalysis('+uploadFnArgs+')" style="font-size:10px;padding:4px 9px;background:#3C3489;color:#fff;border:none;border-radius:3px;cursor:pointer;font-weight:500">+ Créer Issue Operating</button>';
+      }
+      h += '</div>';
+    }
+    h += '</div>';
+  }
+
+  return h;
+}
+
+
+// Calcul de la couverture actuelle d'un contrôle testé
+// ctrl : {population:{count, value}, sample:{count, value}}
+// Retourne : {coverageCount, coverageAmount, coverageCountPct, coverageAmountPct, level, hasAmount}
+function _calcCoverage(ctrl) {
+  if (!ctrl) return null;
+  var popCount = Number((ctrl.population || {}).count) || 0;
+  var sampleCount = Number((ctrl.sample || {}).count) || 0;
+  var popAmount = Number((ctrl.population || {}).value) || 0;
+  var sampleAmount = Number((ctrl.sample || {}).value) || 0;
+
+  var result = {
+    popCount: popCount,
+    sampleCount: sampleCount,
+    coverageCountPct: popCount > 0 ? (sampleCount / popCount) * 100 : 0,
+    hasAmount: popAmount > 0,
+    popAmount: popAmount,
+    sampleAmount: sampleAmount,
+    coverageAmountPct: popAmount > 0 ? (sampleAmount / popAmount) * 100 : null,
+  };
+
+  // Niveau de couverture nombre
+  if (result.coverageCountPct >= 15) result.level = 'good';
+  else if (result.coverageCountPct >= 5) result.level = 'moderate';
+  else result.level = 'low';
+
+  return result;
+}
+
 // Niveaux de risque Audit Universe
 var RISK_LEVELS=[
   {key:'faible',   label:'Faible',   color:'var(--green)',  badge:'bdn'},
@@ -4408,6 +5072,8 @@ function renderDocsPanelItem(doc, idx) {
   var meta = [];
   if (doc.uploadedBy) meta.push(doc.uploadedBy);
   if (doc.size) meta.push(doc.size);
+  // v77.9 : indicateur preuve de test
+  if (doc.isEvidence) meta.push('📎 preuve test');
 
   var canView = doc.driveId && doc.itemId;
   var clickAttr = canView ? 'onclick="openDocViewer(getAudData(CA).docs['+idx+'])" style="cursor:pointer"' : 'style="cursor:default;opacity:0.7"';
@@ -4898,6 +5564,7 @@ function renderNotesSection() {
 }
 
 // ─── ÉTAPE 7 (CS=6) : Bandeau Audit Report (génération + draft + final) ─
+// v77.10 : version compacte
 function renderAuditReportGenerateBanner() {
   var d = getAudData(CA);
   var findings = Array.isArray(d.findings) ? d.findings : [];
@@ -4918,70 +5585,41 @@ function renderAuditReportGenerateBanner() {
   var hasDraft = !!(draftR && draftR.webUrl);
   var hasFinal = !!(finalR && finalR.webUrl);
 
-  var html = '<div class="card" style="margin-bottom:.75rem;background:linear-gradient(135deg,#FAEEDA 0%,#FFF4D9 100%);border:.5px solid #FAC775">';
-
-  // En-tête + indicateurs de complétude
-  html += '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">';
-  html += '<div style="flex:1;min-width:200px">';
-  html += '<div style="font-size:14px;font-weight:600;color:#854F0B;margin-bottom:4px">📄 Audit Report</div>';
-  html += '<div style="font-size:11px;color:#BA7517;margin-bottom:8px">Génération du rapport d\'audit PowerPoint et publication sur SharePoint pour partage avec les parties prenantes.</div>';
-  html += '<div style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:#854F0B">';
-  html += '<span>'+(findingsCount?'✓':'○')+' Findings ('+findingsComplete+'/'+findingsCount+' complets)</span>';
-  html += '<span>'+(testedControls.length?'✓':'○')+' Tests ('+testedControls.length+')</span>';
-  html += '<span>'+(maturityFilled?'✓':'○')+' Maturity</span>';
-  html += '<span>'+(mgtRespCount?'✓':'○')+' Mgt Responses ('+mgtRespCount+')</span>';
-  html += '</div>';
-  html += '</div>';
-
-  // Boutons d'action principaux (génération initiale + alternatives upload)
-  html += '<div style="display:flex;gap:8px;flex-direction:column;align-items:stretch;min-width:220px">';
+  // v77.12 : banner ultra-compact — 1 seule ligne avec tout
+  var html = '<div class="card" style="margin-bottom:.75rem;background:#FFF7ED;border:.5px solid #FAC775;padding:6px 12px">';
+  html += '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:11px">';
+  // Titre
+  html += '<span style="font-weight:600;color:#854F0B;flex-shrink:0">📄 Report</span>';
+  // Indicateurs ultra-compacts
+  html += '<span style="color:#854F0B;font-size:10px">F '+findingsComplete+'/'+findingsCount+' · T '+testedControls.length+' · M '+(maturityFilled?'✓':'○')+' · MR '+mgtRespCount+'</span>';
+  // Séparateur
+  html += '<span style="flex:1"></span>';
+  // Statut draft/final inline
+  if (hasFinal) {
+    html += '<span style="color:#085041;font-size:10px">📌 Final '+(finalR.finalizedAt||'').slice(0,10)+'</span>';
+    var finalEditUrl = toEditableOfficeUrl(finalR.webUrl);
+    html += '<a href="'+finalEditUrl.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener" style="font-size:10px;padding:3px 8px;background:#3C3489;color:#fff;border-radius:3px;text-decoration:none;font-weight:500">✏ Final</a>';
+  } else if (hasDraft) {
+    html += '<span style="color:#854F0B;font-size:10px">📝 Draft '+(draftR.uploadedAt||'').slice(0,10)+'</span>';
+    var draftEditUrl = toEditableOfficeUrl(draftR.webUrl);
+    html += '<a href="'+draftEditUrl.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener" style="font-size:10px;padding:3px 8px;background:#854F0B;color:#fff;border-radius:3px;text-decoration:none;font-weight:500">✏ Draft</a>';
+    html += '<button class="bp" style="font-size:10px;padding:3px 8px;background:#3C3489;color:#fff;border:none;border-radius:3px;font-weight:500" onclick="finalizeReport()" title="Marquer comme version finale">📌 Final</button>';
+  }
+  // Boutons d'action principaux
   if (!hasDraft) {
-    // Pas encore de draft : 2 options principales
-    html += '<button class="bp" style="font-size:13px;padding:8px 16px;background:#854F0B;color:#fff;font-weight:500" onclick="publishReportRegenerate()" title="Générer le rapport et le publier comme draft sur SharePoint">⬇ Générer le rapport (draft)</button>';
-    html += '<button class="bs" style="font-size:11px;padding:5px 10px;border:.5px solid #854F0B;color:#854F0B" onclick="publishReportUpload()" title="Uploader un PPT existant comme draft (sans passer par la génération)">📁 Importer un PPT existant</button>';
+    html += '<button class="bp" style="font-size:11px;padding:4px 10px;background:#854F0B;color:#fff;font-weight:500" onclick="publishReportRegenerate()">⬇ Générer</button>';
+    html += '<button class="bs" style="font-size:11px;padding:4px 8px;border:.5px solid #854F0B;color:#854F0B" onclick="publishReportUpload()" title="Importer PPT existant">📁</button>';
   } else {
-    // Draft existe → 2 options : régénérer ou remplacer
-    html += '<button class="bs" style="font-size:11px;padding:5px 10px;border:.5px solid #FAC775;color:#854F0B" onclick="publishReportRegenerate()" title="Régénérer le draft (écrase le draft mais pas le final)">🔄 Régénérer le draft</button>';
-    html += '<button class="bs" style="font-size:11px;padding:5px 10px;border:.5px solid #FAC775;color:#854F0B" onclick="publishReportUpload()" title="Remplacer le draft par un fichier Office">📁 Remplacer le draft</button>';
+    html += '<button class="bs" style="font-size:11px;padding:4px 8px;border:.5px solid #FAC775;color:#854F0B" onclick="publishReportRegenerate()" title="Régénérer">🔄</button>';
+    html += '<button class="bs" style="font-size:11px;padding:4px 8px;border:.5px solid #FAC775;color:#854F0B" onclick="publishReportUpload()" title="Remplacer">📁</button>';
   }
   html += '</div>';
-  html += '</div>';
-
-  // Avertissements complétude
-  if (!findingsCount) {
-    html += '<div style="font-size:10px;color:#854F0B;margin-top:10px;padding:6px 10px;background:#FAEEDA;border-radius:4px;font-style:italic">⚠ Aucun finding défini. Le rapport sera généré sans détail de findings.</div>';
-  } else if (findingsComplete < findingsCount) {
-    html += '<div style="font-size:10px;color:#854F0B;margin-top:10px;padding:6px 10px;background:#FAEEDA;border-radius:4px;font-style:italic">ⓘ '+(findingsCount-findingsComplete)+' finding(s) incomplet(s) (Potential Risk, Owner ou Risk Level manquant). Ils apparaîtront avec « — » dans le rapport.</div>';
+  // Avertissement compact si problème (sur 1 ligne)
+  if (findingsCount && findingsComplete < findingsCount) {
+    html += '<div style="font-size:9px;color:#BA7517;font-style:italic;margin-top:4px">ⓘ '+(findingsCount-findingsComplete)+' finding(s) incomplet(s)</div>';
+  } else if (hasDraft && !hasFinal) {
+    html += '<div style="font-size:9px;color:#BA7517;font-style:italic;margin-top:4px">Pas de version finale — MR pas envoyable tant que non marqué final</div>';
   }
-
-  // Bandeaux draft / final si dispo
-  if (hasDraft || hasFinal) {
-    html += '<div style="display:flex;flex-direction:column;gap:6px;margin-top:10px">';
-    if (hasDraft) {
-      var draftDate = (draftR.uploadedAt||'').slice(0,10);
-      var draftEditUrl = toEditableOfficeUrl(draftR.webUrl);
-      html += '<div style="font-size:11px;color:#854F0B;padding:7px 10px;background:#FFF4D9;border:.5px solid #FAC775;border-radius:4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
-      html += '<span>📝</span>';
-      html += '<span style="flex:1;min-width:160px"><strong style="font-weight:500">Draft</strong> · publié le '+draftDate+(draftR.uploadedBy?' par '+draftR.uploadedBy.replace(/</g,'&lt;'):'')+'</span>';
-      html += '<a href="'+draftEditUrl.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener" style="font-size:10px;padding:3px 8px;background:#854F0B;color:#fff;border:.5px solid #854F0B;border-radius:3px;text-decoration:none;font-weight:500">✏ Modifier draft</a>';
-      html += '<button class="bp" style="font-size:10px;padding:3px 8px;background:#3C3489;color:#fff;border:.5px solid #3C3489;border-radius:3px;font-weight:500" onclick="finalizeReport()" title="Copier le draft actuel comme version finale (la version qui sera partagée)">📌 Marquer comme version finale</button>';
-      html += '</div>';
-    }
-    if (hasFinal) {
-      var finalDate = (finalR.finalizedAt||'').slice(0,10);
-      var finalEditUrl = toEditableOfficeUrl(finalR.webUrl);
-      html += '<div style="font-size:11px;color:#085041;padding:7px 10px;background:#E1F5EE;border:.5px solid #A6E2CD;border-radius:4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
-      html += '<span>📌</span>';
-      html += '<span style="flex:1;min-width:160px"><strong style="font-weight:500">Version finale</strong> · figée le '+finalDate+(finalR.finalizedBy?' par '+finalR.finalizedBy.replace(/</g,'&lt;'):'')+' &middot; <em>Lien envoyé dans la demande MR (étape suivante)</em></span>';
-      html += '<a href="'+finalEditUrl.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener" style="font-size:10px;padding:3px 8px;background:#3C3489;color:#fff;border:.5px solid #3C3489;border-radius:3px;text-decoration:none;font-weight:500">✏ Modifier final</a>';
-      html += '<a href="'+finalR.webUrl.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener" style="font-size:10px;padding:3px 8px;background:#fff;color:#085041;border:.5px solid #A6E2CD;border-radius:3px;text-decoration:none">Ouvrir →</a>';
-      html += '</div>';
-    } else if (hasDraft) {
-      html += '<div style="font-size:10px;color:#BA7517;font-style:italic;padding:3px 10px">Aucune version finale — la demande MR (étape suivante) ne pourra être envoyée qu\'après le marquage final.</div>';
-    }
-    html += '</div>';
-  }
-
   html += '</div>';
   return html;
 }
@@ -10109,25 +10747,10 @@ function renderTestsSection() {
   var d = getAudData(CA);
   var step5c = d.controls[4]||[];
   var keyExist = step5c.filter(function(c){return c.clef && c.design==='existing';});
-  var targets = step5c.filter(function(c){return c.design==='target';});
   var html = '<div class="card" style="margin-bottom:.75rem">';
   html += '<div style="font-size:12px;font-weight:600;color:var(--text-2);margin-bottom:4px">Testings — Contrôles clefs existants</div>';
-  html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:10px;font-style:italic">Pour chaque contrôle clef existant, documente la procédure de test, la population, l\'échantillon testé et les anomalies identifiées. L\'extrapolation est calculée automatiquement (ratio simple). Les contrôles Target (à mettre en place) seront pris en compte directement à l\'étape Findings sans test.</div>';
+  html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:10px;font-style:italic">Pour chaque contrôle clef existant, documente la procédure de test, la population, l\'échantillon testé et les anomalies identifiées. L\'extrapolation est calculée automatiquement (ratio simple).<br>v77.12 : Les contrôles Target n\'apparaissent plus ici (ils ne se testent pas). Tu les retrouveras directement à l\'étape Report comme issues à inclure dans les findings.</div>';
   html += buildExecTable(keyExist);
-  if (targets.length) {
-    html += '<div style="margin-top:14px;padding-top:10px;border-top:1px dashed var(--border)">';
-    html += '<div style="font-size:11px;font-weight:600;color:#854F0B;margin-bottom:4px">Contrôles Target (non testés — alimenteront les Findings)</div>';
-    html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:6px;font-style:italic">Ces contrôles n\'existent pas encore. Pas de test à réaliser. Ils apparaîtront automatiquement à l\'étape Report comme déficiences à adresser.</div>';
-    targets.forEach(function(c, idx){
-      var ctrlCode = c.code || ('CTRL-T'+(idx+1));
-      html += '<div style="background:#FFF7ED;border:.5px solid #FED7AA;border-radius:4px;padding:6px 10px;margin-bottom:4px;display:flex;align-items:center;gap:8px">';
-      html += '<span class="badge" style="background:#FAEEDA;color:#854F0B;font-size:9px">Target</span>';
-      html += '<div style="flex:1;font-size:11px"><span style="color:var(--text-3);font-size:10px;margin-right:5px">'+ctrlCode+'</span>'+c.name+'</div>';
-      if (c.owner) html += '<span style="font-size:10px;color:var(--text-3)">Owner : '+c.owner+'</span>';
-      html += '</div>';
-    });
-    html += '</div>';
-  }
   html += '</div>';
   return html;
 }
@@ -11135,7 +11758,7 @@ function renderTestingsBuTestRow(wppId, t, isPreparer) {
   var hasAnomalies = (t.anomalies.count !== '' && Number(t.anomalies.count) > 0);
   var rowBorder = hasAnomalies ? 'border:1px solid #E24B4A' : 'border:.5px solid var(--border)';
 
-  // Issue operating inline pour ce test (au plus 1 par test dans le nouveau modèle)
+  // Issue operating inline pour ce test
   var d = getAudData(CA);
   var issue = (d.issues||[]).find(function(iss){
     return iss.source==='operating' && iss.processId===wppId && iss.testId===t.id;
@@ -11144,25 +11767,80 @@ function renderTestingsBuTestRow(wppId, t, isPreparer) {
 
   var extrap = _computeExtrapolation(t);
 
-  var h = '';
-  h += '<div style="'+rowBorder+';border-radius:5px;padding:10px 12px;margin-bottom:8px;background:'+(hasAnomalies?'#FFF8F8':'#fff')+'">';
+  // v77.10 : pré-calcul des variables pour le header collapsible
+  if (!t.samplingPlan) t.samplingPlan = {confidence:95, EDR:5, TDR:5, freqId:'', confLevel:'high'};
+  var sp = t.samplingPlan;
+  if (!sp.freqId) sp.freqId = '';
+  if (!sp.confLevel) sp.confLevel = 'high';
+  var testMode = t.testMode || '';
+  var popN = Number(t.population.count) || 0;
 
-  h += '<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap">';
-  h += '<span style="background:var(--purple);color:#fff;font-size:9px;padding:2px 7px;border-radius:3px;font-family:monospace;letter-spacing:.4px">'+(t.code||'').replace(/</g,'&lt;')+'</span>';
-  h += '<span style="background:#FAEEDA;color:#854F0B;font-size:9px;padding:2px 7px;border-radius:3px">'+(t.testType||'').replace(/</g,'&lt;')+'</span>';
-  h += '<span style="background:'+statusBg+';color:'+statusColor+';font-size:9px;padding:2px 7px;border-radius:3px;font-weight:500">'+status+'</span>';
-  if (hasAnomalies) {
-    h += '<span style="background:#FCEBEB;color:#A32D2D;font-size:9px;padding:2px 7px;border-radius:3px;font-weight:500">⚠ ANOMALIES</span>';
+  // État ouverture
+  if (typeof _openTestCards === 'undefined') _openTestCards = {};
+  var cardOpenKey = 'bu:'+wppId+':'+t.id;
+  var isOpen = !!_openTestCards[cardOpenKey];
+
+  // Indicateurs synthétiques pour le header
+  var sampleHeader = '';
+  if (testMode === 'control' && sp.freqId) {
+    var fr = CONTROL_FREQ_TABLE.find(function(f){return f.id===sp.freqId;});
+    if (fr) {
+      var nrec = (sp.confLevel === 'low') ? fr.low : fr.high;
+      sampleHeader = (t.sample.count||'0')+'/'+nrec;
+    }
+  } else if (testMode === 'substantive' || testMode === 'analysis') {
+    sampleHeader = (t.sample.count||'—')+'/'+(t.population.count||'—');
   }
-  if (hasIssue) {
-    h += '<span style="background:#EEEDFE;color:#3C3489;font-size:9px;padding:2px 7px;border-radius:3px;font-weight:500">ISSUE</span>';
+  var nbEvidence = _getTestEvidence(t.id).length;
+  var modeBadge = testMode === 'control' ? '<span style="font-size:9px;color:#3C3489;font-weight:600">🎯</span>'
+                : testMode === 'substantive' ? '<span style="font-size:9px;color:#085041;font-weight:600">💰</span>'
+                : testMode === 'analysis' ? '<span style="font-size:9px;color:#854F0B;font-weight:600">🔗</span>'
+                : '<span style="font-size:9px;color:var(--text-3)">—</span>';
+
+  var h = '';
+  h += '<div style="'+rowBorder+';border-radius:5px;margin-bottom:8px;background:'+(hasAnomalies?'#FFF8F8':'#fff')+';overflow:hidden">';
+
+  // v77.10 : Header collapsible (1 ligne)
+  h += '<div onclick="toggleTestCard(\''+_escJsArg(cardOpenKey)+'\')" style="cursor:pointer;padding:8px 12px;display:flex;align-items:center;gap:10px;user-select:none;background:'+(isOpen?'#fafafa':'transparent')+'">';
+  h += '<span style="font-size:11px;color:var(--text-3);width:10px;flex-shrink:0;transition:transform .15s;transform:rotate('+(isOpen?'90':'0')+'deg)">▶</span>';
+  h += '<span style="background:var(--purple);color:#fff;font-size:9px;padding:2px 7px;border-radius:3px;font-family:monospace;letter-spacing:.4px;flex-shrink:0">'+(t.code||'').replace(/</g,'&lt;')+'</span>';
+  h += '<span style="font-size:11px;font-weight:500;color:var(--text-1);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(''+(t.statement||'(sans énoncé)')).replace(/</g,'&lt;')+'</span>';
+  h += '<span style="flex-shrink:0">'+modeBadge+'</span>';
+  if (sampleHeader) {
+    h += '<span style="font-size:10px;color:var(--text-3);font-family:monospace;flex-shrink:0">'+sampleHeader+'</span>';
   }
+  h += '<span style="background:'+statusBg+';color:'+statusColor+';font-size:9px;padding:2px 7px;border-radius:3px;font-weight:500;flex-shrink:0">'+status+'</span>';
+  if (hasAnomalies) h += '<span style="background:#FCEBEB;color:#A32D2D;font-size:9px;padding:2px 7px;border-radius:3px;font-weight:500;flex-shrink:0">⚠ '+t.anomalies.count+'</span>';
+  if (hasIssue) h += '<span style="background:#EEEDFE;color:#3C3489;font-size:9px;padding:2px 7px;border-radius:3px;font-weight:500;flex-shrink:0" title="Issue Operating renseignée">📝</span>';
+  if (nbEvidence) h += '<span style="font-size:9px;color:var(--text-3);flex-shrink:0" title="'+nbEvidence+' preuve(s)">📎 '+nbEvidence+'</span>';
   h += '</div>';
 
-  h += '<div style="font-size:11px;font-weight:500;margin-bottom:4px">'+(''+(t.statement||'(sans énoncé)')).replace(/</g,'&lt;')+'</div>';
-  if (t.objective) h += '<div style="font-size:10px;color:var(--text-3);font-style:italic;margin-bottom:6px">Objectif : '+(''+t.objective).replace(/</g,'&lt;')+'</div>';
+  // v77.10 : Si fermé, on s'arrête là
+  if (!isOpen) {
+    h += '</div>'; // fermer card
+    return h;
+  }
 
-  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">';
+  // v77.10 : Bloc déplié
+  h += '<div style="padding:10px 12px;border-top:.5px solid var(--border)">';
+
+  // testType badge + objectif (s'il y en a)
+  if (t.testType || t.objective) {
+    h += '<div style="margin-bottom:8px">';
+    if (t.testType) {
+      h += '<span style="background:#FAEEDA;color:#854F0B;font-size:9px;padding:2px 7px;border-radius:3px">'+(t.testType||'').replace(/</g,'&lt;')+'</span>';
+    }
+    if (t.objective) h += '<div style="font-size:10px;color:var(--text-3);font-style:italic;margin-top:4px">Objectif : '+(''+t.objective).replace(/</g,'&lt;')+'</div>';
+    h += '</div>';
+  }
+
+  // v77.10 : Méthode de sélection masquée sauf substantive
+  var showSelectionMethod = (testMode === 'substantive');
+  if (showSelectionMethod) {
+    h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">';
+  } else {
+    h += '<div style="margin-bottom:8px">';
+  }
   h += '<div>';
   h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Statut du test</label>';
   if (isPreparer) {
@@ -11175,21 +11853,180 @@ function renderTestingsBuTestRow(wppId, t, isPreparer) {
     h += '<div style="font-size:11px;padding:5px 8px">'+t.testStatus+'</div>';
   }
   h += '</div>';
-  h += '<div>';
-  h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Méthode de sélection</label>';
-  if (isPreparer) {
-    h += '<select onchange="setTestingsBuField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'selectionMethod\',this.value)" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;background:#fff">';
-    h += '<option value=""'+(!t.selectionMethod?' selected':'')+'>— Choisir —</option>';
-    h += '<option'+(t.selectionMethod==='Coverage'?' selected':'')+'>Coverage</option>';
-    h += '<option'+(t.selectionMethod==='Aléatoire'?' selected':'')+'>Aléatoire</option>';
-    h += '<option'+(t.selectionMethod==='Mix'?' selected':'')+'>Mix</option>';
-    h += '</select>';
-  } else {
-    h += '<div style="font-size:11px;padding:5px 8px">'+(t.selectionMethod||'—')+'</div>';
+  if (showSelectionMethod) {
+    h += '<div>';
+    h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Méthode de sélection <span style="cursor:help;color:#3C3489" title="Coverage = top N par valeur (pas d\'extrapolation possible). Aléatoire = sample stat (extrapolation possible). Mix = combinaison.">ⓘ</span></label>';
+    if (isPreparer) {
+      h += '<select onchange="setTestingsBuField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'selectionMethod\',this.value)" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;background:#fff">';
+      h += '<option value=""'+(!t.selectionMethod?' selected':'')+'>— Choisir —</option>';
+      h += '<option'+(t.selectionMethod==='Coverage'?' selected':'')+'>Coverage</option>';
+      h += '<option'+(t.selectionMethod==='Aléatoire'?' selected':'')+'>Aléatoire</option>';
+      h += '<option'+(t.selectionMethod==='Mix'?' selected':'')+'>Mix</option>';
+      h += '</select>';
+    } else {
+      h += '<div style="font-size:11px;padding:5px 8px">'+(t.selectionMethod||'—')+'</div>';
+    }
+    h += '</div>';
   }
   h += '</div>';
+
+  // v77.3 : Section Sample Sizing — choix Control vs Substantive testing (BU)
+  // (variables sp / testMode / popN déjà déclarées plus haut en v77.10)
+
+  h += '<div style="background:#fafafa;border:.5px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px">';
+  h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px">';
+  h += '<div style="font-size:10px;font-weight:600;color:var(--text-2);text-transform:uppercase;letter-spacing:.4px">📊 Sample sizing (planification)</div>';
+  h += '<button onclick="showSamplingHelpModal()" title="Guide d\'utilisation" style="font-size:9px;padding:3px 8px;background:#fff;border:.5px solid var(--border);border-radius:3px;cursor:pointer;color:#3C3489;font-weight:500">❓ Aide</button>';
   h += '</div>';
 
+  // Toggle Nature du test (3 cards)
+  h += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.3px;font-weight:500;margin-bottom:4px">Nature du test</div>';
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px">';
+  // Control
+  var ctrlActive = testMode === 'control';
+  if (isPreparer) {
+    h += '<div onclick="setBuTestModeField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'control\')" style="padding:8px 10px;border:1px solid '+(ctrlActive?'#3C3489':'var(--border)')+';border-radius:4px;background:'+(ctrlActive?'#EEEDFE':'#fff')+';cursor:pointer;box-sizing:border-box;min-width:0">';
+    h += '<div style="display:flex;align-items:center;gap:7px;margin-bottom:2px">';
+    h += '<input type="radio" name="test-mode-'+_escAttr(t.id)+'" '+(ctrlActive?'checked':'')+' onclick="event.stopPropagation();setBuTestModeField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'control\')" style="margin:0;width:auto;flex-shrink:0"/>';
+    h += '<span style="font-size:11px;font-weight:600;color:'+(ctrlActive?'#3C3489':'var(--text-2)')+'">🎯 Test de contrôle</span>';
+    h += '</div>';
+    h += '<div style="font-size:10px;color:var(--text-3);padding-left:22px">Sample basé sur la fréquence du contrôle</div>';
+    h += '</div>';
+  } else {
+    h += '<div style="padding:8px 10px;border:1px solid '+(ctrlActive?'#3C3489':'var(--border)')+';border-radius:4px;background:'+(ctrlActive?'#EEEDFE':'#fff')+';opacity:'+(ctrlActive?'1':'.5')+'">';
+    h += '<span style="font-size:11px;font-weight:600">🎯 Test de contrôle</span>';
+    h += '</div>';
+  }
+  // Substantive
+  var subActive = testMode === 'substantive';
+  if (isPreparer) {
+    h += '<div onclick="setBuTestModeField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'substantive\')" style="padding:8px 10px;border:1px solid '+(subActive?'#085041':'var(--border)')+';border-radius:4px;background:'+(subActive?'#E1F5EE':'#fff')+';cursor:pointer;box-sizing:border-box;min-width:0">';
+    h += '<div style="display:flex;align-items:center;gap:7px;margin-bottom:2px">';
+    h += '<input type="radio" name="test-mode-'+_escAttr(t.id)+'" '+(subActive?'checked':'')+' onclick="event.stopPropagation();setBuTestModeField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'substantive\')" style="margin:0;width:auto;flex-shrink:0"/>';
+    h += '<span style="font-size:11px;font-weight:600;color:'+(subActive?'#085041':'var(--text-2)')+'">💰 Test substantif</span>';
+    h += '</div>';
+    h += '<div style="font-size:10px;color:var(--text-3);padding-left:22px">Sample binomial sur transactions</div>';
+    h += '</div>';
+  } else {
+    h += '<div style="padding:8px 10px;border:1px solid '+(subActive?'#085041':'var(--border)')+';border-radius:4px;background:'+(subActive?'#E1F5EE':'#fff')+';opacity:'+(subActive?'1':'.5')+'">';
+    h += '<span style="font-size:11px;font-weight:600">💰 Test substantif</span>';
+    h += '</div>';
+  }
+  // Analysis (v77.4)
+  var anaActive = testMode === 'analysis';
+  if (isPreparer) {
+    h += '<div onclick="setBuTestModeField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'analysis\')" style="padding:8px 10px;border:1px solid '+(anaActive?'#854F0B':'var(--border)')+';border-radius:4px;background:'+(anaActive?'#FAEEDA':'#fff')+';cursor:pointer;box-sizing:border-box;min-width:0">';
+    h += '<div style="display:flex;align-items:center;gap:7px;margin-bottom:2px">';
+    h += '<input type="radio" name="test-mode-'+_escAttr(t.id)+'" '+(anaActive?'checked':'')+' onclick="event.stopPropagation();setBuTestModeField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'analysis\')" style="margin:0;width:auto;flex-shrink:0"/>';
+    h += '<span style="font-size:11px;font-weight:600;color:'+(anaActive?'#854F0B':'var(--text-2)')+'">🔗 Test de cohérence</span>';
+    h += '</div>';
+    h += '<div style="font-size:10px;color:var(--text-3);padding-left:22px">Compare attributs entre sources — import Excel</div>';
+    h += '</div>';
+  } else {
+    h += '<div style="padding:8px 10px;border:1px solid '+(anaActive?'#854F0B':'var(--border)')+';border-radius:4px;background:'+(anaActive?'#FAEEDA':'#fff')+';opacity:'+(anaActive?'1':'.5')+'">';
+    h += '<span style="font-size:11px;font-weight:600">🔗 Test de cohérence</span>';
+    h += '</div>';
+  }
+  h += '</div>';
+
+  if (!testMode) {
+    h += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:10px;text-align:center;background:#fff;border:.5px dashed var(--border);border-radius:3px">Choisis la nature du test ci-dessus pour configurer le sampling.</div>';
+  } else if (testMode === 'analysis') {
+    // ─── ANALYSIS (v77.4) ───
+    h += _renderAnalysisConfigUI(t, t.id, 'bu', isPreparer ? '' : 'disabled', wppId);
+  } else if (testMode === 'control') {
+    // ─── CONTROL TESTING ───
+    h += '<div style="display:grid;grid-template-columns:2fr 1fr;gap:8px;margin-bottom:8px">';
+    h += '<div>';
+    h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Fréquence du contrôle <span style="cursor:help;color:#3C3489" title="À quelle fréquence le contrôle s\'exécute-t-il dans l\'année ?">ⓘ</span></label>';
+    if (isPreparer) {
+      h += '<select onchange="setTestingsBuSamplingField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'freqId\',this.value)" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;background:#fff;box-sizing:border-box">';
+      h += '<option value=""'+(!sp.freqId?' selected':'')+'>— Choisir —</option>';
+      CONTROL_FREQ_TABLE.forEach(function(f){
+        h += '<option value="'+f.id+'"'+(sp.freqId===f.id?' selected':'')+'>'+f.label+' ('+f.shortLabel+', ~'+f.popPerYear+' occurrences/an)</option>';
+      });
+      h += '</select>';
+    } else {
+      h += '<div style="font-size:11px;padding:5px 8px">'+(sp.freqId||'—')+'</div>';
+    }
+    h += '</div>';
+    h += '<div>';
+    h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Niveau de confiance <span style="cursor:help;color:#3C3489" title="High = contrôle clé. Low = contrôle de niveau opérationnel.">ⓘ</span></label>';
+    if (isPreparer) {
+      h += '<select onchange="setTestingsBuSamplingField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'confLevel\',this.value)" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;background:#fff;box-sizing:border-box">';
+      h += '<option value="high"'+(sp.confLevel==='high'?' selected':'')+'>High (contrôle clé)</option>';
+      h += '<option value="low"'+(sp.confLevel==='low'?' selected':'')+'>Low (opérationnel)</option>';
+      h += '</select>';
+    } else {
+      h += '<div style="font-size:11px;padding:5px 8px">'+(sp.confLevel==='high'?'High':'Low')+'</div>';
+    }
+    h += '</div>';
+    h += '</div>';
+
+    var freqResult = sp.freqId ? _calcControlSampleByFreq(sp.freqId, sp.confLevel) : null;
+    if (freqResult) {
+      h += '<div style="background:#fff;border:.5px solid var(--border);border-radius:3px;padding:9px 11px">';
+      h += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.3px;font-weight:500;margin-bottom:3px">Taille d\'échantillon recommandée</div>';
+      h += '<div style="font-size:18px;font-weight:600;color:#3C3489">'+freqResult.n+'</div>';
+      h += '<div style="font-size:10px;color:var(--text-3);font-style:italic;margin-top:2px">Contrôle '+freqResult.freqShortLabel.toLowerCase()+' (~'+freqResult.freqPopPerYear+' occurrences/an) · niveau '+(freqResult.confidenceLevel==='high'?'High':'Low')+' confidence · table standard audit interne</div>';
+      h += '</div>';
+    } else if (sp.freqId === '') {
+      h += '<div style="font-size:10px;color:var(--text-3);font-style:italic;padding:6px 0">Sélectionne la fréquence du contrôle pour calculer la taille d\'échantillon recommandée.</div>';
+    }
+  } else {
+    // ─── SUBSTANTIVE TESTING ───
+    h += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">';
+    h += '<div>';
+    h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Confiance <span style="cursor:help;color:#3C3489" title="Probabilité que le taux d\'erreur réel soit dans la fourchette annoncée. 95% = standard audit, 99% = très haute exigence.">ⓘ</span></label>';
+    if (isPreparer) {
+      h += '<div style="display:flex;align-items:center;gap:4px"><input type="number" min="80" max="99" step="1" value="'+sp.confidence+'" onchange="setTestingsBuSamplingField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'confidence\',this.value)" style="flex:1;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;text-align:right;box-sizing:border-box"/><span style="font-size:11px;color:var(--text-3)">%</span></div>';
+    } else {
+      h += '<div style="font-size:11px;padding:5px 8px;text-align:right">'+sp.confidence+'%</div>';
+    }
+    h += '</div>';
+    h += '<div>';
+    h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">EDR (% attendu) <span style="cursor:help;color:#3C3489" title="Expected Deviation Rate : taux d\'erreur que tu anticipes. Si pas d\'historique : 5%.">ⓘ</span></label>';
+    if (isPreparer) {
+      h += '<div style="display:flex;align-items:center;gap:4px"><input type="number" min="0" max="50" step="0.5" value="'+sp.EDR+'" onchange="setTestingsBuSamplingField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'EDR\',this.value)" style="flex:1;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;text-align:right;box-sizing:border-box"/><span style="font-size:11px;color:var(--text-3)">%</span></div>';
+    } else {
+      h += '<div style="font-size:11px;padding:5px 8px;text-align:right">'+sp.EDR+'%</div>';
+    }
+    h += '</div>';
+    h += '<div>';
+    h += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">TDR (% tolérable) <span style="cursor:help;color:#3C3489" title="Tolerable Deviation Rate : taux d\'erreur max acceptable. Standard audit : 5%. Doit être > EDR.">ⓘ</span></label>';
+    if (isPreparer) {
+      h += '<div style="display:flex;align-items:center;gap:4px"><input type="number" min="1" max="50" step="0.5" value="'+sp.TDR+'" onchange="setTestingsBuSamplingField(\''+_escJsArg(wppId)+'\',\''+_escJsArg(t.id)+'\',\'TDR\',this.value)" style="flex:1;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;text-align:right;box-sizing:border-box"/><span style="font-size:11px;color:var(--text-3)">%</span></div>';
+    } else {
+      h += '<div style="font-size:11px;padding:5px 8px;text-align:right">'+sp.TDR+'%</div>';
+    }
+    h += '</div>';
+    h += '</div>';
+
+    var recommended = popN > 0 ? _calcSampleSize(popN, sp.confidence, sp.EDR, sp.TDR) : null;
+    if (popN > 0 && recommended && recommended.n) {
+      var fullPopRecommended = recommended.n >= popN;
+      if (fullPopRecommended) {
+        h += '<div style="background:#EEEDFE;border:.5px solid #CECBF6;border-radius:3px;padding:10px 12px;font-size:11px;color:#3C3489;line-height:1.5">';
+        h += '<div style="font-weight:600;margin-bottom:3px">📌 Test exhaustif recommandé — N='+popN+'</div>';
+        h += 'La population est trop petite pour faire du sampling statistique avec tes paramètres. <strong>Teste 100% des éléments</strong> ('+popN+' / '+popN+').';
+        h += '</div>';
+      } else {
+        h += '<div style="background:#fff;border:.5px solid var(--border);border-radius:3px;padding:9px 11px">';
+        h += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.3px;font-weight:500;margin-bottom:3px">Taille d\'échantillon recommandée</div>';
+        h += '<div style="font-size:18px;font-weight:600;color:#3C3489">'+recommended.n+'</div>';
+        h += '<div style="font-size:10px;color:var(--text-3);font-style:italic;margin-top:2px">sur '+popN+' éléments · '+((recommended.n/popN)*100).toFixed(1)+'% couverture · formule binomiale avec correction petite population</div>';
+        h += '</div>';
+      }
+    } else if (popN === 0) {
+      h += '<div style="font-size:10px;color:var(--text-3);font-style:italic;padding:6px 0">Saisis d\'abord la taille de la population (ci-dessous) pour calculer la taille d\'échantillon recommandée.</div>';
+    } else if (recommended && recommended.note) {
+      h += '<div style="font-size:10px;color:#854F0B;padding:6px 0">'+recommended.note+'</div>';
+    }
+  }
+  h += '</div>';
+
+  // v77.4.2 : Blocs Tableau Pop/Sample, Coverage, Extrapolation seulement pour Control/Substantive
+  if (testMode !== 'analysis') {
   h += '<table style="width:100%;border-collapse:collapse;margin-bottom:8px;font-size:11px">';
   h += '<thead><tr style="background:#f5f5f0">';
   h += '<th style="text-align:left;padding:5px 8px;font-size:9px;color:var(--text-3);font-weight:500;text-transform:uppercase;letter-spacing:.3px;border:.5px solid var(--border)"></th>';
@@ -11225,6 +12062,47 @@ function renderTestingsBuTestRow(wppId, t, isPreparer) {
   h += '</tr>';
   h += '</tbody></table>';
 
+  // v77 : Bloc Coverage actuel — BU
+  var cov = _calcCoverage(t);
+  if (cov && cov.popCount > 0) {
+    var levelColor = cov.level === 'good' ? '#085041' : cov.level === 'moderate' ? '#854F0B' : '#993C1D';
+    var levelBg = cov.level === 'good' ? '#E1F5EE' : cov.level === 'moderate' ? '#FAEEDA' : '#FCEBEB';
+    var levelBorder = cov.level === 'good' ? '#A6E2CD' : cov.level === 'moderate' ? '#FAC775' : '#F2C2C0';
+    var levelEmoji = cov.level === 'good' ? '🟢' : cov.level === 'moderate' ? '🟡' : '🔴';
+    var levelLabel = cov.level === 'good' ? 'Bon' : cov.level === 'moderate' ? 'Modéré' : 'Faible';
+    var advice = '';
+    if (recommended && recommended.n && cov.sampleCount > 0) {
+      if (cov.sampleCount < recommended.n) {
+        advice = ' · ⚠ Sample testé ('+cov.sampleCount+') sous le seuil recommandé ('+recommended.n+')';
+      } else {
+        advice = ' · ✓ Sample atteint le seuil recommandé';
+      }
+    }
+
+    h += '<div style="background:'+levelBg+';border:.5px solid '+levelBorder+';border-radius:4px;padding:8px 10px;margin-bottom:8px">';
+    h += '<div style="font-size:10px;color:'+levelColor+';font-weight:600;margin-bottom:4px;text-transform:uppercase;letter-spacing:.3px">🎯 Couverture actuelle '+levelEmoji+' '+levelLabel+'</div>';
+    h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:11px;color:'+levelColor+'">';
+    h += '<div>';
+    h += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.3px;font-weight:500">Coverage nombre</div>';
+    h += '<div style="font-size:14px;font-weight:600">'+cov.coverageCountPct.toFixed(1)+'%</div>';
+    h += '<div style="font-size:10px;color:var(--text-3)">'+cov.sampleCount+' / '+cov.popCount+'</div>';
+    h += '</div>';
+    if (cov.hasAmount) {
+      h += '<div>';
+      h += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.3px;font-weight:500">Coverage monétaire</div>';
+      h += '<div style="font-size:14px;font-weight:600">'+cov.coverageAmountPct.toFixed(1)+'%</div>';
+      h += '<div style="font-size:10px;color:var(--text-3)">'+_fmtEur(cov.sampleAmount)+' / '+_fmtEur(cov.popAmount)+'</div>';
+      h += '</div>';
+    } else {
+      h += '<div style="font-size:10px;color:var(--text-3);font-style:italic;align-self:center">Saisis le montant de la population pour voir le coverage monétaire</div>';
+    }
+    h += '</div>';
+    if (advice) {
+      h += '<div style="font-size:10px;color:'+levelColor+';margin-top:5px;font-style:italic">'+advice+'</div>';
+    }
+    h += '</div>';
+  }
+
   h += '<div style="background:'+(extrap.applicable?'#EEEDFE':'#F1EFE8')+';border-radius:4px;padding:8px 10px;margin-bottom:8px">';
   h += '<div style="font-size:10px;color:'+(extrap.applicable?'#3C3489':'#5F5E5A')+';font-weight:600;margin-bottom:3px;text-transform:uppercase;letter-spacing:.3px">Extrapolation auto</div>';
   if (!extrap.applicable) {
@@ -11242,6 +12120,10 @@ function renderTestingsBuTestRow(wppId, t, isPreparer) {
     h += '</div>';
   }
   h += '</div>';
+  } // end if (testMode !== 'analysis')
+
+  // v77.9 : Section preuves attachées au test
+  h += _renderTestEvidenceSection('bu', t.id, wppId, isPreparer ? '' : 'disabled');
 
   // Issue Description inline (remplace l'ancienne section "Observations" + modale Issue Operating)
   // Une issue Operating EST cette description sur un test. Si vide → pas d'issue.
@@ -11260,7 +12142,9 @@ function renderTestingsBuTestRow(wppId, t, isPreparer) {
     h += '<div style="font-size:11px;padding:5px 8px;background:#fafafa;border-radius:3px;margin-bottom:4px;white-space:pre-wrap">'+(issueDesc||'—').replace(/</g,'&lt;')+'</div>';
   }
 
-  h += '</div>';
+  h += '</div>'; // fin issue description
+  h += '</div>'; // v77.10 : fin bloc déplié
+  h += '</div>'; // fin card
   return h;
 }
 
@@ -11294,6 +12178,35 @@ async function setTestingsBuSubField(wppId, testId, group, sub, val) {
   if (!t) return;
   if (!t[group]) t[group] = {};
   t[group][sub] = val === '' ? '' : Number(val);
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+// v77 : setter sampling plan pour un test BU
+async function setTestingsBuSamplingField(wppId, testId, field, val) {
+  var d = getAudData(CA);
+  var wp = (d.workProgramBU && Array.isArray(d.workProgramBU.processes))
+    ? d.workProgramBU.processes : [];
+  var wpp = wp.find(function(x){return x.id===wppId;});
+  if (!wpp) return;
+  var t = (wpp.tests||[]).find(function(x){return x.id===testId;});
+  if (!t) return;
+  if (!t.samplingPlan) t.samplingPlan = {confidence:95, EDR:5, TDR:5};
+  t.samplingPlan[field] = val;
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+// v77.3 : setter pour le mode de test (control / substantive) BU
+async function setBuTestModeField(wppId, testId, mode) {
+  var d = getAudData(CA);
+  var wp = (d.workProgramBU && Array.isArray(d.workProgramBU.processes))
+    ? d.workProgramBU.processes : [];
+  var wpp = wp.find(function(x){return x.id===wppId;});
+  if (!wpp) return;
+  var t = (wpp.tests||[]).find(function(x){return x.id===testId;});
+  if (!t) return;
+  t.testMode = mode;
   await saveAuditData(CA);
   document.getElementById('det-content').innerHTML = renderDetContent();
 }
@@ -11345,6 +12258,54 @@ async function setBuIssueDescription(wppId, testId, description) {
 // Pré-remplit la zone Issue Description avec un résumé des résultats du test.
 // Conserve ce que l'auditeur a déjà tapé (en l'ajoutant à la suite ?) — non, on remplace,
 // puisque c'est un bouton volontaire (l'auditeur l'a cliqué intentionnellement).
+// v77.5 : Pré-remplit la description Issue Operating sur un contrôle Process testé
+// Génère une synthèse depuis sample/anomalies + extrapolation (cf. BU)
+function prefillProcessIssueDescription(i) {
+  var d = getAudData(CA);
+  if (!d.controls || !d.controls[4] || !d.controls[4][i]) return;
+  var ctrl = d.controls[4][i];
+
+  var smp = ctrl.sample || {};
+  var ano = ctrl.anomalies || {};
+  var lines = [];
+  var hasAnomalies = (ano.count !== '' && Number(ano.count) > 0);
+
+  if (!hasAnomalies) {
+    if (smp.count) {
+      lines.push('Test sur '+_fmtNum(smp.count)+' '+(ctrl.selectionMethod==='Coverage'?'cas ciblés':'cas')+' : aucune anomalie identifiée.');
+    } else {
+      lines.push('Test non finalisé — saisis la population, l\'échantillon et les anomalies pour pré-remplir.');
+    }
+  } else {
+    var line = 'Test sur '+_fmtNum(smp.count)+' '+(ctrl.selectionMethod==='Coverage'?'cas ciblés':'cas')
+      +' : '+_fmtNum(ano.count)+' anomalie'+(Number(ano.count)>1?'s':'');
+    if (ano.value) line += ' ('+_fmtEur(ano.value)+' d\'écarts)';
+    line += '.';
+    lines.push(line);
+    if (ctrl.selectionMethod === 'Aléatoire' || ctrl.selectionMethod === 'Mix') {
+      var extrap = _computeExtrapolation(ctrl);
+      if (extrap.applicable && extrap.countExtrapolated > 0) {
+        var extrapLine = 'Extrapolation : '+_fmtNum(extrap.countExtrapolated)+' cas potentiellement impactés';
+        if (extrap.valueExtrapolated) extrapLine += ' (~'+_fmtEur(extrap.valueExtrapolated)+' d\'impact estimé)';
+        extrapLine += '.';
+        lines.push(extrapLine);
+      }
+    }
+  }
+
+  var newDesc = lines.join('\n');
+
+  // Confirmation si textarea contient déjà du texte
+  var ta = document.getElementById('iss-desc-proc-'+i);
+  if (ta && ta.value.trim() && ta.value.trim() !== newDesc) {
+    if (!confirm('La description contient déjà du texte. Le remplacer par le pré-remplissage ?\n\n(Pour ajouter à la suite, copie-colle manuellement.)')) {
+      return;
+    }
+  }
+  if (ta) ta.value = newDesc;
+  setProcessIssueDescription(i, newDesc);
+}
+
 function prefillBuIssueDescription(wppId, testId) {
   var d = getAudData(CA);
   var wp = (d.workProgramBU && Array.isArray(d.workProgramBU.processes))
@@ -11873,159 +12834,366 @@ async function removeBuFinding(idx) {
   toast('Finding supprimé');
 }
 
+// v77.12 : Vue Findings refondée par sous-processus
+// Chaque section SP regroupe toutes les Issues (Design + Test fail + Target) du SP
+// + les Findings du SP. L'auditeur sélectionne directement les Issues et crée un Finding.
 function renderFindingsSection() {
   var d = getAudData(CA);
   if (!d.findings) d.findings = [];
+  _ensureIssues(d);
   var step5c = d.controls[4]||[];
-  // Contrôles "à traiter" = fail (test finalisé fail) ou target
-  var failedCtrls = step5c.filter(_isCtrlFailedExisting);
-  var targetCtrls = step5c.filter(function(c){return c.design==='target';});
-  var problematicCtrls = failedCtrls.concat(targetCtrls);
+  var wcgwList = (d.wcgw && d.wcgw[4]) || [];
 
-  // Helper : récupérer un contrôle par son ID
-  function getCtrl(id) {
-    return step5c.find(function(c){return c.id === id;});
-  }
-  // Contrôles déjà liés à au moins un finding
-  var linkedCtrlIds = new Set();
-  d.findings.forEach(function(f){
-    (f.controlIds||[]).forEach(function(id){linkedCtrlIds.add(id);});
+  // ─── 1. Construire la liste maîtresse des sous-processus ───
+  var spList = [];
+  var seenSpIds = {};
+  var kickoffSps = (d.kickoffPrep && Array.isArray(d.kickoffPrep.subProcesses)) ? d.kickoffPrep.subProcesses : [];
+  kickoffSps.forEach(function(sp){
+    if (!sp || !sp.id || seenSpIds[sp.id]) return;
+    seenSpIds[sp.id] = true;
+    spList.push({id: sp.id, name: sp.name || '(sans nom)', source: 'kickoff'});
   });
-  // Contrôles problématiques pas encore liés
-  var unlinkedProblems = problematicCtrls.filter(function(c){return c.id && !linkedCtrlIds.has(c.id);});
+  var narrative = d.consolidatedNarrative || '';
+  var sectionRegex = /^##\s+(.+)$/gm;
+  var mm;
+  while ((mm = sectionRegex.exec(narrative)) !== null) {
+    var sectionName = (mm[1] || '').trim();
+    if (!sectionName) continue;
+    var matched = spList.find(function(s){return s.name.toLowerCase() === sectionName.toLowerCase();});
+    if (matched) continue;
+    spList.push({id: 'sp_discovered_'+spList.length, name: sectionName, source: 'discovered'});
+  }
+
+  // ─── 2. Helper : résoudre le SP d'un contrôle via WCGW ───
+  function ctrlSpId(ctrl) {
+    if (!ctrl) return '__transverse';
+    if (ctrl.subProcessId) return ctrl.subProcessId;
+    if (ctrl.wcgwId) {
+      var w = wcgwList.find(function(x){return x.id === ctrl.wcgwId;});
+      if (w && w.subProcessId) return w.subProcessId;
+    }
+    return '__transverse';
+  }
+
+  // ─── 3. Helper : résoudre le SP d'un finding ───
+  function findingSpId(f) {
+    if (f.subProcessId) return f.subProcessId; // explicite
+    // Auto : SP majoritaire des contrôles liés
+    var ctrlIds = f.controlIds || [];
+    var spCount = {};
+    ctrlIds.forEach(function(cId){
+      var ctrl = step5c.find(function(c){return c.id === cId;});
+      var spId = ctrlSpId(ctrl);
+      if (spId) spCount[spId] = (spCount[spId] || 0) + 1;
+    });
+    var best = null, bestCount = 0;
+    Object.keys(spCount).forEach(function(s){
+      if (spCount[s] > bestCount) { best = s; bestCount = spCount[s]; }
+    });
+    return best || '__transverse';
+  }
+
+  // ─── 4. Distribuer Issues + Findings dans les SP ───
+  var bySp = {};  // { spId: { designIssues: [], failedCtrls: [], targetCtrls: [], findings: [] } }
+  function getBucket(spId) {
+    if (!bySp[spId]) bySp[spId] = {designIssues: [], failedCtrls: [], targetCtrls: [], findings: []};
+    return bySp[spId];
+  }
+
+  // Design issues VALIDÉES
+  var validatedDi = d.issues.filter(function(i){return i.source === 'design' && i.validationStatus === 'validated';});
+  validatedDi.forEach(function(iss){
+    var spId = iss.relatedSpId || '__transverse';
+    getBucket(spId).designIssues.push(iss);
+  });
+
+  // Contrôles testés FAIL
+  var failedCtrls = step5c.filter(_isCtrlFailedExisting);
+  failedCtrls.forEach(function(c){
+    getBucket(ctrlSpId(c)).failedCtrls.push(c);
+  });
+
+  // Contrôles TARGET
+  var targetCtrls = step5c.filter(function(c){return c.design === 'target';});
+  targetCtrls.forEach(function(c){
+    getBucket(ctrlSpId(c)).targetCtrls.push(c);
+  });
+
+  // Findings
+  d.findings.forEach(function(f){
+    getBucket(findingSpId(f)).findings.push(f);
+  });
+
+  // ─── 5. Ordre des SP : kickoff/discovered puis transverse à la fin ───
+  var orderedSpIds = spList.map(function(s){return s.id;}).filter(function(id){return bySp[id];});
+  if (bySp['__transverse']) orderedSpIds.push('__transverse');
+
+  // Si aucun SP avec contenu (audit vide)
+  if (!orderedSpIds.length) {
+    return '<div class="card" style="margin-bottom:.75rem">'
+      +'<div style="font-size:12px;font-weight:600;color:var(--text-2);margin-bottom:6px">Findings par sous-processus</div>'
+      +'<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:.5rem;text-align:center;border:1px dashed var(--border);border-radius:4px">Aucune issue identifiée pour le moment. Termine les étapes précédentes (Design Issues, Tests) pour voir les sous-processus.</div>'
+      +'</div>';
+  }
+
+  // ─── 6. Rendu ───
+  // État d'ouverture des sections (init si pas déjà)
+  if (typeof _openFindingsSpSections === 'undefined') _openFindingsSpSections = {};
+  // État sélection issues (en mémoire, vidé entre sessions)
+  if (typeof _selectedIssuesForFinding === 'undefined') _selectedIssuesForFinding = {};
 
   var html = '<div class="card" style="margin-bottom:.75rem">';
   html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">';
-  html += '<div style="font-size:12px;font-weight:600;color:var(--text-2)">Findings <span style="font-size:10px;font-weight:400;color:var(--text-3)">('+d.findings.length+')</span></div>';
-  html += '<button class="bs" style="font-size:11px;padding:3px 9px" onclick="showAddFindingModal()">+ Ajouter un finding</button>';
+  html += '<div style="font-size:12px;font-weight:600;color:var(--text-2)">Findings par sous-processus <span style="font-size:10px;font-weight:400;color:var(--text-3)">('+d.findings.length+' findings · '+orderedSpIds.length+' SP)</span></div>';
+  html += '<button class="bs" style="font-size:11px;padding:3px 9px" onclick="showAddFindingModal()" title="Créer un finding sans sélection d\'issues">+ Finding libre</button>';
   html += '</div>';
-  html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:10px;font-style:italic">Chaque finding peut regrouper plusieurs déficiences (contrôles fail, contrôles target). Articulez votre constat puis liez les contrôles concernés.</div>';
+  html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:10px;font-style:italic">Coche les issues que tu veux regrouper dans un finding puis clique « Créer finding depuis sélection ». Tu peux aussi créer un finding libre via le bouton ci-dessus.</div>';
 
-  // v74 : Section "Design Issues validées à traiter" (Process uniquement, depuis l'étape ITW)
-  // Les Design Issues validated qui n'ont pas encore de finding rattaché
-  _ensureIssues(d);
-  var validatedDesignIssues = d.issues.filter(function(i){
-    return i.source === 'design' && i.validationStatus === 'validated';
-  });
-  // Issues déjà rattachées à au moins un finding (via f.designIssueIds)
-  var linkedDiIds = new Set();
-  d.findings.forEach(function(f){
-    (f.designIssueIds || []).forEach(function(id){linkedDiIds.add(id);});
-  });
-  var unlinkedDi = validatedDesignIssues.filter(function(i){return !linkedDiIds.has(i.id);});
+  orderedSpIds.forEach(function(spId){
+    var spInfo = (spId === '__transverse')
+      ? {id:'__transverse', name:'Transverse / Sans sous-processus', source:'fallback'}
+      : (spList.find(function(s){return s.id === spId;}) || {id:spId, name:spId, source:'unknown'});
+    var bucket = bySp[spId];
+    var nbIssues = bucket.designIssues.length + bucket.failedCtrls.length + bucket.targetCtrls.length;
+    var nbFindings = bucket.findings.length;
+    var isOpen = _openFindingsSpSections[spId] !== false; // ouvert par défaut
 
-  if (unlinkedDi.length) {
-    html += '<div style="background:#FEF2F2;border:.5px solid #FCA5A5;border-radius:6px;padding:10px;margin-bottom:12px">';
-    html += '<div style="font-size:11px;font-weight:600;color:#7F1D1D;margin-bottom:6px">⚠ Design Issues à traiter dans un finding ('+unlinkedDi.length+')</div>';
-    html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:6px;font-style:italic">Défaillances de design validées à l\'étape ITW/Narratif. Créez un finding pour les inclure.</div>';
-    unlinkedDi.forEach(function(iss){
-      var subtype = iss.subtype || 'weak';
-      var typeLabel = subtype === 'missing'
-        ? '<span class="badge" style="background:#FCE7E5;color:#7F1D1D;font-size:9px;border:.5px solid #F8B4B4">⚑ Manquant</span>'
-        : '<span class="badge" style="background:#FFEDD5;color:#9A3412;font-size:9px;border:.5px solid #FDBA74">⚠ Insuffisant</span>';
-      html += '<div style="background:#fff;border:.5px solid var(--border);border-radius:4px;padding:7px 9px;margin-bottom:4px;display:flex;align-items:flex-start;gap:8px">';
-      html += '<div style="flex-shrink:0;padding-top:1px">'+typeLabel+'</div>';
-      html += '<div style="flex:1;font-size:11px;min-width:0">';
-      html += '<div style="font-weight:500;color:var(--text-1)">'+(iss.title||'(sans titre)').replace(/</g,'&lt;')+'</div>';
-      if (iss.controlName) html += '<div style="color:var(--text-3);font-size:9px;font-style:italic;margin-top:2px">Contrôle : '+iss.controlName.replace(/</g,'&lt;')+'</div>';
-      // v75 : root cause badge inline
-      var rcCat = _getRootCauseCategory(iss.rootCauseCategory);
-      if (rcCat) {
-        html += '<div style="margin-top:4px;display:flex;align-items:center;gap:4px;flex-wrap:wrap">';
-        html += '<span style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;font-weight:500">🎯 RC :</span>';
-        html += '<span style="font-size:9px;font-weight:500;color:'+rcCat.color+';background:'+rcCat.color+'15;border:.5px solid '+rcCat.color+'40;padding:1px 6px;border-radius:2px">'+rcCat.shortLabel+'</span>';
-        if (iss.rootCauseExplanation) {
-          var rcShort = iss.rootCauseExplanation.length > 110 ? iss.rootCauseExplanation.substring(0, 108) + '…' : iss.rootCauseExplanation;
-          html += '<span style="font-size:9px;color:var(--text-3);font-style:italic">'+rcShort.replace(/</g,'&lt;')+'</span>';
+    html += '<div style="margin-bottom:14px;border:.5px solid var(--border);border-radius:6px;overflow:hidden;background:#fff">';
+    // Header SP
+    html += '<div onclick="toggleFindingsSpSection(\''+_escJsArg(spId)+'\')" style="cursor:pointer;padding:9px 14px;background:#fafafa;border-bottom:'+(isOpen?'.5px solid var(--border)':'none')+';display:flex;align-items:center;gap:10px;user-select:none">';
+    html += '<span style="font-size:11px;color:var(--text-3);width:10px;flex-shrink:0;transition:transform .15s;transform:rotate('+(isOpen?'90':'0')+'deg)">▶</span>';
+    html += '<span style="font-size:13px;font-weight:600;color:var(--text-1);flex:1">'+(''+spInfo.name).replace(/</g,'&lt;');
+    if (spInfo.source === 'discovered') html += ' <span style="font-size:9px;color:var(--text-3);font-style:italic">(découvert)</span>';
+    html += '</span>';
+    html += '<span style="font-size:10px;color:var(--text-3);flex-shrink:0">'+nbIssues+' issue'+(nbIssues>1?'s':'')+' · '+nbFindings+' finding'+(nbFindings>1?'s':'')+'</span>';
+    html += '</div>';
+
+    if (isOpen) {
+      html += '<div style="padding:10px 12px">';
+
+      // ─── 6a. Section ISSUES (sélectionnables) ───
+      if (nbIssues > 0) {
+        html += '<div style="font-size:11px;font-weight:600;color:var(--text-2);margin-bottom:6px">Issues identifiées ('+nbIssues+')</div>';
+        html += '<div style="display:flex;flex-direction:column;gap:3px;margin-bottom:8px">';
+
+        // Design issues
+        bucket.designIssues.forEach(function(iss){
+          var checkId = 'di:'+iss.id;
+          var isChecked = !!_selectedIssuesForFinding[checkId];
+          var subtype = iss.subtype || 'weak';
+          var typeLabel = subtype === 'missing'
+            ? '<span class="badge" style="background:#FCE7E5;color:#7F1D1D;font-size:9px;flex-shrink:0">⚠ Design Manquant</span>'
+            : '<span class="badge" style="background:#FFEDD5;color:#9A3412;font-size:9px;flex-shrink:0">⚠ Design Insuffisant</span>';
+          html += '<label style="display:flex;align-items:flex-start;gap:8px;padding:5px 8px;background:'+(isChecked?'#EEEDFE':'#fff')+';border:.5px solid '+(isChecked?'#CECBF6':'var(--border)')+';border-radius:3px;cursor:pointer;font-size:11px">';
+          html += '<input type="checkbox" '+(isChecked?'checked':'')+' onchange="toggleIssueSelection(\''+_escJsArg(checkId)+'\')" style="margin-top:2px;flex-shrink:0"/>';
+          html += typeLabel;
+          html += '<div style="flex:1;min-width:0">';
+          html += '<div style="font-weight:500">'+(iss.title||'(sans titre)').replace(/</g,'&lt;')+'</div>';
+          if (iss.controlName) html += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:1px">Contrôle : '+iss.controlName.replace(/</g,'&lt;')+'</div>';
+          html += '</div>';
+          html += '</label>';
+        });
+
+        // Tests fail
+        bucket.failedCtrls.forEach(function(c){
+          var checkId = 'ft:'+c.id;
+          var isChecked = !!_selectedIssuesForFinding[checkId];
+          var ctrlCode = c.code || c.id;
+          var aCount = (c.anomalies && c.anomalies.count) || '?';
+          var sCount = (c.sample && c.sample.count) || '?';
+          html += '<label style="display:flex;align-items:flex-start;gap:8px;padding:5px 8px;background:'+(isChecked?'#EEEDFE':'#fff')+';border:.5px solid '+(isChecked?'#CECBF6':'var(--border)')+';border-radius:3px;cursor:pointer;font-size:11px">';
+          html += '<input type="checkbox" '+(isChecked?'checked':'')+' onchange="toggleIssueSelection(\''+_escJsArg(checkId)+'\')" style="margin-top:2px;flex-shrink:0"/>';
+          html += '<span class="badge bfl" style="font-size:9px;flex-shrink:0">❌ Test fail</span>';
+          html += '<div style="flex:1;min-width:0">';
+          html += '<div><span style="color:var(--text-3);font-size:10px;margin-right:5px;font-family:monospace">'+ctrlCode+'</span>'+(c.name||'').replace(/</g,'&lt;')+'</div>';
+          html += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:1px">'+aCount+' anomalie'+(Number(aCount)>1?'s':'')+' / '+sCount+' testé'+(Number(sCount)>1?'s':'')+'</div>';
+          html += '</div>';
+          html += '</label>';
+        });
+
+        // Targets
+        bucket.targetCtrls.forEach(function(c){
+          var checkId = 'tg:'+c.id;
+          var isChecked = !!_selectedIssuesForFinding[checkId];
+          var ctrlCode = c.code || c.id;
+          html += '<label style="display:flex;align-items:flex-start;gap:8px;padding:5px 8px;background:'+(isChecked?'#EEEDFE':'#fff')+';border:.5px solid '+(isChecked?'#CECBF6':'var(--border)')+';border-radius:3px;cursor:pointer;font-size:11px">';
+          html += '<input type="checkbox" '+(isChecked?'checked':'')+' onchange="toggleIssueSelection(\''+_escJsArg(checkId)+'\')" style="margin-top:2px;flex-shrink:0"/>';
+          html += '<span class="badge" style="background:#FAEEDA;color:#854F0B;font-size:9px;flex-shrink:0">🎯 Target manquant</span>';
+          html += '<div style="flex:1;min-width:0">';
+          html += '<div><span style="color:var(--text-3);font-size:10px;margin-right:5px;font-family:monospace">'+ctrlCode+'</span>'+(c.name||'').replace(/</g,'&lt;')+'</div>';
+          if (c.owner) html += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:1px">Owner : '+c.owner.replace(/</g,'&lt;')+'</div>';
+          html += '</div>';
+          html += '</label>';
+        });
+
+        html += '</div>';
+
+        // Bouton "Créer finding depuis sélection" (compte sélections du SP)
+        var nbSelectedSp = 0;
+        bucket.designIssues.forEach(function(i){if (_selectedIssuesForFinding['di:'+i.id]) nbSelectedSp++;});
+        bucket.failedCtrls.forEach(function(c){if (_selectedIssuesForFinding['ft:'+c.id]) nbSelectedSp++;});
+        bucket.targetCtrls.forEach(function(c){if (_selectedIssuesForFinding['tg:'+c.id]) nbSelectedSp++;});
+
+        html += '<div style="display:flex;gap:6px;margin-bottom:10px">';
+        if (nbSelectedSp > 0) {
+          html += '<button class="bp" style="font-size:11px;padding:5px 11px;background:#3C3489;color:#fff" onclick="createFindingFromSelection(\''+_escJsArg(spId)+'\')">+ Créer finding depuis '+nbSelectedSp+' issue'+(nbSelectedSp>1?'s':'')+'</button>';
+          html += '<button class="bs" style="font-size:11px;padding:5px 11px" onclick="clearIssueSelectionForSp(\''+_escJsArg(spId)+'\')">Désélectionner</button>';
+        } else {
+          html += '<span style="font-size:10px;color:var(--text-3);font-style:italic">Coche au-dessus pour créer un finding depuis les issues sélectionnées</span>';
         }
         html += '</div>';
       }
-      html += '</div>';
-      html += '</div>';
-    });
-    html += '</div>';
-  }
 
-  // Section "Contrôles à traiter" non encore liés
-  if (unlinkedProblems.length) {
-    html += '<div style="background:#FFF7ED;border:.5px solid #FED7AA;border-radius:6px;padding:10px;margin-bottom:12px">';
-    html += '<div style="font-size:11px;font-weight:600;color:#854F0B;margin-bottom:6px">⚠ Contrôles à traiter dans un finding ('+unlinkedProblems.length+')</div>';
-    html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:6px;font-style:italic">Ces contrôles fail ou target ne sont rattachés à aucun finding. Créez ou éditez un finding pour les inclure.</div>';
-    unlinkedProblems.forEach(function(c){
-      var ctrlCode = c.code || c.id;
-      var typeLabel = c.design === 'target'
-        ? '<span class="badge" style="background:#FAEEDA;color:#854F0B;font-size:9px">🎯 Target</span>'
-        : '<span class="badge bfl" style="font-size:9px">❌ Fail</span>';
-      html += '<div style="background:#fff;border:.5px solid var(--border);border-radius:4px;padding:5px 8px;margin-bottom:3px;display:flex;align-items:center;gap:8px">';
-      html += typeLabel;
-      html += '<div style="flex:1;font-size:11px"><span style="color:var(--text-3);font-size:10px;margin-right:5px">'+ctrlCode+'</span>'+c.name+'</div>';
-      html += '</div>';
-    });
-    html += '</div>';
-  }
-
-  // Liste des findings
-  if (!d.findings.length) {
-    html += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:.5rem;text-align:center;border:1px dashed var(--border);border-radius:4px">Aucun finding rédigé. Cliquez sur « + Ajouter un finding » pour commencer.</div>';
-  } else {
-    d.findings.forEach(function(f, idx){
-      var linkedCtrls = (f.controlIds||[]).map(getCtrl).filter(Boolean);
-      html += '<div style="border:.5px solid var(--border);border-radius:6px;padding:12px;margin-bottom:10px;background:#fff">';
-      html += '<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px">';
-      html += '<span class="badge bpc" style="font-size:10px;flex-shrink:0">Finding '+(idx+1)+'</span>';
-      html += '<div style="flex:1">';
-      html += '<div style="font-size:13px;font-weight:600">'+(f.title||'(sans titre)')+'</div>';
-      // Description courte (Exec Summary) - en gras pour distinction
-      var execTxt = f.descExec || (f.desc && f.desc.length<200 ? f.desc : '');
-      var detailTxt = f.descDetailed || f.desc || '';
-      if (execTxt) html += '<div style="font-size:11px;color:var(--text-2);margin-top:4px;white-space:pre-wrap;font-style:italic">📋 <span style="color:var(--text-3);font-style:normal;font-size:9px">EXEC SUMMARY:</span> '+execTxt+'</div>';
-      if (detailTxt && detailTxt !== execTxt) html += '<div style="font-size:11px;color:var(--text-2);margin-top:4px;white-space:pre-wrap">📄 <span style="color:var(--text-3);font-size:9px">DETAILED:</span> '+detailTxt+'</div>';
-      // Métadonnées : Owner + Risk level
-      var metaParts = [];
-      if (f.owner) metaParts.push('<strong>Owner:</strong> '+f.owner);
-      if (f.probability && f.impact) {
-        var probLabel = {rare:'Rare',unlikely:'Unlikely',possible:'Possible',probable:'Probable'}[f.probability]||f.probability;
-        var impLabel  = {minor:'Minor',limited:'Limited',major:'Major',severe:'Severe'}[f.impact]||f.impact;
-        metaParts.push('<strong>Risk:</strong> '+probLabel+' × '+impLabel);
-      }
-      if (metaParts.length) {
-        html += '<div style="font-size:10px;color:var(--text-3);margin-top:4px">'+metaParts.join(' · ')+'</div>';
-      }
-      if (f.potentialRisk) {
-        html += '<div style="font-size:10px;color:var(--text-3);margin-top:4px;padding:5px 8px;background:#FFF7ED;border-left:2px solid #F2A900;border-radius:3px"><strong>Potential Risk:</strong> '+f.potentialRisk+'</div>';
-      }
-      html += '</div>';
-      html += '<button class="bs" style="font-size:10px;padding:1px 6px" onclick="showEditFindingModal('+idx+')">Éditer</button>';
-      html += '<button class="bd" style="font-size:10px;padding:1px 5px" onclick="removeManualFinding('+idx+')">×</button>';
-      html += '</div>';
-
-      // Contrôles liés
-      html += '<div style="margin-top:8px;padding-top:8px;border-top:.5px dashed var(--border)">';
-      html += '<div style="font-size:10px;font-weight:600;color:var(--text-2);margin-bottom:4px">Contrôles liés ('+linkedCtrls.length+')</div>';
-      if (!linkedCtrls.length) {
-        html += '<div style="font-size:10px;color:var(--text-3);font-style:italic;padding:4px">Aucun contrôle lié. Éditez le finding pour rattacher les déficiences.</div>';
-      } else {
-        linkedCtrls.forEach(function(c){
-          var ctrlCode = c.code || c.id;
-          var typeLabel = c.design === 'target'
-            ? '<span class="badge" style="background:#FAEEDA;color:#854F0B;font-size:9px">🎯 Target</span>'
-            : c.result === 'fail'
-            ? '<span class="badge bfl" style="font-size:9px">❌ Fail</span>'
-            : '<span class="badge bdn" style="font-size:9px">✓ Pass</span>';
-          html += '<div style="background:#fafafa;border:.5px solid var(--border);border-radius:4px;padding:5px 8px;margin-bottom:3px;display:flex;align-items:center;gap:8px">';
-          html += typeLabel;
-          html += '<div style="flex:1;font-size:11px"><span style="color:var(--text-3);font-size:10px;margin-right:5px">'+ctrlCode+'</span>'+c.name+'</div>';
-          if (c.testComment) html += '<span style="font-size:10px;color:var(--text-3);font-style:italic;max-width:200px;text-overflow:ellipsis;overflow:hidden;white-space:nowrap" title="'+c.testComment.replace(/"/g,'&quot;')+'">'+c.testComment+'</span>';
+      // ─── 6b. Section FINDINGS du SP ───
+      if (nbFindings > 0) {
+        html += '<div style="font-size:11px;font-weight:600;color:var(--text-2);margin-bottom:6px;margin-top:'+(nbIssues?'10px':'0')+'">Findings ('+nbFindings+')</div>';
+        bucket.findings.forEach(function(f){
+          var idx = d.findings.indexOf(f);
+          html += '<div style="border:.5px solid var(--border);border-radius:5px;padding:9px 11px;margin-bottom:6px;background:#fff">';
+          html += '<div style="display:flex;align-items:flex-start;gap:8px">';
+          html += '<span class="badge bpc" style="font-size:10px;flex-shrink:0">F'+(idx+1)+'</span>';
+          html += '<div style="flex:1;min-width:0">';
+          html += '<div style="font-size:12px;font-weight:600">'+(f.title||'(sans titre)').replace(/</g,'&lt;')+'</div>';
+          var execTxt = f.descExec || '';
+          if (execTxt) html += '<div style="font-size:10px;color:var(--text-2);margin-top:3px;font-style:italic">'+execTxt.replace(/</g,'&lt;')+'</div>';
+          // Méta : owner + risk + nombre d'issues liées
+          var nbDi = (f.designIssueIds||[]).length;
+          var nbCtl = (f.controlIds||[]).length;
+          var metaParts = [];
+          if (f.owner) metaParts.push('Owner: '+f.owner);
+          if (f.probability && f.impact) {
+            var probLabel = {rare:'Rare',unlikely:'Unlikely',possible:'Possible',probable:'Probable'}[f.probability]||f.probability;
+            var impLabel  = {minor:'Minor',limited:'Limited',major:'Major',severe:'Severe'}[f.impact]||f.impact;
+            metaParts.push('Risk: '+probLabel+' × '+impLabel);
+          }
+          if (nbDi || nbCtl) metaParts.push((nbDi+nbCtl)+' issue'+((nbDi+nbCtl)>1?'s':'')+' liées');
+          if (metaParts.length) html += '<div style="font-size:9px;color:var(--text-3);margin-top:3px">'+metaParts.join(' · ')+'</div>';
+          html += '</div>';
+          html += '<div style="display:flex;gap:4px;flex-shrink:0">';
+          html += '<button class="bs" style="font-size:10px;padding:3px 7px" onclick="showFindingModal({finding:'+JSON.stringify(f).replace(/"/g,'&quot;')+', idx:'+idx+'})" title="Éditer">✏</button>';
+          html += '<button class="bs" style="font-size:10px;padding:3px 7px;color:#993C1D" onclick="deleteFinding('+idx+')" title="Supprimer">🗑</button>';
+          html += '</div>';
+          html += '</div>';
           html += '</div>';
         });
       }
+
+      if (!nbIssues && !nbFindings) {
+        html += '<div style="font-size:10px;color:var(--text-3);font-style:italic;padding:6px">Aucune issue identifiée pour ce sous-processus.</div>';
+      }
+
       html += '</div>';
-      html += '</div>';
-    });
-  }
+    }
+    html += '</div>';
+  });
 
   html += '</div>';
   return html;
+}
+
+// v77.12 : toggle sélection d'une issue (id format : "di:xxx" / "ft:xxx" / "tg:xxx")
+function toggleIssueSelection(checkId) {
+  if (typeof _selectedIssuesForFinding === 'undefined') _selectedIssuesForFinding = {};
+  if (_selectedIssuesForFinding[checkId]) delete _selectedIssuesForFinding[checkId];
+  else _selectedIssuesForFinding[checkId] = true;
+  // Re-render léger : on garde la position de scroll
+  var scrollY = window.scrollY;
+  var detContent = document.getElementById('det-content');
+  if (detContent) {
+    detContent.innerHTML = renderDetContent();
+    setTimeout(function(){ window.scrollTo(0, scrollY); }, 0);
+  }
+}
+
+// v77.12 : toggle section SP dans la vue Findings
+function toggleFindingsSpSection(spId) {
+  if (typeof _openFindingsSpSections === 'undefined') _openFindingsSpSections = {};
+  if (_openFindingsSpSections[spId] === false) {
+    delete _openFindingsSpSections[spId];
+  } else {
+    _openFindingsSpSections[spId] = false;
+  }
+  var scrollY = window.scrollY;
+  var detContent = document.getElementById('det-content');
+  if (detContent) {
+    detContent.innerHTML = renderDetContent();
+    setTimeout(function(){ window.scrollTo(0, scrollY); }, 0);
+  }
+}
+
+// v77.12 : vider les sélections d'issues d'un SP (utilisé après création de finding ou bouton "Désélectionner")
+function clearIssueSelectionForSp(spId) {
+  if (typeof _selectedIssuesForFinding === 'undefined') return;
+  var d = getAudData(CA);
+  _ensureIssues(d);
+  var step5c = d.controls[4]||[];
+  var wcgwList = (d.wcgw && d.wcgw[4]) || [];
+  function ctrlSpId(ctrl) {
+    if (!ctrl) return '__transverse';
+    if (ctrl.subProcessId) return ctrl.subProcessId;
+    if (ctrl.wcgwId) {
+      var w = wcgwList.find(function(x){return x.id === ctrl.wcgwId;});
+      if (w && w.subProcessId) return w.subProcessId;
+    }
+    return '__transverse';
+  }
+  // Vider toutes les sélections d'issues appartenant à ce SP
+  var toDelete = [];
+  Object.keys(_selectedIssuesForFinding).forEach(function(checkId){
+    var parts = checkId.split(':');
+    var type = parts[0], id = parts[1];
+    if (type === 'di') {
+      var iss = d.issues.find(function(i){return i.id === id;});
+      if (iss && (iss.relatedSpId || '__transverse') === spId) toDelete.push(checkId);
+    } else if (type === 'ft' || type === 'tg') {
+      var ctrl = step5c.find(function(c){return c.id === id;});
+      if (ctrl && ctrlSpId(ctrl) === spId) toDelete.push(checkId);
+    }
+  });
+  toDelete.forEach(function(k){delete _selectedIssuesForFinding[k];});
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+// v77.12 : créer un finding depuis les issues sélectionnées d'un SP
+function createFindingFromSelection(spId) {
+  if (typeof _selectedIssuesForFinding === 'undefined') return;
+  var d = getAudData(CA);
+  _ensureIssues(d);
+  var step5c = d.controls[4]||[];
+  var wcgwList = (d.wcgw && d.wcgw[4]) || [];
+  function ctrlSpId(ctrl) {
+    if (!ctrl) return '__transverse';
+    if (ctrl.subProcessId) return ctrl.subProcessId;
+    if (ctrl.wcgwId) {
+      var w = wcgwList.find(function(x){return x.id === ctrl.wcgwId;});
+      if (w && w.subProcessId) return w.subProcessId;
+    }
+    return '__transverse';
+  }
+  // Extraire les IDs sélectionnés du SP
+  var preDesignIssueIds = [];
+  var preCtrlIds = [];
+  Object.keys(_selectedIssuesForFinding).forEach(function(checkId){
+    if (!_selectedIssuesForFinding[checkId]) return;
+    var parts = checkId.split(':');
+    var type = parts[0], id = parts[1];
+    if (type === 'di') {
+      var iss = d.issues.find(function(i){return i.id === id;});
+      if (iss && (iss.relatedSpId || '__transverse') === spId) preDesignIssueIds.push(id);
+    } else if (type === 'ft' || type === 'tg') {
+      var ctrl = step5c.find(function(c){return c.id === id;});
+      if (ctrl && ctrlSpId(ctrl) === spId) preCtrlIds.push(id);
+    }
+  });
+  // Ouvrir la modale finding pré-remplie
+  // On utilise un objet "preselection" pour passer les sélections à la modale
+  _findingPreselection = {
+    subProcessId: spId === '__transverse' ? '__transverse' : spId,
+    designIssueIds: preDesignIssueIds,
+    controlIds: preCtrlIds,
+  };
+  showFindingModal(null); // null = nouveau finding
+  // Le clear des sélections se fait après confirmation dans la modale
 }
 function renderHeaderAndMaturitySection() {
   var d = getAudData(CA);
@@ -12039,29 +13207,33 @@ function renderHeaderAndMaturitySection() {
     {key:'effective',label:'Effective',color:'#3B6D11',bg:'#EAF3DE'},
   ];
 
-  var html = '<div class="card" style="margin-bottom:.75rem">';
-  html += '<div style="display:grid;grid-template-columns:1.6fr 1fr;gap:14px">';
+  // v77.12.1 : version compacte — moitié de la hauteur précédente
+  var html = '<div class="card" style="margin-bottom:.75rem;padding:10px 12px">';
+  html += '<div style="display:grid;grid-template-columns:1.6fr 1fr;gap:12px">';
 
   // ─── Colonne gauche : Header de l'Executive Summary ────────
   html += '<div>';
-  html += '<div style="font-size:12px;font-weight:600;color:var(--text-2);margin-bottom:4px">Executive Summary — Header</div>';
-  html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:8px;font-style:italic">Texte d\'introduction qui apparaîtra en haut de la slide « Executive Summary - Findings ». La maturité est ajoutée automatiquement à la fin.</div>';
-  html += '<textarea id="exec-summary-header" placeholder="ex : The audit of the Renewals process identified improvement opportunities in operational efficiency. These weaknesses elevate the risk of missed renewals and lost revenue opportunities..." style="width:100%;min-height:160px;font-size:12px;padding:8px;border:1px solid var(--border);border-radius:4px;resize:vertical" onchange="setExecSummaryHeader(this.value)">'+(d.execSummaryHeader||'').replace(/</g,'&lt;')+'</textarea>';
+  html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px">';
+  html += '<div style="font-size:11px;font-weight:600;color:var(--text-2)">Exec Summary — Header</div>';
+  html += '<span style="font-size:9px;color:var(--text-3);font-style:italic">Maturité ajoutée auto en fin</span>';
+  html += '</div>';
+  html += '<textarea id="exec-summary-header" placeholder="ex : The audit of the Renewals process identified improvement opportunities in operational efficiency..." style="width:100%;min-height:80px;font-size:11px;padding:6px 8px;border:1px solid var(--border);border-radius:3px;resize:vertical;line-height:1.4" onchange="setExecSummaryHeader(this.value)">'+(d.execSummaryHeader||'').replace(/</g,'&lt;')+'</textarea>';
   html += '</div>';
 
   // ─── Colonne droite : Maturity compacte ─────────────────────
   html += '<div>';
-  html += '<div style="font-size:12px;font-weight:600;color:var(--text-2);margin-bottom:4px">Overall Process Maturity'+(d.maturity.saved?' <span class="tag-new" style="font-size:9px;margin-left:6px">✓</span>':'')+'</div>';
-  html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:8px;font-style:italic">Niveau global du process audité.</div>';
-  // Grid 2x2 des niveaux
-  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px">';
+  html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px">';
+  html += '<div style="font-size:11px;font-weight:600;color:var(--text-2)">Overall Process Maturity'+(d.maturity.saved?' <span style="color:#1D6B45;font-size:9px">✓</span>':'')+'</div>';
+  html += '<button class="bp" style="font-size:10px;padding:2px 8px" onclick="saveMaturity()">Save</button>';
+  html += '</div>';
+  // Grid 2x2 plus tassée
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:4px">';
   MLEVELS.forEach(function(l){
     var sel = d.maturity.level === l.key;
-    html += '<div onclick="setMaturity(\''+l.key+'\')" style="border:1.5px solid '+(sel?l.color:'var(--border)')+';border-radius:5px;padding:8px 10px;cursor:pointer;background:'+(sel?l.bg:'var(--bg-card)')+';font-size:11px;text-align:center;transition:all 0.15s"><strong style="color:'+l.color+'">'+l.label+'</strong></div>';
+    html += '<div onclick="setMaturity(\''+l.key+'\')" style="border:1.5px solid '+(sel?l.color:'var(--border)')+';border-radius:3px;padding:4px 6px;cursor:pointer;background:'+(sel?l.bg:'var(--bg-card)')+';font-size:10px;text-align:center;transition:all 0.15s"><strong style="color:'+l.color+'">'+l.label+'</strong></div>';
   });
   html += '</div>';
-  html += '<textarea id="maturity-notes" style="width:100%;min-height:60px;resize:vertical;font-size:11px;padding:6px;border:1px solid var(--border);border-radius:4px" placeholder="Justification (optionnel)...">'+(d.maturity.notes||'')+'</textarea>';
-  html += '<div style="display:flex;justify-content:flex-end;margin-top:6px"><button class="bp" style="font-size:11px;padding:4px 10px" onclick="saveMaturity()">Sauvegarder</button></div>';
+  html += '<textarea id="maturity-notes" style="width:100%;min-height:38px;resize:vertical;font-size:10px;padding:4px 6px;border:1px solid var(--border);border-radius:3px;line-height:1.3" placeholder="Justification (optionnel)...">'+(d.maturity.notes||'')+'</textarea>';
   html += '</div>';
 
   html += '</div>'; // grid
@@ -12435,6 +13607,44 @@ function renderMgtRespSection() {
   var step5c = d.controls[4]||[];
   function getCtrl(id) { return step5c.find(function(c){return c.id === id;}); }
 
+  // v77.13 : migration ancien modèle → nouveau modèle
+  // Ancien : {findingId, action, owner, year, quarter, pushed}
+  // Nouveau : {id, findingId, responseText, responseOwner, actions:[{id,action,owner,year,quarter,deadlineHistory:[]}], pushed}
+  d.mgtResp.forEach(function(r){
+    if (!r.id) r.id = 'mr_' + Date.now() + '_' + Math.random().toString(36).slice(2,7);
+    if (typeof r.responseText === 'undefined' && typeof r.action !== 'undefined') {
+      // Migration : on transforme l'action+deadline en 1 action dans actions[]
+      r.responseText = '';
+      r.responseOwner = r.owner || '';
+      r.actions = [{
+        id: 'ac_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
+        action: r.action || '',
+        owner: r.owner || '',
+        year: r.year || 2026,
+        quarter: r.quarter || 'Q1',
+        deadlineHistory: [],
+      }];
+      // v77.13.1 fix : reset pushed=true sur MR migrées car les actions correspondantes
+      // ne sont peut-être pas vraiment sur SharePoint (bug ancien : pas de saveAction)
+      // L'auditeur pourra re-pousser pour s'assurer que c'est persisté
+      if (r.pushed) {
+        // Vérifier si l'action correspondante existe vraiment dans ACTIONS
+        var existsInActions = ACTIONS.some(function(ac){
+          return ac.findingId === r.findingId && ac.title === r.action;
+        });
+        if (!existsInActions) {
+          r.pushed = false; // Re-permettre le push
+        }
+      }
+      r._migrated = true;
+    }
+    if (!Array.isArray(r.actions)) r.actions = [];
+    r.actions.forEach(function(a){
+      if (!a.id) a.id = 'ac_' + Date.now() + '_' + Math.random().toString(36).slice(2,7);
+      if (!Array.isArray(a.deadlineHistory)) a.deadlineHistory = [];
+    });
+  });
+
   // Source unique : les findings rédigés à l'étape Report
   var allFindings = d.findings.map(function(f, i){
     var fid = f.id || ('f_'+i);
@@ -12442,10 +13652,25 @@ function renderMgtRespSection() {
     return {id: fid, title: f.title, desc: f.desc, type: 'finding', controls: linkedCtrls};
   });
 
-  // S'assurer qu'une mgtResp existe pour chaque finding
+  // Assurer 1 MR par défaut pour chaque finding (mais permettre d'en ajouter d'autres)
   allFindings.forEach(function(f){
-    if (!d.mgtResp.find(function(r){return r.findingId===f.id;})) {
-      d.mgtResp.push({findingId:f.id, action:'', owner:'', year:2026, quarter:'Q1', pushed:false});
+    var existing = d.mgtResp.filter(function(r){return r.findingId===f.id;});
+    if (existing.length === 0) {
+      d.mgtResp.push({
+        id: 'mr_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
+        findingId: f.id,
+        responseText: '',
+        responseOwner: '',
+        actions: [{
+          id: 'ac_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
+          action: '',
+          owner: '',
+          year: 2026,
+          quarter: 'Q1',
+          deadlineHistory: [],
+        }],
+        pushed: false,
+      });
     }
   });
 
@@ -12458,41 +13683,122 @@ function renderMgtRespSection() {
     html += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:.5rem">Aucun finding identifié. Rédigez les findings à l\'étape Report.</div>';
   } else {
     allFindings.forEach(function(f){
-      var resp = d.mgtResp.find(function(r){return r.findingId===f.id;}) || {};
-      html += '<div class="mr-row">';
-      html += '<div class="mr-hdr"><span class="badge bpc">Finding</span><div class="mr-title">'+f.title+'</div>'+(resp.pushed?'<span class="tag-new">✓ Envoyé</span>':'')+'</div>';
-      if (f.desc) html += '<div style="font-size:11px;color:var(--text-2);margin-bottom:.5rem;white-space:pre-wrap">'+f.desc+'</div>';
-      // Liste compact des contrôles liés
+      var responses = d.mgtResp.filter(function(r){return r.findingId===f.id;});
+
+      // Card du finding (un seul wrapper, contient toutes les MR)
+      html += '<div class="mr-row" style="margin-bottom:14px;border:.5px solid var(--border);border-radius:6px;background:#fff;padding:12px">';
+      html += '<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:8px">';
+      html += '<span class="badge bpc" style="flex-shrink:0">Finding</span>';
+      html += '<div style="flex:1">';
+      html += '<div style="font-size:13px;font-weight:600">'+(''+f.title).replace(/</g,'&lt;')+'</div>';
+      if (f.desc) html += '<div style="font-size:11px;color:var(--text-2);margin-top:4px;white-space:pre-wrap">'+(''+f.desc).replace(/</g,'&lt;')+'</div>';
       if (f.controls.length) {
-        html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:.5rem">Contrôles concernés : ';
+        html += '<div style="font-size:10px;color:var(--text-3);margin-top:4px">Contrôles concernés : ';
         html += f.controls.map(function(c){
           var typeLabel = c.design === 'target' ? '🎯' : '❌';
-          return typeLabel+' '+(c.code||c.id)+' '+c.name;
+          return typeLabel+' '+(c.code||c.id)+' '+(''+c.name).replace(/</g,'&lt;');
         }).join(' · ');
         html += '</div>';
       }
-      html += '<div class="mr-fields">';
-      html += '<div><label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:3px">Action</label><input style="font-size:11px" placeholder="Action corrective..." value="'+(resp.action||'').replace(/"/g,'&quot;')+'" onchange="setMgtResp(\''+f.id+'\',\'action\',this.value)"/></div>';
-      html += '<div><label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:3px">Owner</label><input style="font-size:11px" placeholder="ex: Finance, IT..." value="'+(resp.owner||'').replace(/"/g,'&quot;')+'" onchange="setMgtResp(\''+f.id+'\',\'owner\',this.value)"/></div>';
-      html += '<div><label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:3px">Deadline</label><div style="display:flex;gap:4px">';
-      html += '<select style="font-size:11px" onchange="setMgtResp(\''+f.id+'\',\'year\',parseInt(this.value))">';
-      html += '<option '+(resp.year===2025?'selected':'')+'>2025</option>';
-      html += '<option '+(resp.year===2026?'selected':'')+'>2026</option>';
-      html += '<option '+(resp.year===2027?'selected':'')+'>2027</option>';
-      html += '<option '+(resp.year===2028?'selected':'')+'>2028</option>';
-      html += '</select>';
-      html += '<select style="font-size:11px" onchange="setMgtResp(\''+f.id+'\',\'quarter\',this.value)">';
-      html += '<option '+(resp.quarter==='Q1'?'selected':'')+'>Q1</option>';
-      html += '<option '+(resp.quarter==='Q2'?'selected':'')+'>Q2</option>';
-      html += '<option '+(resp.quarter==='Q3'?'selected':'')+'>Q3</option>';
-      html += '<option '+(resp.quarter==='Q4'?'selected':'')+'>Q4</option>';
-      html += '</select>';
-      html += '</div></div>';
       html += '</div>';
+      html += '</div>';
+
+      // Toutes les MR de ce finding
+      responses.forEach(function(resp, respIdx){
+        html += _renderSingleMgtResp(f, resp, respIdx, responses.length);
+      });
+
+      // Bouton "Ajouter une MR" pour ce finding
+      html += '<div style="display:flex;justify-content:flex-end;margin-top:8px">';
+      html += '<button class="bs" style="font-size:10px;padding:3px 9px" onclick="addMgtRespForFinding(\''+_escJsArg(f.id)+'\')">+ Ajouter une Management Response</button>';
+      html += '</div>';
+
       html += '</div>';
     });
   }
   html += '</div>';
+  return html;
+}
+
+// v77.13 : rendu d'une seule Management Response avec ses N plans d'action
+function _renderSingleMgtResp(f, resp, respIdx, totalResp) {
+  var html = '';
+  html += '<div style="border:.5px solid #CECBF6;border-radius:5px;padding:10px;background:#FAFAFE;margin-bottom:8px">';
+
+  // Header MR
+  html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">';
+  html += '<span class="badge" style="background:#EEEDFE;color:#3C3489;font-size:9px">MR'+(totalResp>1?' '+(respIdx+1):'')+'</span>';
+  html += '<span style="font-size:11px;font-weight:600;color:var(--text-2)">Management Response</span>';
+  if (resp.pushed) html += '<span class="tag-new" style="font-size:9px">✓ Envoyé</span>';
+  html += '<span style="flex:1"></span>';
+  if (totalResp > 1) {
+    html += '<button class="bs" style="font-size:9px;padding:2px 6px;color:#993C1D" onclick="removeMgtResp(\''+_escJsArg(resp.id)+'\')" title="Supprimer cette MR">🗑</button>';
+  }
+  html += '</div>';
+
+  // Champs MR : texte + owner
+  html += '<div style="display:grid;grid-template-columns:3fr 1fr;gap:8px;margin-bottom:10px">';
+  html += '<div><label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:3px">Réponse du management</label>';
+  html += '<textarea style="font-size:11px;width:100%;min-height:50px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;font-family:inherit;resize:vertical" placeholder="Le management s\'engage à ..." onchange="setMgtRespField(\''+_escJsArg(resp.id)+'\',\'responseText\',this.value)">'+(resp.responseText||'').replace(/</g,'&lt;')+'</textarea></div>';
+  html += '<div><label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:3px">Owner de la MR</label>';
+  html += '<input style="font-size:11px;width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box" placeholder="ex: Director Finance" value="'+(resp.responseOwner||'').replace(/"/g,'&quot;')+'" onchange="setMgtRespField(\''+_escJsArg(resp.id)+'\',\'responseOwner\',this.value)"/></div>';
+  html += '</div>';
+
+  // Section "Plans d'action"
+  html += '<div style="border-top:.5px dashed #CECBF6;padding-top:8px">';
+  html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">';
+  html += '<span style="font-size:10px;font-weight:600;color:var(--text-2)">📋 Plans d\'action</span>';
+  html += '<span style="font-size:9px;color:var(--text-3)">('+(resp.actions||[]).length+')</span>';
+  html += '</div>';
+
+  // Actions
+  (resp.actions || []).forEach(function(a, aIdx){
+    html += _renderSingleAction(resp, a, aIdx);
+  });
+
+  // Bouton "Ajouter action"
+  html += '<button class="bs" style="font-size:10px;padding:3px 9px;margin-top:4px" onclick="addActionToMgtResp(\''+_escJsArg(resp.id)+'\')">+ Ajouter un plan d\'action</button>';
+
+  html += '</div>'; // border-top
+  html += '</div>'; // mr container
+  return html;
+}
+
+// v77.13 : rendu d'un seul plan d'action
+function _renderSingleAction(resp, a, aIdx) {
+  var html = '';
+  html += '<div style="background:#fff;border:.5px solid var(--border);border-radius:4px;padding:8px;margin-bottom:5px">';
+  html += '<div style="display:grid;grid-template-columns:3fr 1.2fr 1.5fr auto;gap:6px;align-items:flex-start">';
+
+  // Action
+  html += '<div><label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Action #'+(aIdx+1)+'</label>';
+  html += '<input style="font-size:11px;width:100%;padding:4px 7px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box" placeholder="Action corrective..." value="'+(a.action||'').replace(/"/g,'&quot;')+'" onchange="setActionField(\''+_escJsArg(resp.id)+'\',\''+_escJsArg(a.id)+'\',\'action\',this.value)"/></div>';
+
+  // Owner
+  html += '<div><label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Owner</label>';
+  html += '<input style="font-size:11px;width:100%;padding:4px 7px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box" placeholder="ex: Finance, IT..." value="'+(a.owner||'').replace(/"/g,'&quot;')+'" onchange="setActionField(\''+_escJsArg(resp.id)+'\',\''+_escJsArg(a.id)+'\',\'owner\',this.value)"/></div>';
+
+  // Deadline
+  html += '<div><label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Deadline</label>';
+  html += '<div style="display:flex;gap:3px">';
+  html += '<select style="font-size:11px;padding:4px 4px;border:1px solid var(--border);border-radius:3px" onchange="setActionField(\''+_escJsArg(resp.id)+'\',\''+_escJsArg(a.id)+'\',\'year\',parseInt(this.value))">';
+  [2025,2026,2027,2028].forEach(function(y){
+    html += '<option '+(a.year===y?'selected':'')+'>'+y+'</option>';
+  });
+  html += '</select>';
+  html += '<select style="font-size:11px;padding:4px 4px;border:1px solid var(--border);border-radius:3px" onchange="setActionField(\''+_escJsArg(resp.id)+'\',\''+_escJsArg(a.id)+'\',\'quarter\',this.value)">';
+  ['Q1','Q2','Q3','Q4'].forEach(function(q){
+    html += '<option '+(a.quarter===q?'selected':'')+'>'+q+'</option>';
+  });
+  html += '</select>';
+  html += '</div></div>';
+
+  // Suppression de cette action
+  html += '<div style="display:flex;align-items:flex-end;height:100%"><button class="bs" style="font-size:9px;padding:3px 6px;color:#993C1D" onclick="removeActionFromMgtResp(\''+_escJsArg(resp.id)+'\',\''+_escJsArg(a.id)+'\')" title="Supprimer ce plan d\'action">🗑</button></div>';
+
+  html += '</div>'; // grid
+  html += '</div>'; // wrapper
+
   return html;
 }
 
@@ -12937,6 +14243,408 @@ async function setProcessTestSubField(i, group, sub, val) {
     document.getElementById('det-content').innerHTML = renderDetContent();
   }
 }
+// v77 : setter pour samplingPlan (objet imbriqué) sur un contrôle Process testé
+async function setProcessSamplingField(i, field, val) {
+  var d = getAudData(CA);
+  if (!d.controls[4] || !d.controls[4][i]) return;
+  if (!d.controls[4][i].samplingPlan) {
+    d.controls[4][i].samplingPlan = {confidence:95, EDR:5, TDR:5};
+  }
+  d.controls[4][i].samplingPlan[field] = val;
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+// v77.3 : setter pour le mode de test (control / substantive) Process
+async function setProcessTestModeField(i, mode) {
+  var d = getAudData(CA);
+  if (!d.controls[4] || !d.controls[4][i]) return;
+  d.controls[4][i].testMode = mode;
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+// v77.10 : toggle ouverture/fermeture d'une carte de test
+// Stocke l'état en mémoire (pas persisté côté serveur, juste pendant la session)
+var _openTestCards = {};
+function toggleTestCard(key) {
+  if (_openTestCards[key]) delete _openTestCards[key];
+  else _openTestCards[key] = true;
+  // Re-render léger : on garde la position de scroll
+  var scrollY = window.scrollY;
+  var detContent = document.getElementById('det-content');
+  if (detContent) {
+    detContent.innerHTML = renderDetContent();
+    setTimeout(function(){ window.scrollTo(0, scrollY); }, 0);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  v77.4 : Setters & handlers ANALYSIS MODE
+// ══════════════════════════════════════════════════════════════
+
+// Setters Process : Sources de l'analyse
+async function setProcessAnalysisSources(i, action, idx, value) {
+  var d = getAudData(CA);
+  if (!d.controls[4] || !d.controls[4][i]) return;
+  var t = d.controls[4][i];
+  _ensureAnalysisConfig(t);
+  if (action === 'add') {
+    if (t.analysisConfig.sources.length < 3) {
+      t.analysisConfig.sources.push('Source '+(t.analysisConfig.sources.length+1));
+    }
+  } else if (action === 'remove' && t.analysisConfig.sources.length > 2) {
+    t.analysisConfig.sources.splice(idx, 1);
+  } else if (action === 'update') {
+    t.analysisConfig.sources[idx] = value;
+  }
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+async function setProcessAnalysisAttributes(i, action, idx, value) {
+  var d = getAudData(CA);
+  if (!d.controls[4] || !d.controls[4][i]) return;
+  var t = d.controls[4][i];
+  _ensureAnalysisConfig(t);
+  if (action === 'add') {
+    if (t.analysisConfig.attributes.length < 5) {
+      t.analysisConfig.attributes.push('Attribut '+(t.analysisConfig.attributes.length+1));
+    }
+  } else if (action === 'remove' && t.analysisConfig.attributes.length > 1) {
+    t.analysisConfig.attributes.splice(idx, 1);
+  } else if (action === 'update') {
+    t.analysisConfig.attributes[idx] = value;
+  }
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+// Setters BU : Sources + attributs
+async function setBuAnalysisSources(wppId, testId, action, idx, value) {
+  var d = getAudData(CA);
+  var wp = (d.workProgramBU && d.workProgramBU.processes) || [];
+  var wpp = wp.find(function(x){return x.id===wppId;});
+  if (!wpp) return;
+  var t = (wpp.tests||[]).find(function(x){return x.id===testId;});
+  if (!t) return;
+  _ensureAnalysisConfig(t);
+  if (action === 'add') {
+    if (t.analysisConfig.sources.length < 3) {
+      t.analysisConfig.sources.push('Source '+(t.analysisConfig.sources.length+1));
+    }
+  } else if (action === 'remove' && t.analysisConfig.sources.length > 2) {
+    t.analysisConfig.sources.splice(idx, 1);
+  } else if (action === 'update') {
+    t.analysisConfig.sources[idx] = value;
+  }
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+async function setBuAnalysisAttributes(wppId, testId, action, idx, value) {
+  var d = getAudData(CA);
+  var wp = (d.workProgramBU && d.workProgramBU.processes) || [];
+  var wpp = wp.find(function(x){return x.id===wppId;});
+  if (!wpp) return;
+  var t = (wpp.tests||[]).find(function(x){return x.id===testId;});
+  if (!t) return;
+  _ensureAnalysisConfig(t);
+  if (action === 'add') {
+    if (t.analysisConfig.attributes.length < 5) {
+      t.analysisConfig.attributes.push('Attribut '+(t.analysisConfig.attributes.length+1));
+    }
+  } else if (action === 'remove' && t.analysisConfig.attributes.length > 1) {
+    t.analysisConfig.attributes.splice(idx, 1);
+  } else if (action === 'update') {
+    t.analysisConfig.attributes[idx] = value;
+  }
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+// Helper interne : récupère le test selon le contexte
+function _getAnalysisTest(/* context, ...args */) {
+  var args = Array.prototype.slice.call(arguments);
+  var context = args[0];
+  var d = getAudData(CA);
+  if (context === 'process') {
+    var i = args[1];
+    return d.controls && d.controls[4] && d.controls[4][i] ? {t: d.controls[4][i], wppId: null, idOrIdx: i} : null;
+  } else {
+    var wppId = args[1];
+    var testId = args[2];
+    var wp = (d.workProgramBU && d.workProgramBU.processes) || [];
+    var wpp = wp.find(function(x){return x.id===wppId;});
+    if (!wpp) return null;
+    var t = (wpp.tests||[]).find(function(x){return x.id===testId;});
+    return t ? {t: t, wppId: wppId, idOrIdx: testId} : null;
+  }
+}
+
+// Téléchargement du template Excel
+// signatures : ('process', i, recommendedN) ou ('bu', wppId, testId, recommendedN)
+function downloadAnalysisTemplate(/* context, ...args, recommendedN */) {
+  var args = Array.prototype.slice.call(arguments);
+  var recommendedN = args[args.length - 1];
+  var ctxArgs = args.slice(0, -1);
+  var info = _getAnalysisTest.apply(null, ctxArgs);
+  if (!info) { toast('Test introuvable'); return; }
+  _ensureAnalysisConfig(info.t);
+  var a = AUDIT_PLAN.find(function(x){return x.id===CA;});
+  var auditTitle = a ? (a.titre || a.id) : 'audit';
+  var ctrlName = info.t.name || info.t.statement || 'test';
+  var fileName = ('AuditFlow_'+auditTitle+'_'+ctrlName+'_template.xlsx').replace(/[\\/:*?"<>|]/g, '_').substring(0, 80);
+  _generateAnalysisTemplate(info.t.analysisConfig, recommendedN, fileName);
+  toast('✓ Template Excel téléchargé');
+}
+
+// Trigger l'ouverture du file picker pour upload
+// signatures : ('process', i) ou ('bu', wppId, testId)
+function triggerAnalysisUpload(/* context, ...args */) {
+  var args = Array.prototype.slice.call(arguments);
+  _pendingAnalysisUpload = args;
+  var info = _getAnalysisTest.apply(null, args);
+  if (!info) return;
+  var fileInput = document.getElementById('ana-file-input-'+info.idOrIdx);
+  if (fileInput) fileInput.click();
+}
+
+// Handler du choix de fichier — déclenche le parsing + sauvegarde
+function handleAnalysisFileSelected(event /* , context, ...args */) {
+  var args = Array.prototype.slice.call(arguments, 1);
+  var file = event.target.files && event.target.files[0];
+  if (!file) return;
+  var info = _getAnalysisTest.apply(null, args);
+  if (!info) { toast('Test introuvable'); return; }
+  _ensureAnalysisConfig(info.t);
+
+  _parseAnalysisExcel(file, info.t.analysisConfig, function(result, err) {
+    if (err) {
+      toast('Erreur import : '+err);
+      return;
+    }
+    if (!result || !result.items || result.items.length === 0) {
+      toast('Aucune donnée trouvée dans le fichier');
+      return;
+    }
+    // Sauvegarder
+    info.t.analysisData = {
+      items: result.items,
+      importedAt: new Date().toISOString(),
+      fileName: result.fileName,
+    };
+    saveAuditData(CA).then(function(){
+      document.getElementById('det-content').innerHTML = renderDetContent();
+      toast('✓ '+result.items.length+' items importés');
+    });
+  });
+
+  // Reset input pour permettre de réimporter le même fichier
+  event.target.value = '';
+}
+
+// Modale détail item par item
+function showAnalysisDetailModal(/* context, ...args */) {
+  var args = Array.prototype.slice.call(arguments);
+  var info = _getAnalysisTest.apply(null, args);
+  if (!info) return;
+  _ensureAnalysisConfig(info.t);
+  var cfg = info.t.analysisConfig;
+  var data = info.t.analysisData || {items:[]};
+  var results = _calcAnalysisResults(data.items, cfg);
+
+  var body = '';
+  body += '<div style="font-size:11px;color:var(--text-2);margin-bottom:12px">Détail item par item — divergences en rouge</div>';
+  body += '<div style="max-height:60vh;overflow-y:auto">';
+  body += '<table style="width:100%;border-collapse:collapse;font-size:11px">';
+  body += '<thead><tr style="background:#f5f5f0;position:sticky;top:0">';
+  body += '<th style="padding:6px 8px;text-align:left;border:.5px solid var(--border);font-weight:500;color:var(--text-3)">ID</th>';
+  cfg.attributes.forEach(function(attr){
+    cfg.sources.forEach(function(src){
+      body += '<th style="padding:6px 8px;text-align:left;border:.5px solid var(--border);font-weight:500;color:var(--text-3);font-size:9px">'+(''+attr).replace(/</g,'&lt;')+'<br><span style="font-weight:400">('+(''+src).replace(/</g,'&lt;')+')</span></th>';
+    });
+  });
+  body += '<th style="padding:6px 8px;text-align:left;border:.5px solid var(--border);font-weight:500;color:var(--text-3)">Commentaire</th>';
+  body += '</tr></thead><tbody>';
+  data.items.forEach(function(item, idx){
+    var details = results.itemDetails[idx];
+    var hasDiv = details && details.hasDivergence;
+    body += '<tr'+(hasDiv?' style="background:#FCEBEB"':'')+'>';
+    body += '<td style="padding:5px 8px;border:.5px solid var(--border);font-weight:500">'+(''+item.id).replace(/</g,'&lt;')+'</td>';
+    cfg.attributes.forEach(function(attr){
+      var isAttrDiv = details && details.divergentAttrs.indexOf(attr) >= 0;
+      cfg.sources.forEach(function(src){
+        var v = (item.values && item.values[attr] && item.values[attr][src]) || '';
+        body += '<td style="padding:5px 8px;border:.5px solid var(--border);'+(isAttrDiv?'color:#993C1D;font-weight:600':'')+'">'+(''+v).replace(/</g,'&lt;')+'</td>';
+      });
+    });
+    body += '<td style="padding:5px 8px;border:.5px solid var(--border);font-size:10px;color:var(--text-3);font-style:italic">'+(''+(item.comment||'')).replace(/</g,'&lt;')+'</td>';
+    body += '</tr>';
+  });
+  body += '</tbody></table>';
+  body += '</div>';
+
+  openModal('📋 Détail de l\'analyse — '+data.items.length+' items', body, null, {wide:true, hideOk:true, cancelLabel:'Fermer'});
+}
+
+// Crée une Issue Operating pré-remplie depuis les résultats de l'analyse
+async function createIssueFromAnalysis(/* context, ...args */) {
+  var args = Array.prototype.slice.call(arguments);
+  var context = args[0];
+  var info = _getAnalysisTest.apply(null, args);
+  if (!info) return;
+  _ensureAnalysisConfig(info.t);
+  var cfg = info.t.analysisConfig;
+  var data = info.t.analysisData || {items:[]};
+  var results = _calcAnalysisResults(data.items, cfg);
+
+  // Construire description
+  var desc = 'Test de cohérence sur '+results.totalItems+' items :\n';
+  desc += '• Sources comparées : '+cfg.sources.join(' vs ')+'\n';
+  desc += '• Items avec divergence : '+results.itemsWithDivergence+'/'+results.totalItems+' ('+((results.itemsWithDivergence/results.totalItems)*100).toFixed(1)+'%)\n\n';
+  desc += 'Divergences par attribut :\n';
+  Object.keys(results.divergencesByAttribute).forEach(function(attr){
+    var info2 = results.divergencesByAttribute[attr];
+    if (info2.count > 0) {
+      var itemsStr = info2.items.slice(0, 10).join(', ') + (info2.items.length > 10 ? ' …' : '');
+      desc += '• '+attr+' : '+info2.count+' divergence'+(info2.count>1?'s':'')+' ('+itemsStr+')\n';
+    }
+  });
+
+  var d = getAudData(CA);
+  _ensureIssues(d);
+
+  if (context === 'process') {
+    // Process : utilise setProcessIssueDescription qui crée/maj une issue operating
+    var i = args[1];
+    if (typeof setProcessIssueDescription === 'function') {
+      await setProcessIssueDescription(i, desc);
+      toast('✓ Issue Operating créée depuis l\'analyse');
+    }
+  } else {
+    // BU : utilise setBuIssueDescription
+    var wppId = args[1];
+    var testId = args[2];
+    if (typeof setBuIssueDescription === 'function') {
+      await setBuIssueDescription(wppId, testId, desc);
+      toast('✓ Issue Operating créée depuis l\'analyse');
+    }
+  }
+}
+
+// v77.3 : Modale d'aide / guide d'utilisation des paramètres de sampling
+function showSamplingHelpModal() {
+  var body = '';
+
+  // Intro
+  body += '<div style="background:#EEEDFE;border:.5px solid #CECBF6;border-radius:4px;padding:12px 14px;margin-bottom:14px;font-size:12px;color:#3C3489;line-height:1.6">';
+  body += '<div style="font-weight:600;margin-bottom:4px">🎯 Deux natures de tests, deux méthodes de sampling</div>';
+  body += 'En audit, on distingue les tests de contrôle (vérifier que les contrôles fonctionnent) des tests substantifs (détecter des anomalies sur des transactions). Les deux exigent des approches statistiques différentes.';
+  body += '</div>';
+
+  // ─── TEST DE CONTRÔLE ───
+  body += '<div style="border:1.5px solid #3C3489;border-radius:6px;padding:14px;margin-bottom:14px;background:#fafafe">';
+  body += '<div style="font-size:14px;font-weight:600;color:#3C3489;margin-bottom:8px">🎯 Test de contrôle (Control Testing)</div>';
+  body += '<div style="font-size:12px;color:var(--text-2);line-height:1.6;margin-bottom:10px">';
+  body += '<strong>Objectif</strong> : vérifier que le contrôle <strong>fonctionne effectivement</strong>. Tu testes des occurrences du contrôle, pas des transactions individuelles.<br>';
+  body += '<strong>Exemples</strong> : revue manager mensuelle, validation des paiements, rapprochement bancaire, contrôle SoD, signature manager.';
+  body += '</div>';
+  body += '<div style="font-size:12px;font-weight:600;color:#3C3489;margin-bottom:6px">Sample size selon la fréquence (standard audit interne)</div>';
+  body += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">';
+  body += '<thead><tr style="background:#f5f5f0">';
+  body += '<th style="padding:6px 10px;text-align:left;border:.5px solid var(--border)">Fréquence</th>';
+  body += '<th style="padding:6px 10px;text-align:right;border:.5px solid var(--border)">Occurrences/an</th>';
+  body += '<th style="padding:6px 10px;text-align:right;border:.5px solid var(--border)">High confidence<br><span style="font-weight:400;color:var(--text-3);font-size:10px">(contrôle clé)</span></th>';
+  body += '<th style="padding:6px 10px;text-align:right;border:.5px solid var(--border)">Low confidence<br><span style="font-weight:400;color:var(--text-3);font-size:10px">(opérationnel)</span></th>';
+  body += '</tr></thead><tbody>';
+  CONTROL_FREQ_TABLE.forEach(function(r){
+    body += '<tr>';
+    body += '<td style="padding:5px 10px;border:.5px solid var(--border);font-weight:500">'+r.label+' ('+r.shortLabel+')</td>';
+    body += '<td style="padding:5px 10px;border:.5px solid var(--border);text-align:right">'+r.popPerYear+'</td>';
+    body += '<td style="padding:5px 10px;border:.5px solid var(--border);text-align:right;font-weight:600;color:#3C3489">'+r.high+'</td>';
+    body += '<td style="padding:5px 10px;border:.5px solid var(--border);text-align:right;font-weight:600;color:#854F0B">'+r.low+'</td>';
+    body += '</tr>';
+  });
+  body += '</tbody></table></div>';
+  body += '<div style="font-size:10px;color:var(--text-3);font-style:italic;margin-top:8px">Référence : SAS 39 / SAS 111 — pratique standard des Big4 pour les tests de contrôle.</div>';
+  body += '</div>';
+
+  // ─── TEST SUBSTANTIF ───
+  body += '<div style="border:1.5px solid #085041;border-radius:6px;padding:14px;margin-bottom:14px;background:#fbfdfc">';
+  body += '<div style="font-size:14px;font-weight:600;color:#085041;margin-bottom:8px">💰 Test substantif (Substantive Testing)</div>';
+  body += '<div style="font-size:12px;color:var(--text-2);line-height:1.6;margin-bottom:10px">';
+  body += '<strong>Objectif</strong> : détecter des <strong>anomalies financières individuelles</strong> et conclure sur le montant total d\'erreurs dans la population.<br>';
+  body += '<strong>Exemples</strong> : revue de factures fournisseurs, écritures comptables, créances clients, valorisation stocks.';
+  body += '</div>';
+  body += '<div style="font-size:12px;font-weight:600;color:#085041;margin-bottom:6px">3 paramètres à régler</div>';
+  body += '<div style="font-size:11px;color:var(--text-2);line-height:1.7">';
+  body += '<strong>Confiance</strong> — Probabilité que la conclusion soit fiable. Standard : 95%. Critique : 99%.<br>';
+  body += '<strong>EDR (Expected Deviation Rate)</strong> — % d\'erreurs anticipé. Sans historique : 5%. Si audit précédent a trouvé 2% : 2%.<br>';
+  body += '<strong>TDR (Tolerable Deviation Rate)</strong> — % d\'erreurs max acceptable. Standard : 5%. Doit être supérieur à EDR.';
+  body += '</div>';
+  body += '<div style="font-size:10px;color:var(--text-3);font-style:italic;margin-top:8px">Formule binomiale avec correction pour petite population : <code style="font-family:monospace;background:#fff;padding:1px 4px;border-radius:2px">n = (Z² × p × (1-p)) / (TDR-EDR)²</code></div>';
+  body += '</div>';
+
+  // ─── EXEMPLES ───
+  body += '<div style="font-size:14px;font-weight:600;color:var(--text-1);margin-top:14px;margin-bottom:10px">💼 Exemples concrets</div>';
+
+  body += '<div style="background:#EEEDFE;border:.5px solid #CECBF6;border-radius:4px;padding:12px;margin-bottom:8px">';
+  body += '<div style="font-size:11px;font-weight:600;color:#3C3489;margin-bottom:4px">🎯 Test de contrôle — Validation manager mensuelle des paiements</div>';
+  body += '<div style="font-size:11px;color:var(--text-2);line-height:1.5">';
+  body += '• Fréquence : <strong>Monthly</strong> (~12 occurrences/an)<br>';
+  body += '• Niveau : <strong>High confidence</strong> (contrôle clé)<br>';
+  body += '→ Échantillon : <strong>3 occurrences</strong> de la validation manager (sur les 12 mois)';
+  body += '</div>';
+  body += '</div>';
+
+  body += '<div style="background:#FFFAF0;border:.5px solid #FAC775;border-radius:4px;padding:12px;margin-bottom:8px">';
+  body += '<div style="font-size:11px;font-weight:600;color:#854F0B;margin-bottom:4px">🎯 Test de contrôle — Rapprochement bancaire quotidien</div>';
+  body += '<div style="font-size:11px;color:var(--text-2);line-height:1.5">';
+  body += '• Fréquence : <strong>Daily</strong> (~250 occurrences/an)<br>';
+  body += '• Niveau : <strong>Low confidence</strong> (contrôle opérationnel automatisé)<br>';
+  body += '→ Échantillon : <strong>15 jours</strong> à tester';
+  body += '</div>';
+  body += '</div>';
+
+  body += '<div style="background:#E1F5EE;border:.5px solid #A6E2CD;border-radius:4px;padding:12px;margin-bottom:8px">';
+  body += '<div style="font-size:11px;font-weight:600;color:#085041;margin-bottom:4px">💰 Test substantif — Vérification de factures fournisseurs > 50k€</div>';
+  body += '<div style="font-size:11px;color:var(--text-2);line-height:1.5">';
+  body += '• Population : 850 factures<br>';
+  body += '• Confiance : <strong>95%</strong>, EDR : <strong>5%</strong>, TDR : <strong>5%</strong><br>';
+  body += '→ Échantillon binomial : <strong>~73 factures</strong>';
+  body += '</div>';
+  body += '</div>';
+
+  // ─── ANALYSIS (v77.4) ───
+  body += '<div style="border:1.5px solid #854F0B;border-radius:6px;padding:14px;margin-top:14px;margin-bottom:14px;background:#FFFCF6">';
+  body += '<div style="font-size:14px;font-weight:600;color:#854F0B;margin-bottom:8px">🔗 Test de cohérence (Analysis)</div>';
+  body += '<div style="font-size:12px;color:var(--text-2);line-height:1.6;margin-bottom:10px">';
+  body += '<strong>Objectif</strong> : comparer plusieurs attributs d\'un même item entre 2-3 sources de données. Détecte les incohérences entre systèmes.<br>';
+  body += '<strong>Exemples</strong> : contrat vs ERP (date, valeur, devise), facture vs bon de commande vs réception (3-way match), créance comptable vs relevé client.';
+  body += '</div>';
+  body += '<div style="font-size:11px;color:var(--text-2);line-height:1.6">';
+  body += '<strong>Workflow</strong> :<br>';
+  body += '1. Configure les <strong>sources</strong> (2-3) et les <strong>attributs</strong> (1-5) à comparer<br>';
+  body += '2. Sample size calculée par formule binomiale (comme substantive)<br>';
+  body += '3. Télécharge le <strong>template Excel</strong> pré-formaté<br>';
+  body += '4. Remplis les valeurs observées dans Excel<br>';
+  body += '5. Importe le fichier dans AuditFlow → <strong>divergences calculées automatiquement</strong><br>';
+  body += '6. Si divergences significatives → bouton "Créer Issue Operating" pré-remplit la description';
+  body += '</div>';
+  body += '</div>';
+
+  body += '<div style="background:#FFFCF6;border:.5px solid #FAC775;border-radius:4px;padding:12px;margin-bottom:14px">';
+  body += '<div style="font-size:11px;font-weight:600;color:#854F0B;margin-bottom:4px">🔗 Test de cohérence — Contrats avec le système</div>';
+  body += '<div style="font-size:11px;color:var(--text-2);line-height:1.5">';
+  body += '• Population : 1 200 contrats actifs · Sample binomial : 73 contrats<br>';
+  body += '• Sources : <strong>Contrat papier</strong> vs <strong>ERP</strong> vs <strong>CRM</strong><br>';
+  body += '• Attributs : Date de signature, Valeur, Devise<br>';
+  body += '→ Résultats : 8 contrats (11%) avec divergence dont 5 sur la Valeur et 3 sur la Date';
+  body += '</div>';
+  body += '</div>';
+
+  openModal('❓ Guide — Sample Sizing en audit', body, null, {wide:true, hideOk:true, cancelLabel:'Fermer'});
+}
+
 async function setProcessIssueDescription(i, val) {
   var d = getAudData(CA);
   if (!d.controls[4] || !d.controls[4][i]) return;
@@ -13001,66 +14709,173 @@ function showFindingModal(existing) {
 
   var f = existing ? existing.finding : {};
   var currentCtrlIds = (f.controlIds || []);
+  var currentDesignIssueIds = (f.designIssueIds || []);
+  var currentSubProcessId = f.subProcessId || '';
 
-  // Construire la liste des checkboxes
-  var ctrlsHtml = '';
-  if (!problematicCtrls.length) {
-    ctrlsHtml = '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:8px">Aucun contrôle fail ni target dans cet audit. Vous pouvez quand même créer un finding sans contrôle lié.</div>';
-  } else {
-    ctrlsHtml = problematicCtrls.map(function(c){
-      var ctrlCode = c.code || c.id;
-      var checked = currentCtrlIds.indexOf(c.id) >= 0 ? 'checked' : '';
-      var typeLabel = c.design === 'target'
-        ? '<span class="badge" style="background:#FAEEDA;color:#854F0B;font-size:9px">🎯 Target</span>'
-        : '<span class="badge bfl" style="font-size:9px">❌ Fail</span>';
-      var commentary = c.testComment
-        ? '<div style="font-size:10px;color:var(--text-3);margin-top:2px;font-style:italic">'+c.testComment.replace(/</g,'&lt;')+'</div>'
-        : '';
-      return '<label style="display:flex;align-items:flex-start;gap:8px;padding:6px 8px;border-bottom:.5px solid var(--border);cursor:pointer">'
-        + '<input type="checkbox" class="f-ctrl-cb" value="'+c.id+'" '+checked+' style="margin-top:3px"/>'
-        + '<div style="flex:1">'
-        + '<div style="display:flex;align-items:center;gap:6px">'
-        + typeLabel
-        + '<span style="font-size:10px;color:var(--text-3);font-family:monospace">'+ctrlCode+'</span>'
-        + '<span style="font-size:11px;font-weight:500">'+c.name+'</span>'
-        + '</div>'
-        + commentary
-        + '</div>'
-        + '</label>';
-    }).join('');
+  // v77.12 : si pre-selection depuis "Créer finding depuis sélection", on l'applique
+  if (!existing && typeof _findingPreselection !== 'undefined' && _findingPreselection) {
+    if (_findingPreselection.subProcessId) currentSubProcessId = _findingPreselection.subProcessId;
+    if (_findingPreselection.designIssueIds) currentDesignIssueIds = _findingPreselection.designIssueIds.slice();
+    if (_findingPreselection.controlIds) currentCtrlIds = _findingPreselection.controlIds.slice();
   }
 
-  var body = '<div><label>Titre du finding <span style="color:var(--red)">*</span></label>'
-    + '<input id="f-title" value="'+(f.title||'').replace(/"/g,'&quot;')+'" placeholder="ex : Ségrégation des tâches insuffisante en P2P"/></div>'
-    + '<div><label>Description courte (Executive Summary)</label>'
-    + '<div style="font-size:10px;color:var(--text-3);font-style:italic;margin-bottom:3px">2-3 lignes maximum. Apparaîtra en slide « Executive Summary - Findings ».</div>'
-    + '<textarea id="f-desc-exec" style="width:100%;min-height:50px" placeholder="ex : Process incomplet de tracking des opportunités de renouvellement dans SFDC.">'+((f.descExec || '')).replace(/</g,'&lt;')+'</textarea></div>'
-    + '<div><label>Description détaillée</label>'
-    + '<div style="font-size:10px;color:var(--text-3);font-style:italic;margin-bottom:3px">Constat complet, contexte, lien avec les contrôles failed. Apparaîtra en slide détaillée du finding.</div>'
-    + '<textarea id="f-desc-detail" style="width:100%;min-height:80px" placeholder="Description complète, références aux contrôles fail, contexte business...">'+(f.descDetailed || f.desc || '').replace(/</g,'&lt;')+'</textarea></div>'
-    + '<div><label>Potential Risk</label>'
-    + '<textarea id="f-risk" style="width:100%;min-height:50px" placeholder="ex : Missed renewals, lost revenue opportunities, contract leakage...">'+(f.potentialRisk||'').replace(/</g,'&lt;')+'</textarea></div>'
-    + '<div class="g2" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">'
-    + '<div><label>Owner</label>'
-    + '<input id="f-owner" value="'+(f.owner||'').replace(/"/g,'&quot;')+'" placeholder="ex : Sales Ops Director"/></div>'
-    + '<div><label>Probability</label>'
-    + '<select id="f-prob"><option value="">— Choose —</option>'
+  // v77.11 : Liste des design issues disponibles (issues.source === 'design')
+  var allIssues = Array.isArray(d.issues) ? d.issues : [];
+  var designIssues = allIssues.filter(function(iss){return iss.source === 'design';});
+
+  // v77.11 : Liste maître des sous-processus (kickoffPrep + narratif découverts)
+  // Utilisé pour résoudre les noms (le champ SP a été supprimé en v77.12.2 mais on garde
+  // la résolution pour afficher le SP de chaque issue dans les listes)
+  var spList = [];
+  var seenSpIds = {};
+  var kickoffSps = (d.kickoffPrep && Array.isArray(d.kickoffPrep.subProcesses)) ? d.kickoffPrep.subProcesses : [];
+  kickoffSps.forEach(function(sp){
+    if (!sp || !sp.id || seenSpIds[sp.id]) return;
+    seenSpIds[sp.id] = true;
+    spList.push({id: sp.id, name: sp.name || '(sans nom)', source: 'kickoff'});
+  });
+  var narrative = d.consolidatedNarrative || '';
+  var sectionRegex = /^##\s+(.+)$/gm;
+  var m;
+  while ((m = sectionRegex.exec(narrative)) !== null) {
+    var sectionName = (m[1] || '').trim();
+    if (!sectionName) continue;
+    var matched = spList.find(function(s){return s.name.toLowerCase() === sectionName.toLowerCase();});
+    if (matched) continue;
+    spList.push({id: 'sp_discovered_'+spList.length, name: sectionName, source: 'discovered'});
+  }
+
+  // v77.12.2 : résoudre le SP d'un contrôle via WCGW (pour affichage dans la liste)
+  var wcgwListForFinding = (d.wcgw && d.wcgw[4]) || [];
+  function _ctrlSpNameInModal(ctrl) {
+    if (!ctrl) return '';
+    var spId = ctrl.subProcessId;
+    if (!spId && ctrl.wcgwId) {
+      var w = wcgwListForFinding.find(function(x){return x.id === ctrl.wcgwId;});
+      if (w && w.subProcessId) spId = w.subProcessId;
+    }
+    if (!spId) return '';
+    var sp = spList.find(function(s){return s.id === spId;});
+    return sp ? sp.name : '';
+  }
+  function _diSpName(iss) {
+    if (!iss || !iss.relatedSpId) return '';
+    var sp = spList.find(function(s){return s.id === iss.relatedSpId;});
+    return sp ? sp.name : '';
+  }
+
+  // v77.12.2 : Liste contrôles avec le même style que la vue étape 7
+  var ctrlsHtml = '';
+  if (!problematicCtrls.length) {
+    ctrlsHtml = '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:8px">Aucun contrôle fail ni target dans cet audit.</div>';
+  } else {
+    ctrlsHtml = '<div style="display:flex;flex-direction:column;gap:4px">' + problematicCtrls.map(function(c){
+      var ctrlCode = c.code || c.id;
+      var isChecked = currentCtrlIds.indexOf(c.id) >= 0;
+      var typeLabel = c.design === 'target'
+        ? '<span class="badge" style="background:#FAEEDA;color:#854F0B;font-size:9px;flex-shrink:0">🎯 Target manquant</span>'
+        : '<span class="badge bfl" style="font-size:9px;flex-shrink:0">❌ Test fail</span>';
+      var aCount = (c.anomalies && c.anomalies.count) || '';
+      var sCount = (c.sample && c.sample.count) || '';
+      var details = '';
+      if (c.design !== 'target' && aCount) {
+        details = '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:1px">'+aCount+' anomalie'+(Number(aCount)>1?'s':'')+(sCount?' / '+sCount+' testé'+(Number(sCount)>1?'s':''):'')+'</div>';
+      } else if (c.design === 'target' && c.owner) {
+        details = '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:1px">Owner : '+(''+c.owner).replace(/</g,'&lt;')+'</div>';
+      }
+      var spName = _ctrlSpNameInModal(c);
+      var spInfo = spName ? '<span style="font-size:9px;color:var(--text-3);font-style:italic">· '+spName.replace(/</g,'&lt;')+'</span>' : '';
+      return '<label style="display:flex;align-items:flex-start;gap:8px;padding:6px 9px;background:'+(isChecked?'#EEEDFE':'#fff')+';border:.5px solid '+(isChecked?'#CECBF6':'var(--border)')+';border-radius:3px;cursor:pointer;font-size:11px">'
+        + '<input type="checkbox" class="f-ctrl-cb" value="'+c.id+'" '+(isChecked?'checked':'')+' style="margin-top:2px;flex-shrink:0"/>'
+        + typeLabel
+        + '<div style="flex:1;min-width:0">'
+        + '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span style="color:var(--text-3);font-size:10px;font-family:monospace">'+ctrlCode+'</span><span style="font-weight:500">'+(c.name||'').replace(/</g,'&lt;')+'</span>'+spInfo+'</div>'
+        + details
+        + '</div>'
+        + '</label>';
+    }).join('') + '</div>';
+  }
+
+  // v77.12.2 : Liste design issues avec le même style que la vue étape 7
+  var designIssuesHtml = '';
+  if (!designIssues.length) {
+    designIssuesHtml = '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:8px">Aucune design issue dans cet audit.</div>';
+  } else {
+    designIssuesHtml = '<div style="display:flex;flex-direction:column;gap:4px">' + designIssues.map(function(iss){
+      var isChecked = currentDesignIssueIds.indexOf(iss.id) >= 0;
+      var subtype = iss.subtype || 'weak';
+      var subtypeLabel = subtype === 'missing'
+        ? '<span class="badge" style="background:#FCE7E5;color:#7F1D1D;font-size:9px;flex-shrink:0">⚠ Design Manquant</span>'
+        : '<span class="badge" style="background:#FFEDD5;color:#9A3412;font-size:9px;flex-shrink:0">⚠ Design Insuffisant</span>';
+      var spName = _diSpName(iss);
+      var spInfo = spName ? '<span style="font-size:9px;color:var(--text-3);font-style:italic">· '+spName.replace(/</g,'&lt;')+'</span>' : '';
+      var issTitle = iss.title || iss.controlName || '(sans titre)';
+      var ctrlInfo = iss.controlName ? '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:1px">Contrôle : '+iss.controlName.replace(/</g,'&lt;')+'</div>' : '';
+      return '<label style="display:flex;align-items:flex-start;gap:8px;padding:6px 9px;background:'+(isChecked?'#EEEDFE':'#fff')+';border:.5px solid '+(isChecked?'#CECBF6':'var(--border)')+';border-radius:3px;cursor:pointer;font-size:11px">'
+        + '<input type="checkbox" class="f-di-cb" value="'+iss.id+'" '+(isChecked?'checked':'')+' style="margin-top:2px;flex-shrink:0"/>'
+        + subtypeLabel
+        + '<div style="flex:1;min-width:0">'
+        + '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span style="font-weight:500">'+(''+issTitle).replace(/</g,'&lt;')+'</span>'+spInfo+'</div>'
+        + ctrlInfo
+        + '</div>'
+        + '</label>';
+    }).join('') + '</div>';
+  }
+
+  // v77.12.2 : styles compacts mais utiles
+  var compactStyle = 'margin-bottom:10px';
+  var labelStyle = 'font-size:11px;color:var(--text-2);display:block;margin-bottom:3px;font-weight:500';
+  var helpStyle = 'font-size:10px;color:var(--text-3);font-style:italic;margin-bottom:3px';
+  var inputStyle = 'width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box';
+  var taStyle = inputStyle + ';font-family:inherit;resize:vertical';
+
+  // v77.12.2 : Body — section issues sélectionnées en haut (récap), reste du formulaire en dessous
+  // Plus de champ "Sous-processus de rattachement" : le rattachement est implicite via la section Report
+  // (le SP du finding est déterminé par la section où il a été créé / les contrôles liés)
+
+  // Bandeau d'aide en haut + bouton plein écran
+  var body = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;padding:7px 10px;background:#F5F4FE;border:.5px solid #CECBF6;border-radius:4px">';
+  body += '<span style="font-size:10px;color:#3C3489">💡 Le sous-processus de rattachement est déterminé automatiquement par les contrôles liés ci-dessous.</span>';
+  body += '<button onclick="_toggleFindingModalFullscreen()" style="background:none;border:.5px solid #CECBF6;color:#3C3489;font-size:10px;padding:3px 8px;border-radius:3px;cursor:pointer" title="Basculer en plein écran"><span id="f-modal-fs-icon">⛶</span> <span id="f-modal-fs-label">Plein écran</span></button>';
+  body += '</div>';
+
+  body += '<div style="'+compactStyle+'"><label style="'+labelStyle+'">Titre du finding <span style="color:var(--red)">*</span></label>'
+    + '<input id="f-title" value="'+(f.title||'').replace(/"/g,'&quot;')+'" placeholder="ex : Ségrégation des tâches insuffisante en P2P" style="'+inputStyle+'"/></div>'
+    + '<div style="'+compactStyle+'"><label style="'+labelStyle+'">Description courte (Executive Summary)</label>'
+    + '<div style="'+helpStyle+'">2-3 lignes. Apparaîtra en slide « Executive Summary - Findings ».</div>'
+    + '<textarea id="f-desc-exec" style="'+taStyle+';min-height:50px" placeholder="ex : Process incomplet de tracking des opportunités de renouvellement dans SFDC.">'+((f.descExec || '')).replace(/</g,'&lt;')+'</textarea></div>'
+    + '<div style="'+compactStyle+'"><label style="'+labelStyle+'">Description détaillée</label>'
+    + '<div style="'+helpStyle+'">Constat complet, contexte, contrôles failed. Apparaîtra en slide détaillée du finding.</div>'
+    + '<textarea id="f-desc-detail" style="'+taStyle+';min-height:80px" placeholder="Description complète, références aux contrôles fail, contexte business...">'+(f.descDetailed || f.desc || '').replace(/</g,'&lt;')+'</textarea></div>'
+    + '<div style="'+compactStyle+'"><label style="'+labelStyle+'">Potential Risk</label>'
+    + '<textarea id="f-risk" style="'+taStyle+';min-height:50px" placeholder="ex : Missed renewals, lost revenue opportunities, contract leakage...">'+(f.potentialRisk||'').replace(/</g,'&lt;')+'</textarea></div>'
+    + '<div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px;'+compactStyle+'">'
+    + '<div><label style="'+labelStyle+'">Owner</label>'
+    + '<input id="f-owner" value="'+(f.owner||'').replace(/"/g,'&quot;')+'" placeholder="ex : Sales Ops Director" style="'+inputStyle+'"/></div>'
+    + '<div><label style="'+labelStyle+'">Probability</label>'
+    + '<select id="f-prob" style="'+inputStyle+'"><option value="">— Choose —</option>'
     + '<option value="rare"'+(f.probability==='rare'?' selected':'')+'>Rare</option>'
     + '<option value="unlikely"'+(f.probability==='unlikely'?' selected':'')+'>Unlikely</option>'
     + '<option value="possible"'+(f.probability==='possible'?' selected':'')+'>Possible</option>'
     + '<option value="probable"'+(f.probability==='probable'?' selected':'')+'>Probable</option>'
     + '</select></div>'
-    + '<div><label>Impact</label>'
-    + '<select id="f-impact"><option value="">— Choose —</option>'
+    + '<div><label style="'+labelStyle+'">Impact</label>'
+    + '<select id="f-impact" style="'+inputStyle+'"><option value="">— Choose —</option>'
     + '<option value="minor"'+(f.impact==='minor'?' selected':'')+'>Minor</option>'
     + '<option value="limited"'+(f.impact==='limited'?' selected':'')+'>Limited</option>'
     + '<option value="major"'+(f.impact==='major'?' selected':'')+'>Major</option>'
     + '<option value="severe"'+(f.impact==='severe'?' selected':'')+'>Severe</option>'
     + '</select></div>'
     + '</div>'
-    + '<div><label>Contrôles liés ('+problematicCtrls.length+' candidats)</label>'
-    + '<div style="border:.5px solid var(--border);border-radius:4px;max-height:200px;overflow-y:auto;background:#fafafa">'
+    + '<div style="'+compactStyle+'"><label style="'+labelStyle+'">Contrôles testés liés <span style="font-weight:400;color:var(--text-3)">('+problematicCtrls.length+' candidats)</span></label>'
+    + '<div style="'+helpStyle+'">Coche les Tests fail et Targets manquants à inclure dans ce finding.</div>'
+    + '<div style="padding:2px">'
     + ctrlsHtml
+    + '</div></div>'
+    + '<div style="'+compactStyle+'"><label style="'+labelStyle+'">Design Issues liées <span style="font-weight:400;color:var(--text-3)">('+designIssues.length+' candidats)</span></label>'
+    + '<div style="'+helpStyle+'">Coche les défaillances de design à inclure dans ce finding.</div>'
+    + '<div id="f-di-list" style="padding:2px">'
+    + designIssuesHtml
     + '</div></div>';
 
   openModal(existing ? 'Éditer le finding' : 'Nouveau finding', body, async function(){
@@ -13073,6 +14888,11 @@ function showFindingModal(existing) {
     var probability = document.getElementById('f-prob').value;
     var impact = document.getElementById('f-impact').value;
     var checkedIds = Array.from(document.querySelectorAll('.f-ctrl-cb:checked')).map(function(cb){return cb.value;});
+    // v77.11 : design issues
+    var checkedDiIds = Array.from(document.querySelectorAll('.f-di-cb:checked')).map(function(cb){return cb.value;});
+    // v77.12.2 : on conserve le subProcessId actuel (qui vient de _findingPreselection ou de l'édition)
+    // Plus de UI pour le changer ; il sera recalculé via la majorité des contrôles à l'affichage si vide
+    var subProcessId = currentSubProcessId || '';
 
     if (!d.findings) d.findings = [];
     if (existing) {
@@ -13086,6 +14906,8 @@ function showFindingModal(existing) {
         probability: probability,
         impact: impact,
         controlIds: checkedIds,
+        designIssueIds: checkedDiIds,
+        subProcessId: subProcessId,
       });
       addHist('edit', 'Finding "'+title+'" modifié');
     } else {
@@ -13100,44 +14922,215 @@ function showFindingModal(existing) {
         probability: probability,
         impact: impact,
         controlIds: checkedIds,
+        designIssueIds: checkedDiIds,
+        subProcessId: subProcessId,
         createdAt: new Date().toISOString(),
       });
       addHist('add', 'Finding "'+title+'" créé');
     }
+    // v77.12 : vider la pré-sélection après création
+    if (!existing && typeof _findingPreselection !== 'undefined') {
+      _findingPreselection = null;
+    }
+    // v77.12 : vider aussi les sélections d'issues (les issues sont maintenant rattachées)
+    if (typeof _selectedIssuesForFinding !== 'undefined') {
+      _selectedIssuesForFinding = {};
+    }
     await saveAuditData(CA);
     document.getElementById('det-content').innerHTML = renderDetContent();
     toast('Finding '+(existing?'modifié':'ajouté')+' ✓');
-  });
+  }, {wide: true});
 }
+
+// v77.12.2 : toggle plein écran de la modale finding
+function _toggleFindingModalFullscreen() {
+  var modal = document.querySelector('#modal .md');
+  if (!modal) return;
+  var icon = document.getElementById('f-modal-fs-icon');
+  var label = document.getElementById('f-modal-fs-label');
+  if (modal.classList.contains('md-fullscreen')) {
+    modal.classList.remove('md-fullscreen');
+    modal.classList.add('md-wide');
+    if (icon) icon.textContent = '⛶';
+    if (label) label.textContent = 'Plein écran';
+  } else {
+    modal.classList.remove('md-wide');
+    modal.classList.add('md-fullscreen');
+    if (icon) icon.textContent = '⛗';
+    if (label) label.textContent = 'Mode normal';
+  }
+}
+
 async function removeManualFinding(i){const d=getAudData(CA);d.findings.splice(i,1);await saveAuditData(CA);document.getElementById('det-content').innerHTML=renderDetContent();}
-async function setMgtResp(findingId,field,val){const d=getAudData(CA);const r=d.mgtResp.find(x=>x.findingId===findingId);if(r){r[field]=val;await saveAuditData(CA);}}
+// v77.13 : setter sur un champ de Management Response
+async function setMgtRespField(respId, field, val) {
+  var d = getAudData(CA);
+  var r = d.mgtResp.find(function(x){return x.id === respId;});
+  if (!r) return;
+  r[field] = val;
+  await saveAuditData(CA);
+}
+
+// v77.13 : setter sur un champ d'une action (gère l'historique des deadlines)
+async function setActionField(respId, actionId, field, val) {
+  var d = getAudData(CA);
+  var r = d.mgtResp.find(function(x){return x.id === respId;});
+  if (!r) return;
+  var a = (r.actions || []).find(function(x){return x.id === actionId;});
+  if (!a) return;
+
+  // v77.13 : pour year/quarter, on archive l'ancien dans deadlineHistory si la valeur change
+  if ((field === 'year' || field === 'quarter') && a[field] !== val) {
+    if (!Array.isArray(a.deadlineHistory)) a.deadlineHistory = [];
+    a.deadlineHistory.push({
+      year: a.year, quarter: a.quarter,
+      changedAt: new Date().toISOString(),
+      changedBy: (CU ? CU.name : '—'),
+    });
+  }
+  a[field] = val;
+  await saveAuditData(CA);
+  // Re-render pour mettre à jour le tooltip d'historique
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+// v77.13 : ajouter une nouvelle MR à un finding
+async function addMgtRespForFinding(findingId) {
+  var d = getAudData(CA);
+  if (!d.mgtResp) d.mgtResp = [];
+  d.mgtResp.push({
+    id: 'mr_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
+    findingId: findingId,
+    responseText: '',
+    responseOwner: '',
+    actions: [{
+      id: 'ac_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
+      action: '',
+      owner: '',
+      year: 2026,
+      quarter: 'Q1',
+      deadlineHistory: [],
+    }],
+    pushed: false,
+  });
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+// v77.13 : supprimer une MR
+async function removeMgtResp(respId) {
+  if (!confirm('Supprimer cette Management Response et tous ses plans d\'action ?')) return;
+  var d = getAudData(CA);
+  if (!d.mgtResp) return;
+  d.mgtResp = d.mgtResp.filter(function(r){return r.id !== respId;});
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+// v77.13 : ajouter un plan d'action à une MR
+async function addActionToMgtResp(respId) {
+  var d = getAudData(CA);
+  var r = d.mgtResp.find(function(x){return x.id === respId;});
+  if (!r) return;
+  if (!Array.isArray(r.actions)) r.actions = [];
+  r.actions.push({
+    id: 'ac_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
+    action: '',
+    owner: '',
+    year: 2026,
+    quarter: 'Q1',
+    deadlineHistory: [],
+  });
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+// v77.13 : supprimer un plan d'action d'une MR
+async function removeActionFromMgtResp(respId, actionId) {
+  var d = getAudData(CA);
+  var r = d.mgtResp.find(function(x){return x.id === respId;});
+  if (!r || !Array.isArray(r.actions)) return;
+  // Empêcher de supprimer la dernière action (sinon plus rien à pousser)
+  if (r.actions.length <= 1) { toast('Au moins un plan d\'action est requis'); return; }
+  r.actions = r.actions.filter(function(a){return a.id !== actionId;});
+  await saveAuditData(CA);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+// v77.13 : backward compat — l'ancien setMgtResp continue de marcher (au cas où)
+async function setMgtResp(findingId, field, val) {
+  const d = getAudData(CA);
+  const r = d.mgtResp.find(function(x){return x.findingId === findingId;});
+  if (r) { r[field] = val; await saveAuditData(CA); }
+}
+
 function pushAllMgtResp(){
   const d=getAudData(CA);
   const ap=AUDIT_PLAN.find(a=>a.id===CA);
-  const pushed=d.mgtResp.filter(r=>r.action&&r.owner&&!r.pushed);
-  if(!pushed.length){toast('Aucune réponse complète à envoyer');return;}
-  pushed.forEach(r=>{
-    const f=(d.findings||[]).find((x,i)=>(x.id||('f_'+i))===r.findingId);
-    if(!f)return;
-    ACTIONS.unshift({
-      id:'ac'+Date.now()+Math.random(),
-      title:r.action,
-      audit:ap?.titre||'—',
-      resp:CU?.name||'—',
-      dept:r.owner,
-      ent:ap?.type==='BU'?ap.entite:'Groupe',
-      year:r.year,
-      quarter:r.quarter,
-      status:'Non démarré',
-      pct:0,
-      fromFinding:true,
-      findingTitle:f.title
+  // v77.13 : itérer sur toutes les MR, et pour chaque MR sur ses actions
+  // v77.13.1 fix : appeler saveAction() pour persister + saveAuditData() pour le flag pushed
+  var pushed = [];
+  var newActions = [];
+  d.mgtResp.forEach(function(r){
+    if (r.pushed) return;
+    var f = (d.findings||[]).find(function(x,i){return (x.id||('f_'+i))===r.findingId;});
+    if (!f) return;
+    var actionsForThisMr = [];
+    (r.actions || []).forEach(function(a){
+      if (!a.action || !a.owner) return;
+      var newAc = {
+        id: 'ac'+Date.now()+Math.random().toString(36).slice(2,7),
+        title: a.action,
+        audit: ap?.titre || '—',
+        auditId: CA,
+        auditYear: ap?.year || null,
+        resp: CU?.name || '—',
+        dept: a.owner,
+        ent: ap?.type==='BU' ? ap.entite : 'Groupe',
+        year: a.year,
+        quarter: a.quarter,
+        status: 'Non démarré',
+        pct: 0,
+        fromFinding: true,
+        findingTitle: f.title,
+        findingId: f.id,
+        mgtRespId: r.id,
+        actionId: a.id,
+        mrResponseText: r.responseText,
+        mrResponseOwner: r.responseOwner,
+        deadlineHistory: (a.deadlineHistory || []).slice(),
+      };
+      newActions.push(newAc);
+      actionsForThisMr.push(newAc);
+      pushed.push(a);
     });
-    r.pushed=true;
-    addHist('add',`Plan d'action créé depuis finding "${f.title}"`);
+    // Marquer la MR comme pushed seulement si elle a poussé au moins 1 action
+    if (actionsForThisMr.length > 0) r.pushed = true;
   });
-  document.getElementById('det-content').innerHTML=renderDetContent();
-  toast(pushed.length+' plan(s) d\'action créé(s) ✓');
+  if (!pushed.length) { toast('Aucun plan d\'action complet à envoyer'); return; }
+
+  // v77.13.1 : pousser en async et persister via saveAction()
+  (async function() {
+    // Ajouter dans la liste mémoire
+    newActions.forEach(function(ac){
+      ACTIONS.unshift(ac);
+    });
+    // Persister sur SharePoint (en parallèle)
+    try {
+      await Promise.all(newActions.map(function(ac){return saveAction(ac);}));
+    } catch(e) {
+      console.error('Erreur sauvegarde actions:', e);
+      toast('Erreur sauvegarde — les actions sont créées localement mais pas sur SharePoint');
+    }
+    // Persister le flag pushed sur les MR
+    await saveAuditData(CA);
+    // Historique
+    newActions.forEach(function(ac){
+      addHist('add', `Plan d'action créé "${ac.title}"`);
+    });
+    document.getElementById('det-content').innerHTML = renderDetContent();
+    toast(newActions.length+' plan(s) d\'action créé(s) et sauvegardé(s) ✓');
+  })();
 }
 async function addFakeDoc(){
   // Étape 1 : sélection du fichier
@@ -13282,10 +15275,98 @@ function buildExecTable(kc){
   var wcgwList = (d.wcgw && d.wcgw[4]) || [];
   // Liste des contrôles globaux pour retrouver le vrai index dans d.controls[4]
   var allCtrls = (d.controls && d.controls[4]) || [];
+
+  // v77.11 : Grouper les contrôles par sous-processus
+  // Liste maîtresse des SP (kickoffPrep + narratif découverts)
+  var spList = [];
+  var seenSpIds = {};
+  var kickoffSps = (d.kickoffPrep && Array.isArray(d.kickoffPrep.subProcesses)) ? d.kickoffPrep.subProcesses : [];
+  kickoffSps.forEach(function(sp){
+    if (!sp || !sp.id || seenSpIds[sp.id]) return;
+    seenSpIds[sp.id] = true;
+    spList.push({id: sp.id, name: sp.name || '(sans nom)', source: 'kickoff'});
+  });
+  var narrative = d.consolidatedNarrative || '';
+  var sectionRegex = /^##\s+(.+)$/gm;
+  var mm;
+  while ((mm = sectionRegex.exec(narrative)) !== null) {
+    var sectionName = (mm[1] || '').trim();
+    if (!sectionName) continue;
+    var matched = spList.find(function(s){return s.name.toLowerCase() === sectionName.toLowerCase();});
+    if (matched) continue;
+    spList.push({id: 'sp_discovered_'+spList.length, name: sectionName, source: 'discovered'});
+  }
+
+  // Grouper kc par subProcessId
+  // v77.11 fix : les contrôles n'ont pas de subProcessId direct, ils sont liés via leur WCGW
+  // ctrl.wcgwId → wcgw.subProcessId → SP
+  var ctrlsBySpId = {};
+  kc.forEach(function(ctrl){
+    var spId = null;
+    // 1. subProcessId direct sur ctrl (si jamais ajouté plus tard)
+    if (ctrl.subProcessId) {
+      spId = ctrl.subProcessId;
+    } else if (ctrl.wcgwId) {
+      // 2. Via WCGW lié
+      var wcgw = wcgwList.find(function(w){return w.id === ctrl.wcgwId;});
+      if (wcgw && wcgw.subProcessId) spId = wcgw.subProcessId;
+    }
+    if (!spId) spId = '__transverse';
+    if (!ctrlsBySpId[spId]) ctrlsBySpId[spId] = [];
+    ctrlsBySpId[spId].push(ctrl);
+  });
+
+  // Ordre d'affichage : SP de spList puis transverse à la fin
+  var orderedSpIds = spList.map(function(s){return s.id;});
+  if (ctrlsBySpId['__transverse'] && ctrlsBySpId['__transverse'].length) {
+    orderedSpIds.push('__transverse');
+  }
+  var spIdsWithCtrls = orderedSpIds.filter(function(spId){return ctrlsBySpId[spId] && ctrlsBySpId[spId].length;});
+
+  // État d'ouverture des sections SP (init mémoire si pas déjà)
+  if (typeof _openTestingsSpSections === 'undefined') _openTestingsSpSections = {};
+
   var html = '';
-  kc.forEach(function(ctrl, displayIdx){
-    // Index global dans d.controls[4] (pour les setters existants)
-    var globalIdx = allCtrls.indexOf(ctrl);
+  spIdsWithCtrls.forEach(function(spId){
+    var spInfo = (spId === '__transverse')
+      ? {id:'__transverse', name:'Transverse / Sans sous-processus', source:'fallback'}
+      : (spList.find(function(s){return s.id === spId;}) || {id:spId, name:spId, source:'unknown'});
+    var spCtrls = ctrlsBySpId[spId] || [];
+    var nbInSp = spCtrls.length;
+    var nbFinalized = spCtrls.filter(function(c){return c.finalized;}).length;
+    var nbWithAnomalies = spCtrls.filter(function(c){return c.anomalies && Number(c.anomalies.count) > 0;}).length;
+    // Ouvert par défaut sauf si l'utilisateur a explicitement fermé
+    var isOpen = _openTestingsSpSections[spId] !== false;
+
+    // Section header
+    html += '<div style="margin-bottom:14px;border:.5px solid var(--border);border-radius:6px;overflow:hidden;background:#fff">';
+    html += '<div onclick="toggleTestingsSpSection(\''+_escJsArg(spId)+'\')" style="cursor:pointer;padding:10px 14px;background:#fafafa;border-bottom:'+(isOpen?'.5px solid var(--border)':'none')+';display:flex;align-items:center;gap:10px;user-select:none">';
+    html += '<span style="font-size:11px;color:var(--text-3);width:10px;flex-shrink:0;transition:transform .15s;transform:rotate('+(isOpen?'90':'0')+'deg)">▶</span>';
+    html += '<span style="font-size:13px;font-weight:600;color:var(--text-1);flex:1">'+(''+spInfo.name).replace(/</g,'&lt;');
+    if (spInfo.source === 'discovered') html += ' <span style="font-size:9px;color:var(--text-3);font-style:italic">(découvert via narratif)</span>';
+    html += '</span>';
+    html += '<span style="font-size:10px;color:var(--text-3);flex-shrink:0">'+nbFinalized+'/'+nbInSp+' finalisés</span>';
+    if (nbWithAnomalies) html += '<span style="background:#FCEBEB;color:#A32D2D;font-size:9px;padding:2px 7px;border-radius:3px;font-weight:500;flex-shrink:0">⚠ '+nbWithAnomalies+' anomalies</span>';
+    html += '</div>';
+
+    if (isOpen) {
+      html += '<div style="padding:10px 12px">';
+      // Pour chaque contrôle, on génère la card collapsible existante
+      spCtrls.forEach(function(ctrl){
+        var globalIdx = allCtrls.indexOf(ctrl);
+        html += _buildSingleProcessTestCard(ctrl, globalIdx, allCtrls, wcgwList, d);
+      });
+      html += '</div>';
+    }
+    html += '</div>';
+  });
+
+  return html;
+}
+
+// v77.11 : génère la card complète d'un seul contrôle testé (logique extraite de l'ancien buildExecTable)
+function _buildSingleProcessTestCard(ctrl, globalIdx, allCtrls, wcgwList, d) {
+  var html = '';
 
     var dis = ctrl.finalized ? 'disabled' : '';
     var ctrlCode = ctrl.code || ('CTRL-'+(globalIdx+1));
@@ -13321,29 +15402,88 @@ function buildExecTable(kc){
 
     var extrap = _computeExtrapolation(ctrl);
 
-    html += '<div style="'+rowBorder+';border-radius:6px;padding:12px;margin-bottom:10px;background:'+(hasAnomalies?'#FFF8F8':(ctrl.finalized?'#fafafa':'#fff'))+'">';
+    // v77.10 : pré-calcul des variables utilisées dans le header collapsible
+    if (!ctrl.samplingPlan) ctrl.samplingPlan = {confidence:95, EDR:5, TDR:5, freqId:'', confLevel:'high'};
+    var sp = ctrl.samplingPlan;
+    if (!sp.freqId) sp.freqId = '';
+    if (!sp.confLevel) sp.confLevel = 'high';
+    var testMode = ctrl.testMode || '';
+    var popN = Number(ctrl.population.count) || 0;
 
-    // En-tête : code + nom + WCGW lié + badges
-    html += '<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:8px">';
-    html += '<div style="flex:1">';
-    html += '<div style="display:flex;gap:6px;align-items:center;margin-bottom:4px;flex-wrap:wrap">';
-    html += '<span style="background:#EEEDFE;color:#3C3489;font-size:9px;padding:2px 7px;border-radius:3px;font-family:monospace;letter-spacing:.4px">'+ctrlCode+'</span>';
-    html += '<span style="background:'+statusBg+';color:'+statusColor+';font-size:9px;padding:2px 7px;border-radius:3px;font-weight:500">'+status+'</span>';
-    if (hasAnomalies) html += '<span style="background:#FCEBEB;color:#A32D2D;font-size:9px;padding:2px 7px;border-radius:3px;font-weight:500">⚠ ANOMALIES</span>';
-    if (hasIssue) html += '<span style="background:#EEEDFE;color:#3C3489;font-size:9px;padding:2px 7px;border-radius:3px;font-weight:500">ISSUE</span>';
-    if (ctrl.finalized) html += '<span class="badge bdn" style="font-size:9px;padding:2px 7px;border-radius:3px">Finalisé</span>';
+    html += '<div style="'+rowBorder+';border-radius:6px;margin-bottom:10px;background:'+(hasAnomalies?'#FFF8F8':(ctrl.finalized?'#fafafa':'#fff'))+';overflow:hidden">';
+
+    // v77.10 : Header collapsible compact (1 ligne)
+    // État d'ouverture mémorisé entre les re-renders
+    if (typeof _openTestCards === 'undefined') _openTestCards = {};
+    var cardOpenKey = 'proc:'+ctrl.id;
+    var isOpen = !!_openTestCards[cardOpenKey];
+
+    // Indicateurs synthétiques pour le header
+    var sampleHeader = '';
+    if (testMode === 'control' && ctrl.samplingPlan && ctrl.samplingPlan.freqId) {
+      var fr = CONTROL_FREQ_TABLE.find(function(f){return f.id===ctrl.samplingPlan.freqId;});
+      if (fr) {
+        var nrec = (ctrl.samplingPlan.confLevel === 'low') ? fr.low : fr.high;
+        sampleHeader = (ctrl.sample.count||'0')+'/'+nrec;
+      }
+    } else if (testMode === 'substantive' || testMode === 'analysis') {
+      sampleHeader = (ctrl.sample.count||'—')+'/'+(ctrl.population.count||'—');
+    }
+    var nbEvidence = _getTestEvidence(ctrl.id).length;
+    var modeBadge = testMode === 'control' ? '<span style="font-size:9px;color:#3C3489;font-weight:600">🎯</span>'
+                  : testMode === 'substantive' ? '<span style="font-size:9px;color:#085041;font-weight:600">💰</span>'
+                  : testMode === 'analysis' ? '<span style="font-size:9px;color:#854F0B;font-weight:600">🔗</span>'
+                  : '<span style="font-size:9px;color:var(--text-3)">—</span>';
+
+    html += '<div onclick="toggleTestCard(\''+_escJsArg(cardOpenKey)+'\')" style="cursor:pointer;padding:10px 12px;display:flex;align-items:center;gap:10px;user-select:none;background:'+(isOpen?'#fafafa':'transparent')+'">';
+    // Caret
+    html += '<span style="font-size:11px;color:var(--text-3);width:10px;flex-shrink:0;transition:transform .15s;transform:rotate('+(isOpen?'90':'0')+'deg)">▶</span>';
+    // Code
+    html += '<span style="background:#EEEDFE;color:#3C3489;font-size:9px;padding:2px 7px;border-radius:3px;font-family:monospace;letter-spacing:.4px;flex-shrink:0">'+ctrlCode+'</span>';
+    // Nom
+    html += '<span style="font-size:12px;font-weight:500;color:var(--text-1);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(''+(ctrl.name||'(sans nom)')).replace(/</g,'&lt;')+'</span>';
+    // Mode
+    html += '<span style="flex-shrink:0">'+modeBadge+'</span>';
+    // Sample
+    if (sampleHeader) {
+      html += '<span style="font-size:10px;color:var(--text-3);font-family:monospace;flex-shrink:0" title="Échantillon / recommandé ou population">'+sampleHeader+'</span>';
+    }
+    // Statut
+    html += '<span style="background:'+statusBg+';color:'+statusColor+';font-size:9px;padding:2px 7px;border-radius:3px;font-weight:500;flex-shrink:0">'+status+'</span>';
+    // Anomalies
+    if (hasAnomalies) html += '<span style="background:#FCEBEB;color:#A32D2D;font-size:9px;padding:2px 7px;border-radius:3px;font-weight:500;flex-shrink:0">⚠ '+ctrl.anomalies.count+' anomalie'+(Number(ctrl.anomalies.count)>1?'s':'')+'</span>';
+    // Issue
+    if (hasIssue) html += '<span style="background:#EEEDFE;color:#3C3489;font-size:9px;padding:2px 7px;border-radius:3px;font-weight:500;flex-shrink:0" title="Issue Operating renseignée">📝</span>';
+    // Preuves
+    if (nbEvidence) html += '<span style="font-size:9px;color:var(--text-3);flex-shrink:0" title="'+nbEvidence+' preuve(s)">📎 '+nbEvidence+'</span>';
+    // Finalisé
+    if (ctrl.finalized) html += '<span class="badge bdn" style="font-size:9px;padding:2px 7px;border-radius:3px;flex-shrink:0">Finalisé</span>';
     html += '</div>';
-    html += '<div style="font-size:12px;font-weight:500">'+(''+(ctrl.name||'')).replace(/</g,'&lt;')+'</div>';
-    if (ctrl.description) html += '<div style="font-size:10px;color:var(--text-3);margin-top:2px;font-style:italic">'+(''+ctrl.description).replace(/</g,'&lt;')+'</div>';
-    html += '<div style="font-size:10px;color:var(--text-2);margin-top:4px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">';
+
+    // v77.10 : Bloc déplié (caché si !isOpen)
+    if (!isOpen) {
+      html += '</div>'; // fermer la card
+      return html; // v77.11 fix : retourner html (pas return undefined)
+    }
+
+    html += '<div style="padding:12px;border-top:.5px solid var(--border)">';
+
+    // En-tête détaillé : WCGW + meta
+    html += '<div style="margin-bottom:10px">';
+    if (ctrl.description) html += '<div style="font-size:11px;color:var(--text-2);margin-bottom:6px;font-style:italic">'+(''+ctrl.description).replace(/</g,'&lt;')+'</div>';
+    html += '<div style="font-size:10px;color:var(--text-2);display:flex;gap:8px;flex-wrap:wrap;align-items:center">';
     html += wcgwBadge;
     if (details.length) html += '<span>·</span><span>'+details.join(' · ')+'</span>';
     html += '</div>';
     html += '</div>';
-    html += '</div>';
 
-    // Statut + Méthode de sélection
-    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">';
+    // v77.10 : Statut détaillé + Méthode (Méthode masquée sauf substantive)
+    var showSelectionMethod = (testMode === 'substantive');
+    if (showSelectionMethod) {
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">';
+    } else {
+      html += '<div style="margin-bottom:8px">';
+    }
     html += '<div>';
     html += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Statut du test</label>';
     html += '<select onchange="setProcessTestField('+globalIdx+',\'testStatus\',this.value)" '+dis+' style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;background:'+statusBg+';color:'+statusColor+';font-weight:500">';
@@ -13352,15 +15492,17 @@ function buildExecTable(kc){
     });
     html += '</select>';
     html += '</div>';
-    html += '<div>';
-    html += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Méthode de sélection</label>';
-    html += '<select onchange="setProcessTestField('+globalIdx+',\'selectionMethod\',this.value)" '+dis+' style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;background:#fff">';
-    html += '<option value=""'+(!ctrl.selectionMethod?' selected':'')+'>— Choisir —</option>';
-    html += '<option'+(ctrl.selectionMethod==='Coverage'?' selected':'')+'>Coverage</option>';
-    html += '<option'+(ctrl.selectionMethod==='Aléatoire'?' selected':'')+'>Aléatoire</option>';
-    html += '<option'+(ctrl.selectionMethod==='Mix'?' selected':'')+'>Mix</option>';
-    html += '</select>';
-    html += '</div>';
+    if (showSelectionMethod) {
+      html += '<div>';
+      html += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Méthode de sélection <span style="cursor:help;color:#3C3489" title="Coverage = top N par valeur (pas d\'extrapolation possible). Aléatoire = sample stat (extrapolation possible). Mix = combinaison.">ⓘ</span></label>';
+      html += '<select onchange="setProcessTestField('+globalIdx+',\'selectionMethod\',this.value)" '+dis+' style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;background:#fff">';
+      html += '<option value=""'+(!ctrl.selectionMethod?' selected':'')+'>— Choisir —</option>';
+      html += '<option'+(ctrl.selectionMethod==='Coverage'?' selected':'')+'>Coverage</option>';
+      html += '<option'+(ctrl.selectionMethod==='Aléatoire'?' selected':'')+'>Aléatoire</option>';
+      html += '<option'+(ctrl.selectionMethod==='Mix'?' selected':'')+'>Mix</option>';
+      html += '</select>';
+      html += '</div>';
+    }
     html += '</div>';
 
     // Procédure de test (testNature)
@@ -13369,6 +15511,133 @@ function buildExecTable(kc){
     html += '<textarea onchange="setTestNature('+globalIdx+',this.value)" '+dis+' placeholder="Décrivez la procédure de test..." style="width:100%;min-height:50px;font-size:11px;padding:6px;border:1px solid var(--border);border-radius:3px;font-family:inherit;box-sizing:border-box">'+(ctrl.testNature||'').replace(/</g,'&lt;')+'</textarea>';
     html += '</div>';
 
+    // v77.3 : Section Sample Sizing — choix Control vs Substantive testing
+    // (variables sp / testMode / popN déjà déclarées plus haut en v77.10)
+
+    html += '<div style="background:#fafafa;border:.5px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px">';
+    // Header avec aide
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px">';
+    html += '<div style="font-size:10px;font-weight:600;color:var(--text-2);text-transform:uppercase;letter-spacing:.4px">📊 Sample sizing (planification)</div>';
+    html += '<button onclick="showSamplingHelpModal()" title="Guide d\'utilisation" style="font-size:9px;padding:3px 8px;background:#fff;border:.5px solid var(--border);border-radius:3px;cursor:pointer;color:#3C3489;font-weight:500">❓ Aide</button>';
+    html += '</div>';
+
+    // Toggle Nature du test (3 cards) — utilise <div onclick> pour éviter bug CSS .mb label
+    html += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.3px;font-weight:500;margin-bottom:4px">Nature du test</div>';
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px">';
+    // Control
+    var ctrlActive = testMode === 'control';
+    html += '<div onclick="setProcessTestModeField('+globalIdx+',\'control\')" style="padding:8px 10px;border:1px solid '+(ctrlActive?'#3C3489':'var(--border)')+';border-radius:4px;background:'+(ctrlActive?'#EEEDFE':'#fff')+';cursor:pointer;box-sizing:border-box;min-width:0">';
+    html += '<div style="display:flex;align-items:center;gap:7px;margin-bottom:2px">';
+    html += '<input type="radio" name="test-mode-'+globalIdx+'" '+(ctrlActive?'checked':'')+' onclick="event.stopPropagation();setProcessTestModeField('+globalIdx+',\'control\')" style="margin:0;width:auto;flex-shrink:0"/>';
+    html += '<span style="font-size:11px;font-weight:600;color:'+(ctrlActive?'#3C3489':'var(--text-2)')+'">🎯 Test de contrôle</span>';
+    html += '</div>';
+    html += '<div style="font-size:10px;color:var(--text-3);padding-left:22px">Vérifie que le contrôle fonctionne — sample basé sur la fréquence</div>';
+    html += '</div>';
+    // Substantive
+    var subActive = testMode === 'substantive';
+    html += '<div onclick="setProcessTestModeField('+globalIdx+',\'substantive\')" style="padding:8px 10px;border:1px solid '+(subActive?'#085041':'var(--border)')+';border-radius:4px;background:'+(subActive?'#E1F5EE':'#fff')+';cursor:pointer;box-sizing:border-box;min-width:0">';
+    html += '<div style="display:flex;align-items:center;gap:7px;margin-bottom:2px">';
+    html += '<input type="radio" name="test-mode-'+globalIdx+'" '+(subActive?'checked':'')+' onclick="event.stopPropagation();setProcessTestModeField('+globalIdx+',\'substantive\')" style="margin:0;width:auto;flex-shrink:0"/>';
+    html += '<span style="font-size:11px;font-weight:600;color:'+(subActive?'#085041':'var(--text-2)')+'">💰 Test substantif</span>';
+    html += '</div>';
+    html += '<div style="font-size:10px;color:var(--text-3);padding-left:22px">Détecte des anomalies sur transactions — sample binomial</div>';
+    html += '</div>';
+    // Analysis (v77.4)
+    var anaActive = testMode === 'analysis';
+    html += '<div onclick="setProcessTestModeField('+globalIdx+',\'analysis\')" style="padding:8px 10px;border:1px solid '+(anaActive?'#854F0B':'var(--border)')+';border-radius:4px;background:'+(anaActive?'#FAEEDA':'#fff')+';cursor:pointer;box-sizing:border-box;min-width:0">';
+    html += '<div style="display:flex;align-items:center;gap:7px;margin-bottom:2px">';
+    html += '<input type="radio" name="test-mode-'+globalIdx+'" '+(anaActive?'checked':'')+' onclick="event.stopPropagation();setProcessTestModeField('+globalIdx+',\'analysis\')" style="margin:0;width:auto;flex-shrink:0"/>';
+    html += '<span style="font-size:11px;font-weight:600;color:'+(anaActive?'#854F0B':'var(--text-2)')+'">🔗 Test de cohérence</span>';
+    html += '</div>';
+    html += '<div style="font-size:10px;color:var(--text-3);padding-left:22px">Compare plusieurs attributs entre 2-3 sources de données — import Excel</div>';
+    html += '</div>';
+    html += '</div>';
+
+    if (!testMode) {
+      // Aucun mode choisi — invite à choisir
+      html += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:10px;text-align:center;background:#fff;border:.5px dashed var(--border);border-radius:3px">Choisis la nature du test ci-dessus pour configurer le sampling.</div>';
+    } else if (testMode === 'analysis') {
+      // ─── ANALYSIS MULTI-ATTRIBUTS (v77.4) ───
+      html += _renderAnalysisConfigUI(ctrl, globalIdx, 'process', dis);
+    } else if (testMode === 'control') {
+      // ─── CONTROL TESTING : frequency-based ───
+      html += '<div style="display:grid;grid-template-columns:2fr 1fr;gap:8px;margin-bottom:8px">';
+      // Fréquence
+      html += '<div>';
+      html += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Fréquence du contrôle <span style="cursor:help;color:#3C3489" title="À quelle fréquence le contrôle s\'exécute-t-il dans l\'année ?">ⓘ</span></label>';
+      html += '<select '+dis+' onchange="setProcessSamplingField('+globalIdx+',\'freqId\',this.value)" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;background:#fff;box-sizing:border-box">';
+      html += '<option value=""'+(!sp.freqId?' selected':'')+'>— Choisir —</option>';
+      CONTROL_FREQ_TABLE.forEach(function(f){
+        html += '<option value="'+f.id+'"'+(sp.freqId===f.id?' selected':'')+'>'+f.label+' ('+f.shortLabel+', ~'+f.popPerYear+' occurrences/an)</option>';
+      });
+      html += '</select>';
+      html += '</div>';
+      // Niveau de confiance
+      html += '<div>';
+      html += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Niveau de confiance <span style="cursor:help;color:#3C3489" title="High = contrôle clé, risque élevé. Low = contrôle de niveau opérationnel, risque modéré.">ⓘ</span></label>';
+      html += '<select '+dis+' onchange="setProcessSamplingField('+globalIdx+',\'confLevel\',this.value)" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;background:#fff;box-sizing:border-box">';
+      html += '<option value="high"'+(sp.confLevel==='high'?' selected':'')+'>High (contrôle clé)</option>';
+      html += '<option value="low"'+(sp.confLevel==='low'?' selected':'')+'>Low (opérationnel)</option>';
+      html += '</select>';
+      html += '</div>';
+      html += '</div>';
+
+      var freqResult = sp.freqId ? _calcControlSampleByFreq(sp.freqId, sp.confLevel) : null;
+      if (freqResult) {
+        html += '<div style="background:#fff;border:.5px solid var(--border);border-radius:3px;padding:9px 11px">';
+        html += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.3px;font-weight:500;margin-bottom:3px">Taille d\'échantillon recommandée</div>';
+        html += '<div style="font-size:18px;font-weight:600;color:#3C3489">'+freqResult.n+'</div>';
+        html += '<div style="font-size:10px;color:var(--text-3);font-style:italic;margin-top:2px">Contrôle '+freqResult.freqShortLabel.toLowerCase()+' (~'+freqResult.freqPopPerYear+' occurrences/an) · niveau '+(freqResult.confidenceLevel==='high'?'High':'Low')+' confidence · table standard audit interne</div>';
+        html += '</div>';
+      } else if (sp.freqId === '') {
+        html += '<div style="font-size:10px;color:var(--text-3);font-style:italic;padding:6px 0">Sélectionne la fréquence du contrôle pour calculer la taille d\'échantillon recommandée.</div>';
+      }
+    } else {
+      // ─── SUBSTANTIVE TESTING : binomial ───
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">';
+      // Confidence
+      html += '<div>';
+      html += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Confiance <span style="cursor:help;color:#3C3489" title="Probabilité que le taux d\'erreur réel soit dans la fourchette annoncée. 95% = standard audit, 99% = très haute exigence.">ⓘ</span></label>';
+      html += '<div style="display:flex;align-items:center;gap:4px"><input type="number" min="80" max="99" step="1" '+dis+' value="'+sp.confidence+'" onchange="setProcessSamplingField('+globalIdx+',\'confidence\',this.value)" style="flex:1;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;text-align:right;box-sizing:border-box"/><span style="font-size:11px;color:var(--text-3)">%</span></div>';
+      html += '</div>';
+      // EDR
+      html += '<div>';
+      html += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">EDR (% attendu) <span style="cursor:help;color:#3C3489" title="Expected Deviation Rate : taux d\'erreur que tu anticipes dans la population. Si tu n\'as pas d\'historique, mets 5% par défaut. Si l\'audit précédent a trouvé 2% d\'erreurs, mets 2%.">ⓘ</span></label>';
+      html += '<div style="display:flex;align-items:center;gap:4px"><input type="number" min="0" max="50" step="0.5" '+dis+' value="'+sp.EDR+'" onchange="setProcessSamplingField('+globalIdx+',\'EDR\',this.value)" style="flex:1;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;text-align:right;box-sizing:border-box"/><span style="font-size:11px;color:var(--text-3)">%</span></div>';
+      html += '</div>';
+      // TDR
+      html += '<div>';
+      html += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">TDR (% tolérable) <span style="cursor:help;color:#3C3489" title="Tolerable Deviation Rate : taux d\'erreur maximum acceptable. Doit être > EDR.">ⓘ</span></label>';
+      html += '<div style="display:flex;align-items:center;gap:4px"><input type="number" min="1" max="50" step="0.5" '+dis+' value="'+sp.TDR+'" onchange="setProcessSamplingField('+globalIdx+',\'TDR\',this.value)" style="flex:1;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;text-align:right;box-sizing:border-box"/><span style="font-size:11px;color:var(--text-3)">%</span></div>';
+      html += '</div>';
+      html += '</div>';
+
+      var recommended = popN > 0 ? _calcSampleSize(popN, sp.confidence, sp.EDR, sp.TDR) : null;
+      if (popN > 0 && recommended && recommended.n) {
+        var fullPopRecommended = recommended.n >= popN;
+        if (fullPopRecommended) {
+          html += '<div style="background:#EEEDFE;border:.5px solid #CECBF6;border-radius:3px;padding:10px 12px;font-size:11px;color:#3C3489;line-height:1.5">';
+          html += '<div style="font-weight:600;margin-bottom:3px">📌 Test exhaustif recommandé — N='+popN+'</div>';
+          html += 'La population est trop petite pour faire du sampling statistique avec tes paramètres. <strong>Teste 100% des éléments</strong> ('+popN+' / '+popN+').';
+          html += '</div>';
+        } else {
+          html += '<div style="background:#fff;border:.5px solid var(--border);border-radius:3px;padding:9px 11px">';
+          html += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.3px;font-weight:500;margin-bottom:3px">Taille d\'échantillon recommandée</div>';
+          html += '<div style="font-size:18px;font-weight:600;color:#3C3489">'+recommended.n+'</div>';
+          html += '<div style="font-size:10px;color:var(--text-3);font-style:italic;margin-top:2px">sur '+popN+' éléments · '+((recommended.n/popN)*100).toFixed(1)+'% de couverture · formule binomiale avec correction petite population</div>';
+          html += '</div>';
+        }
+      } else if (popN === 0) {
+        html += '<div style="font-size:10px;color:var(--text-3);font-style:italic;padding:6px 0">Saisis d\'abord la taille de la population (ci-dessous) pour calculer la taille d\'échantillon recommandée.</div>';
+      } else if (recommended && recommended.note) {
+        html += '<div style="font-size:10px;color:#854F0B;padding:6px 0">'+recommended.note+'</div>';
+      }
+    }
+    html += '</div>';
+
+    // v77.4.2 : Blocs Tableau Pop/Sample, Coverage, Extrapolation seulement pour Control/Substantive
+    // En mode Analysis, ces données viennent du fichier Excel et sont présentées différemment.
+    if (testMode !== 'analysis') {
     // Tableau Population/Sample/Anomalies (Nombre + Valeur €)
     html += '<table style="width:100%;border-collapse:collapse;margin-bottom:8px;font-size:11px">';
     html += '<thead><tr style="background:#f5f5f0">';
@@ -13399,6 +15668,50 @@ function buildExecTable(kc){
     html += '</tr>';
     html += '</tbody></table>';
 
+    // v77 : Bloc Coverage actuel
+    var cov = _calcCoverage(ctrl);
+    if (cov && cov.popCount > 0) {
+      var levelColor = cov.level === 'good' ? '#085041' : cov.level === 'moderate' ? '#854F0B' : '#993C1D';
+      var levelBg = cov.level === 'good' ? '#E1F5EE' : cov.level === 'moderate' ? '#FAEEDA' : '#FCEBEB';
+      var levelBorder = cov.level === 'good' ? '#A6E2CD' : cov.level === 'moderate' ? '#FAC775' : '#F2C2C0';
+      var levelEmoji = cov.level === 'good' ? '🟢' : cov.level === 'moderate' ? '🟡' : '🔴';
+      var levelLabel = cov.level === 'good' ? 'Bon' : cov.level === 'moderate' ? 'Modéré' : 'Faible';
+      // Compare avec sample size recommandé pour avis
+      var advice = '';
+      if (recommended && recommended.n && cov.sampleCount > 0) {
+        if (cov.sampleCount < recommended.n) {
+          advice = ' · ⚠ Sample testé ('+cov.sampleCount+') sous le seuil recommandé ('+recommended.n+')';
+        } else {
+          advice = ' · ✓ Sample atteint le seuil recommandé';
+        }
+      }
+
+      html += '<div style="background:'+levelBg+';border:.5px solid '+levelBorder+';border-radius:4px;padding:8px 10px;margin-bottom:8px">';
+      html += '<div style="font-size:10px;color:'+levelColor+';font-weight:600;margin-bottom:4px;text-transform:uppercase;letter-spacing:.3px">🎯 Couverture actuelle '+levelEmoji+' '+levelLabel+'</div>';
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:11px;color:'+levelColor+'">';
+      // Coverage nombre
+      html += '<div>';
+      html += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.3px;font-weight:500">Coverage nombre</div>';
+      html += '<div style="font-size:14px;font-weight:600">'+cov.coverageCountPct.toFixed(1)+'%</div>';
+      html += '<div style="font-size:10px;color:var(--text-3)">'+cov.sampleCount+' / '+cov.popCount+'</div>';
+      html += '</div>';
+      // Coverage monétaire (seulement si renseigné)
+      if (cov.hasAmount) {
+        html += '<div>';
+        html += '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.3px;font-weight:500">Coverage monétaire</div>';
+        html += '<div style="font-size:14px;font-weight:600">'+cov.coverageAmountPct.toFixed(1)+'%</div>';
+        html += '<div style="font-size:10px;color:var(--text-3)">'+_fmtEur(cov.sampleAmount)+' / '+_fmtEur(cov.popAmount)+'</div>';
+        html += '</div>';
+      } else {
+        html += '<div style="font-size:10px;color:var(--text-3);font-style:italic;align-self:center">Saisis le montant total de la population pour voir le coverage monétaire</div>';
+      }
+      html += '</div>';
+      if (advice) {
+        html += '<div style="font-size:10px;color:'+levelColor+';margin-top:5px;font-style:italic">'+advice+'</div>';
+      }
+      html += '</div>';
+    }
+
     // Extrapolation auto
     html += '<div style="background:'+(extrap.applicable?'#EEEDFE':'#F1EFE8')+';border-radius:4px;padding:8px 10px;margin-bottom:8px">';
     html += '<div style="font-size:10px;color:'+(extrap.applicable?'#3C3489':'#5F5E5A')+';font-weight:600;margin-bottom:3px;text-transform:uppercase;letter-spacing:.3px">Extrapolation auto</div>';
@@ -13417,11 +15730,20 @@ function buildExecTable(kc){
       html += '</div>';
     }
     html += '</div>';
+    } // end if (testMode !== 'analysis')
+
+    // v77.9 : Section preuves attachées au test
+    html += _renderTestEvidenceSection('process', globalIdx, null, dis);
 
     // Issue description (remplace l'ancien Pass/Fail + commentaire)
     html += '<div style="margin-bottom:6px">';
-    html += '<label style="font-size:9px;color:var(--text-3);display:block;margin-bottom:2px">Issue description <span style="font-style:italic">(remontée dans le rapport — laisser vide si pas d\'anomalie)</span></label>';
-    html += '<textarea onchange="setProcessIssueDescription('+globalIdx+',this.value)" '+dis+' placeholder="Détail des anomalies trouvées, contexte, ce qui sera remonté dans le rapport..." style="width:100%;min-height:60px;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;resize:vertical;font-family:inherit;box-sizing:border-box">'+issueDesc.replace(/</g,'&lt;')+'</textarea>';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">';
+    html += '<label style="font-size:9px;color:var(--text-3)">Issue description <span style="font-style:italic">(remontée dans le rapport — bouton ci-contre pour pré-remplir avec les résultats du test)</span></label>';
+    if (!ctrl.finalized) {
+      html += '<button class="bs" style="font-size:10px;padding:2px 7px" onclick="prefillProcessIssueDescription('+globalIdx+')" title="Pré-remplir depuis les résultats du test">📋 Pré-remplir</button>';
+    }
+    html += '</div>';
+    html += '<textarea id="iss-desc-proc-'+globalIdx+'" onchange="setProcessIssueDescription('+globalIdx+',this.value)" '+dis+' placeholder="Détail des anomalies trouvées, contexte, ce qui sera remonté dans le rapport..." style="width:100%;min-height:60px;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;resize:vertical;font-family:inherit;box-sizing:border-box">'+issueDesc.replace(/</g,'&lt;')+'</textarea>';
     html += '</div>';
 
     // Bouton finaliser
@@ -13434,9 +15756,26 @@ function buildExecTable(kc){
       html += '<button class="bs" style="font-size:11px;padding:5px 12px" onclick="unfinalizeTest('+globalIdx+')">Rouvrir</button>';
       html += '</div>';
     }
-    html += '</div>';
-  });
+    html += '</div>'; // v77.10 : fermer le bloc déplié
+    html += '</div>'; // fermer la card
   return html;
+}
+
+// v77.11 : toggle d'une section SP dans Testings
+function toggleTestingsSpSection(spId) {
+  if (typeof _openTestingsSpSections === 'undefined') _openTestingsSpSections = {};
+  // Par défaut isOpen = true (val !== false). Donc on toggle entre true (undefined) et false
+  if (_openTestingsSpSections[spId] === false) {
+    delete _openTestingsSpSections[spId];
+  } else {
+    _openTestingsSpSections[spId] = false;
+  }
+  var scrollY = window.scrollY;
+  var detContent = document.getElementById('det-content');
+  if (detContent) {
+    detContent.innerHTML = renderDetContent();
+    setTimeout(function(){ window.scrollTo(0, scrollY); }, 0);
+  }
 }
 function buildDocList(docs){
   if(!docs||!docs.length) return '';
