@@ -14223,18 +14223,6 @@ function renderMgtRespSection() {
         quarter: r.quarter || 'Q1',
         deadlineHistory: [],
       }];
-      // v77.13.1 fix : reset pushed=true sur MR migrées car les actions correspondantes
-      // ne sont peut-être pas vraiment sur SharePoint (bug ancien : pas de saveAction)
-      // L'auditeur pourra re-pousser pour s'assurer que c'est persisté
-      if (r.pushed) {
-        // Vérifier si l'action correspondante existe vraiment dans ACTIONS
-        var existsInActions = ACTIONS.some(function(ac){
-          return ac.findingId === r.findingId && ac.title === r.action;
-        });
-        if (!existsInActions) {
-          r.pushed = false; // Re-permettre le push
-        }
-      }
       r._migrated = true;
     }
     if (!Array.isArray(r.actions)) r.actions = [];
@@ -14242,6 +14230,19 @@ function renderMgtRespSection() {
       if (!a.id) a.id = 'ac_' + Date.now() + '_' + Math.random().toString(36).slice(2,7);
       if (!Array.isArray(a.deadlineHistory)) a.deadlineHistory = [];
     });
+    // v77.14a.2 fix : reset pushed=true si AUCUNE action n'a été vraiment persistée dans ACTIONS
+    // (couvre le cas où la MR a été créée nouvellement et le push a échoué silencieusement)
+    if (r.pushed) {
+      var hasPersistedAction = ACTIONS.some(function(ac){
+        // Soit on retrouve par mgtRespId (nouveau modèle), soit par findingId+title (ancien)
+        if (ac.mgtRespId === r.id) return true;
+        if (ac.findingId === r.findingId && r.actions.some(function(a){return ac.title === a.action;})) return true;
+        return false;
+      });
+      if (!hasPersistedAction) {
+        r.pushed = false; // Re-permettre le push
+      }
+    }
   });
 
   // Source unique : les findings rédigés à l'étape Report
