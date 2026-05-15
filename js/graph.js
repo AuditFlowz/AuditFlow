@@ -450,6 +450,11 @@ var LIST_SCHEMAS = {
     {name:'resp',text:{}},{name:'dept',text:{}},{name:'ent',text:{}},
     {name:'year',number:{}},{name:'quarter',text:{}},{name:'status',text:{}},
     {name:'pct',number:{}},{name:'from_finding',boolean:{}},{name:'finding_title',text:{}},
+    // v77.14a
+    {name:'audit_id',text:{}},{name:'audit_year',number:{}},{name:'finding_id',text:{}},
+    {name:'owner_name',text:{}},{name:'owner_email',text:{}},
+    {name:'deadline_history',text:{}},{name:'status_history',text:{}},
+    {name:'follow_up_by',text:{}},{name:'follow_up_date',text:{}},{name:'follow_up_notes',text:{}},
   ],
   AF_AuditData: [
     {name:'af_id',text:{}},{name:'tasks_json',text:{}},{name:'controls_json',text:{}},
@@ -620,11 +625,27 @@ async function loadAllData() {
       withRefs.forEach(function(p){console.log('  •', p.proc, '→', p.riskRefs.length, 'risque(s):', p.riskRefs);});
     }
 
-    DB.actions = actRaw.map(function(r){ var f=r.fields; return {
-      id:f.af_id, title:f.title||f.Title, audit:f.audit, resp:f.resp, dept:f.dept, ent:f.ent,
-      year:parseInt(f.year)||2026, quarter:f.quarter, status:f.status||'Non démarré',
-      pct:parseInt(f.pct)||0, fromFinding:f.from_finding||false, findingTitle:f.finding_title||null,
-    };});
+    DB.actions = actRaw.map(function(r){ var f=r.fields;
+      // v77.14a : nouveaux champs (deadlineHistory, statusHistory, ownerEmail, ownerName, auditId, auditYear, findingId)
+      // Persistés en JSON dans des champs texte SP pour rester compat avec le schéma existant
+      var parseSafe = function(s){ try { return JSON.parse(s||'[]'); } catch(e) { return []; } };
+      return {
+        id:f.af_id, title:f.title||f.Title, audit:f.audit, resp:f.resp, dept:f.dept, ent:f.ent,
+        year:parseInt(f.year)||2026, quarter:f.quarter, status:f.status||'Non démarré',
+        pct:parseInt(f.pct)||0, fromFinding:f.from_finding||false, findingTitle:f.finding_title||null,
+        // v77.14a nouveaux champs
+        auditId: f.audit_id || null,
+        auditYear: f.audit_year ? parseInt(f.audit_year) : null,
+        findingId: f.finding_id || null,
+        ownerName: f.owner_name || null,
+        ownerEmail: f.owner_email || null,
+        deadlineHistory: parseSafe(f.deadline_history),
+        statusHistory: parseSafe(f.status_history),
+        followUpBy: f.follow_up_by || null,
+        followUpDate: f.follow_up_date || null,
+        followUpNotes: f.follow_up_notes || null,
+      };
+    });
 
     DB.history = histRaw.map(function(r){ var f=r.fields; return {
       type:f.af_type, msg:f.msg||f.Title, user:f.user_name,
@@ -884,10 +905,23 @@ async function saveAuditPlan(ap) {
 async function saveAction(ac) {
   // v77.13.2 fix : SharePoint refuse le champ 'title' (non reconnu).
   // On utilise uniquement 'Title' qui est le champ natif SP.
+  // v77.14a : ajout des nouveaux champs (auditId, ownerName, ownerEmail, deadlineHistory, etc.)
+  // Les arrays sont sérialisés en JSON dans des champs texte.
   await spUpsert('AF_Actions', ac.id, {
     audit:ac.audit, resp:ac.resp, dept:ac.dept, ent:ac.ent,
     year:ac.year, quarter:ac.quarter, status:ac.status, pct:ac.pct,
     from_finding:ac.fromFinding||false, finding_title:ac.findingTitle||'', Title:ac.title,
+    // v77.14a
+    audit_id: ac.auditId || '',
+    audit_year: ac.auditYear || null,
+    finding_id: ac.findingId || '',
+    owner_name: ac.ownerName || '',
+    owner_email: ac.ownerEmail || '',
+    deadline_history: JSON.stringify(ac.deadlineHistory || []),
+    status_history: JSON.stringify(ac.statusHistory || []),
+    follow_up_by: ac.followUpBy || '',
+    follow_up_date: ac.followUpDate || '',
+    follow_up_notes: ac.followUpNotes || '',
   });
 }
 
