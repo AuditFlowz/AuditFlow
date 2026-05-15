@@ -1,3 +1,22 @@
+// ══════════════════════════════════════════════════════════════
+//  esc() — Échappement HTML générique (anti-XSS).
+//  À utiliser SYSTÉMATIQUEMENT pour toute donnée venant de
+//  SharePoint (titres, noms, descriptions, emails...) injectée
+//  dans un innerHTML / template literal.
+//
+//  Usage : '<div>'+esc(ap.titre)+'</div>'
+//  Pour les attributs HTML aussi : <a href="..." title="'+esc(...)+'">
+// ══════════════════════════════════════════════════════════════
+function esc(s) {
+  if (s === null || s === undefined) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 const MO=['Jan','Fév','Mar','Avr','Mai','Juin','Juil','Août','Sep','Oct','Nov','Déc'];
 const STEPS=[
   {s:'Scope & Preparation',ph:1},{s:'Work Program',ph:1},{s:'Audit Kick Off',ph:1},
