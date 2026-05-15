@@ -12,8 +12,13 @@
 <script src="/js/control-library.js"></script>
 <script src="/js/views.js"></script>
 <script src="/js/doc-viewer.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<!--
+  CDN externes : pour activer Subresource Integrity (SRI) et se protéger d'une
+  compromission CDN, calculer les hashes localement puis ajouter integrity="sha384-..."
+  Ex : curl -sL "https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js" | openssl dgst -sha384 -binary | openssl base64 -A
+-->
+<script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <script src="/js/kickoff-generator.js"></script>
 <script src="/js/audit-report-generator.js"></script>
 <script src="/js/settings.js"></script>
