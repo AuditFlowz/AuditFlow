@@ -651,6 +651,101 @@ var _graphUserCache = {};
 // Recherche d'utilisateurs M365 par nom ou email. Retourne max 10 résultats.
 // Format de retour : [{displayName, mail, jobTitle, userPrincipalName}, ...]
 // Gère gracieusement les erreurs (permissions manquantes, etc.) → retourne []
+// ════════════════════════════════════════════════════════════
+//  v77.16b3 : Data Analysis — persistance fichiers sources sur SharePoint
+// ════════════════════════════════════════════════════════════
+
+// Upload un fichier d'analyse vers SharePoint dans le dossier "analyses/<analysisId>/" de l'audit.
+// Retourne le driveItem créé (contient .id qui sera stocké pour retrouver le fichier).
+async function daUploadAnalysisFile(audit, analysisId, fileName, blob) {
+  if (!audit || !audit.titre) throw new Error('Audit invalide');
+  if (!analysisId) throw new Error('analysisId manquant');
+  // Réutilise le helper existant uploadFileToSharePoint avec sous-dossier
+  var annee = String(audit.annee || new Date().getFullYear());
+  var titre = _slugifyForSharePoint(audit.titre || 'Audit_' + audit.id);
+  var pathSegments = ['AuditFlow', 'Audits', annee, titre, 'analyses', _slugifyForSharePoint(analysisId)];
+  await _ensureFolderPath(pathSegments);
+  var folderPath = pathSegments.join('/');
+  var driveItem = await uploadFileToSharePoint(folderPath, fileName, blob);
+  console.log('[daUpload] OK:', fileName, '→', driveItem.webUrl);
+  return driveItem;
+}
+
+// Télécharge un fichier d'analyse depuis SP par son driveItemId.
+// Retourne un Blob.
+async function daDownloadAnalysisFile(driveItemId) {
+  if (!driveItemId) throw new Error('driveItemId manquant');
+  var driveId = await getDriveId();
+  var token = await getGraphToken();
+  if (!token) throw new Error('Token Graph non disponible');
+
+  var url = 'https://graph.microsoft.com/v1.0/drives/' + driveId + '/items/' + driveItemId + '/content';
+  var resp = await fetch(url, {
+    method: 'GET',
+    headers: { 'Authorization': 'Bearer ' + token },
+  });
+  if (!resp.ok) {
+    var errText = await resp.text();
+    console.error('[daDownload] error:', resp.status, errText);
+    throw new Error('Téléchargement échoué (' + resp.status + ') : ' + errText.slice(0, 200));
+  }
+  return await resp.blob();
+}
+
+// Liste tous les fichiers présents dans le dossier "analyses/" de l'audit.
+// Retourne [{id, name, size, webUrl, analysisId, parentFolder}, ...]
+// Utilisé pour le pool de fichiers réutilisables (étape 2 wizard).
+async function daListAnalysisFilesForAudit(audit) {
+  if (!audit || !audit.titre) return [];
+  try {
+    var driveId = await getDriveId();
+    var token = await getGraphToken();
+    if (!token) return [];
+    var annee = String(audit.annee || new Date().getFullYear());
+    var titre = _slugifyForSharePoint(audit.titre || 'Audit_' + audit.id);
+    var basePath = ['AuditFlow', 'Audits', annee, titre, 'analyses'].join('/');
+
+    // 1) Trouver le dossier "analyses" — s'il n'existe pas, retourner []
+    var folderUrl = 'https://graph.microsoft.com/v1.0/drives/' + driveId + '/root:/' + encodeURIComponent(basePath) + ':/children';
+    var resp = await fetch(folderUrl, {
+      method: 'GET',
+      headers: { 'Authorization': 'Bearer ' + token },
+    });
+    if (resp.status === 404) return []; // dossier "analyses" pas encore créé
+    if (!resp.ok) {
+      console.warn('[daListFiles] folder list failed:', resp.status);
+      return [];
+    }
+    var data = await resp.json();
+    // 2) Pour chaque sous-dossier (= 1 analysis), lister son contenu
+    var results = [];
+    var subFolders = (data.value || []).filter(function(x){ return x.folder; });
+    for (var i = 0; i < subFolders.length; i++) {
+      var sub = subFolders[i];
+      var subUrl = 'https://graph.microsoft.com/v1.0/drives/' + driveId + '/items/' + sub.id + '/children';
+      var subResp = await fetch(subUrl, { headers: {'Authorization': 'Bearer ' + token} });
+      if (!subResp.ok) continue;
+      var subData = await subResp.json();
+      (subData.value || []).forEach(function(it){
+        if (!it.file) return; // skip dossiers
+        results.push({
+          id: it.id,
+          name: it.name,
+          size: it.size,
+          webUrl: it.webUrl,
+          analysisId: sub.name, // le nom du sous-dossier = id analysis slugifié
+          parentFolder: sub.name,
+        });
+      });
+    }
+    return results;
+  } catch(e) {
+    console.warn('[daListFiles] error:', e.message);
+    return [];
+  }
+}
+
+
 async function graphSearchUsers(query) {
   query = (query || '').trim();
   if (query.length < 2) return [];

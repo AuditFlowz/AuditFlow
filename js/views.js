@@ -11902,6 +11902,11 @@ var _daActiveAnalysisId = null;
 // Cache mémoire des fichiers parsés pour la session (clés : fileId → {name, rows, columns})
 var _daFileCache = {};
 
+// v77.16b3 : cache des fichiers persistés sur SP pour l'audit courant
+// Structure : [{id (driveItemId), name, analysisId, size}, ...]
+var _daSpFileLibrary = [];
+var _daSpFileLibraryLoadedFor = null; // audit ID pour lequel la library est chargée
+
 // ─── 1. Initialisation et helpers ──────────────────────────────
 
 function _daEnsure(d) {
@@ -11998,6 +12003,11 @@ function _daRenderCard(an, idx) {
   // Actions
   h += '<div style="display:flex;gap:4px;flex-shrink:0">';
   h += '<button class="bs" style="font-size:10px;padding:4px 8px" onclick="daShowResults(\''+_escJsArg(an.id)+'\')" title="Voir détails">Détails</button>';
+  // v77.16b3 : bouton Rerun (visible uniquement si tous les fichiers sources sont sur SP)
+  var hasAllSpFiles = (an.spFileIds && an.spFileIds.length === (an.fileNames||[]).length && an.spFileIds.every(function(id){return !!id;}));
+  if (hasAllSpFiles) {
+    h += '<button class="bs" style="font-size:10px;padding:4px 8px" onclick="daRerunAnalysis(\''+_escJsArg(an.id)+'\')" title="Rejouer l\'analyse avec les fichiers SharePoint">↻</button>';
+  }
   h += '<button class="bs" style="font-size:10px;padding:4px 8px" onclick="daExportExcel(\''+_escJsArg(an.id)+'\')" title="Export Excel">⬇</button>';
   h += '<button class="bs" style="font-size:10px;padding:4px 8px;color:#993C1D" onclick="daDeleteAnalysis(\''+_escJsArg(an.id)+'\')" title="Supprimer">🗑</button>';
   h += '</div>';
@@ -12012,12 +12022,31 @@ function daStartWizard() {
     step: 1,
     type: null,
     title: '',
-    files: [],         // [{id, name, rows, columns}]
+    files: [],         // [{id, name, rows, columns, blob?, spFileId?}]
     mapping: {},       // selon type
     filters: [],       // [{field, op, value}]
     results: null,     // calculé à l'étape 5
   };
   _daRenderWizard();
+  // v77.16b3 : prefetch des fichiers SP de l'audit pour la réutilisation à l'étape 2
+  _daRefreshSpFileLibrary(false);
+}
+
+// v77.16b3 : Rafraîchir la liste des fichiers SP de l'audit courant
+async function _daRefreshSpFileLibrary(force) {
+  if (!CA) return;
+  if (!force && _daSpFileLibraryLoadedFor === CA) return; // déjà chargé
+  var audit = AUDIT_PLAN.find(function(a){return a.id === CA;});
+  if (!audit) return;
+  try {
+    var files = await daListAnalysisFilesForAudit(audit);
+    _daSpFileLibrary = files || [];
+    _daSpFileLibraryLoadedFor = CA;
+    // Re-render si on est sur l'étape 2 (pour afficher les fichiers SP fraîchement chargés)
+    if (_daWizard && _daWizard.step === 2) _daRenderWizard();
+  } catch(e) {
+    console.warn('[_daRefreshSpFileLibrary] error:', e.message);
+  }
 }
 
 function _daRenderWizard() {
@@ -12191,14 +12220,25 @@ function _daRenderStep2() {
       h += '<div style="border:.5px dashed var(--border);border-radius:4px;padding:14px;text-align:center;background:#FAFAFE">';
       h += '<input type="file" id="'+slotId+'" accept=".xlsx,.xls,.csv,.tsv" style="display:none" onchange="_daHandleFileUpload(event,'+i+')"/>';
       h += '<button class="bp" style="font-size:11px;padding:5px 14px" onclick="document.getElementById(\''+slotId+'\').click()">⬆ Choisir un fichier</button>';
-      if (available.length > 0) {
+      // v77.16b3 : afficher fichiers cache session ET fichiers SP de l'audit
+      var sessionFiles = available.filter(function(f){
+        return !_daWizard.files.some(function(sl){return sl && sl.id === f.id;});
+      });
+      // Fichiers SP non déjà chargés dans le cache session
+      var spFiles = _daSpFileLibrary.filter(function(sf){
+        var alreadyInCache = Object.keys(_daFileCache).some(function(k){return _daFileCache[k].spFileId === sf.id;});
+        var alreadyInSlot = _daWizard.files.some(function(sl){return sl && sl.spFileId === sf.id;});
+        return !alreadyInCache && !alreadyInSlot;
+      });
+      var nbAvail = sessionFiles.length + spFiles.length;
+      if (nbAvail > 0) {
         h += '<div style="font-size:10px;color:var(--text-3);margin-top:8px">ou réutiliser :</div>';
         h += '<div style="display:flex;flex-direction:column;gap:3px;margin-top:4px">';
-        available.forEach(function(f){
-          // Ne pas proposer si déjà sélectionné dans un autre slot
-          var alreadyUsed = _daWizard.files.some(function(sl){return sl && sl.id === f.id;});
-          if (alreadyUsed) return;
-          h += '<button class="bs" style="font-size:10px;padding:3px 8px;text-align:left" onclick="_daReuseFile('+i+',\''+_escJsArg(f.id)+'\')">📄 '+esc(f.name)+' ('+f.rows.length+' lignes)</button>';
+        sessionFiles.forEach(function(f){
+          h += '<button class="bs" style="font-size:10px;padding:3px 8px;text-align:left" onclick="_daReuseFile('+i+',\''+_escJsArg(f.id)+'\')">📄 '+esc(f.name)+' ('+f.rows.length+' lignes)'+(f.spFileId?' 💾':'')+'</button>';
+        });
+        spFiles.forEach(function(sf){
+          h += '<button class="bs" style="font-size:10px;padding:3px 8px;text-align:left" onclick="_daReuseSpFile('+i+',\''+_escJsArg(sf.id)+'\')" title="Télécharger depuis SharePoint et parser">💾 '+esc(sf.name)+' <span style="color:var(--text-3)">('+_daFmtSize(sf.size)+', SharePoint)</span></button>';
         });
         h += '</div>';
       }
@@ -12238,6 +12278,9 @@ function _daHandleFileUpload(event, slotIdx) {
         name: file.name,
         rows: jsonData,
         columns: columns,
+        // v77.16b3 : on garde le Blob pour pouvoir uploader sur SP au moment du save
+        blob: file,
+        spFileId: null, // sera renseigné après upload SP
       };
       _daFileCache[fileId] = fileObj;
       _daWizard.files[slotIdx] = fileObj;
@@ -12261,6 +12304,51 @@ function _daReuseFile(slotIdx, fileId) {
   if (!f) return;
   _daWizard.files[slotIdx] = f;
   _daRenderWizard();
+}
+
+// v77.16b3 : Charger un fichier SP, le parser, l'ajouter au cache + au slot
+async function _daReuseSpFile(slotIdx, driveItemId) {
+  var spFile = _daSpFileLibrary.find(function(sf){return sf.id === driveItemId;});
+  if (!spFile) { toast('Fichier SP introuvable'); return; }
+  toast('Téléchargement depuis SharePoint...');
+  try {
+    var blob = await daDownloadAnalysisFile(driveItemId);
+    var arrayBuf = await blob.arrayBuffer();
+    var data = new Uint8Array(arrayBuf);
+    var workbook = XLSX.read(data, {type: 'array'});
+    var sheetName = workbook.SheetNames[0];
+    var sheet = workbook.Sheets[sheetName];
+    var jsonData = XLSX.utils.sheet_to_json(sheet, {defval: '', raw: false});
+    if (!jsonData.length) {
+      toast('Fichier vide ou mal formé');
+      return;
+    }
+    var columns = Object.keys(jsonData[0]);
+    var fileId = _daId('file');
+    var fileObj = {
+      id: fileId,
+      name: spFile.name,
+      rows: jsonData,
+      columns: columns,
+      blob: null, // déjà sur SP, pas besoin de Blob
+      spFileId: driveItemId,
+    };
+    _daFileCache[fileId] = fileObj;
+    _daWizard.files[slotIdx] = fileObj;
+    _daRenderWizard();
+    toast('✓ Fichier chargé depuis SP : '+jsonData.length+' lignes');
+  } catch(e) {
+    console.error('[_daReuseSpFile] error:', e);
+    toast('Erreur téléchargement : '+e.message);
+  }
+}
+
+// v77.16b3 : formater une taille en octets en lisible
+function _daFmtSize(bytes) {
+  if (!bytes) return '0 B';
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024*1024)).toFixed(1) + ' MB';
 }
 
 function _daPreviewFile(fileId) {
@@ -13163,10 +13251,10 @@ async function daSaveAnalysis() {
 
   // Limiter le nb d'exceptions stockées (les autres sont retrouvables via rerun)
   var exc = r.exceptions || [];
-  var maxStored = 500; // limite raisonnable pour SP
+  var maxStored = 500;
   var storedExceptions = exc.slice(0, maxStored);
 
-  // v77.16b1 : construire results selon le type (préserver tous les compteurs spécifiques)
+  // Construire results selon le type
   var savedResults = {
     totalRows: r.totalRows || 0,
     exceptions: storedExceptions,
@@ -13187,18 +13275,46 @@ async function daSaveAnalysis() {
     savedResults.totalSum = r.totalSum || null;
   }
 
+  var analysisId = _daId('analysis');
   var an = {
-    id: _daId('analysis'),
+    id: analysisId,
     type: _daWizard.type,
     title: _daWizard.title,
     fileNames: _daWizard.files.map(function(f){return f.name;}),
     fileColumns: _daWizard.files.map(function(f){return f.columns;}),
+    // v77.16b3 : driveItem ids des fichiers sources (rempli après upload SP)
+    spFileIds: _daWizard.files.map(function(f){return f.spFileId || null;}),
     mapping: _daWizard.mapping,
     filters: _daWizard.filters,
     createdAt: new Date().toISOString(),
     createdBy: (typeof CU !== 'undefined' && CU ? CU.name : '—'),
     results: savedResults,
   };
+
+  // v77.16b3 : Upload les fichiers sources vers SharePoint (toujours, automatique)
+  var audit = AUDIT_PLAN.find(function(a){return a.id === CA;});
+  var uploadFailed = false;
+  if (audit) {
+    toast('📤 Upload des fichiers vers SharePoint...');
+    for (var i = 0; i < _daWizard.files.length; i++) {
+      var f = _daWizard.files[i];
+      if (!f.blob) continue; // Pas de blob (fichier réutilisé déjà persisté), skip
+      if (f.spFileId) continue; // déjà persisté, skip
+      try {
+        var driveItem = await daUploadAnalysisFile(audit, analysisId, f.name, f.blob);
+        if (driveItem && driveItem.id) {
+          an.spFileIds[i] = driveItem.id;
+          f.spFileId = driveItem.id;
+          // Garder l'entrée dans le cache aussi pour réutilisation immédiate
+          _daFileCache[f.id].spFileId = driveItem.id;
+        }
+      } catch(e) {
+        console.warn('[daSave] Upload échoué pour', f.name, ':', e.message);
+        uploadFailed = true;
+      }
+    }
+  }
+
   d.dataAnalyses.push(an);
 
   try {
@@ -13209,6 +13325,7 @@ async function daSaveAnalysis() {
     } else {
       msg = '✓ Analyse sauvegardée ('+exc.length+' exception'+(exc.length>1?'s':'')+')';
     }
+    if (uploadFailed) msg += ' ⚠ Certains fichiers n\'ont pas pu être uploadés sur SP';
     toast(msg);
   } catch(e) {
     toast('Erreur de sauvegarde : '+e.message);
@@ -13217,7 +13334,6 @@ async function daSaveAnalysis() {
 
   _daWizard = null;
   closeModal();
-  // Re-render la page Testings
   document.getElementById('det-content').innerHTML = renderDetContent();
 }
 
@@ -13436,7 +13552,219 @@ async function daCreateIssueFromAnalysis(analysisId) {
   }, {wide: true});
 }
 
-// ─── 14. Suppression d'une analyse ─────────────────────────────
+// ─── 14. v77.16b3 : Rerun d'une analyse passée ──────────────────
+
+async function daRerunAnalysis(analysisId) {
+  var d = getAudData(CA);
+  var an = (d.dataAnalyses || []).find(function(x){return x.id === analysisId;});
+  if (!an) { toast('Analyse introuvable'); return; }
+  if (!an.spFileIds || !an.spFileIds.every(function(id){return !!id;})) {
+    toast('Impossible : tous les fichiers sources ne sont pas sur SharePoint');
+    return;
+  }
+
+  toast('↻ Rechargement des fichiers depuis SharePoint...');
+  // 1. Re-télécharger chaque fichier SP
+  var loadedFiles = [];
+  try {
+    for (var i = 0; i < an.spFileIds.length; i++) {
+      var driveItemId = an.spFileIds[i];
+      var blob = await daDownloadAnalysisFile(driveItemId);
+      var arrayBuf = await blob.arrayBuffer();
+      var data = new Uint8Array(arrayBuf);
+      var workbook = XLSX.read(data, {type: 'array'});
+      var sheetName = workbook.SheetNames[0];
+      var sheet = workbook.Sheets[sheetName];
+      var jsonData = XLSX.utils.sheet_to_json(sheet, {defval: '', raw: false});
+      if (!jsonData.length) {
+        toast('Fichier ' + (an.fileNames[i] || 'inconnu') + ' vide ou corrompu');
+        return;
+      }
+      var columns = Object.keys(jsonData[0]);
+      var fileId = _daId('file');
+      var fileObj = {
+        id: fileId,
+        name: an.fileNames[i],
+        rows: jsonData,
+        columns: columns,
+        blob: null,
+        spFileId: driveItemId,
+      };
+      _daFileCache[fileId] = fileObj;
+      loadedFiles.push(fileObj);
+    }
+  } catch(e) {
+    console.error('[daRerun] error:', e);
+    toast('Erreur téléchargement : '+e.message);
+    return;
+  }
+
+  // 2. Reconstituer un wizard "pré-rempli" en étape 5 avec les nouveaux fichiers
+  _daWizard = {
+    step: 5,
+    type: an.type,
+    title: an.title + ' (rerun)',
+    files: loadedFiles,
+    mapping: an.mapping,
+    filters: an.filters || [],
+    results: null,
+    _rerunOf: analysisId, // marqueur pour différencier d'une nouvelle analyse
+  };
+  _daActiveFilter = null;
+  _daActiveContext = 'wizard';
+  _daActiveAnalysisId = null;
+
+  // 3. Lancer le calcul
+  _daRunAnalysis();
+  if (_daWizard.results && _daWizard.results.error) {
+    toast('Erreur de calcul : '+_daWizard.results.error);
+    _daWizard = null;
+    return;
+  }
+
+  toast('✓ Rerun terminé. Choisis ce que tu veux faire.');
+  _daRenderRerunModal(an);
+}
+
+// Affiche la modale de résultats Rerun avec choix (Update / Create new)
+function _daRenderRerunModal(originalAnalysis) {
+  if (!_daWizard || !_daWizard.results) return;
+  var r = _daWizard.results;
+  var an = originalAnalysis;
+
+  var body = '<div style="background:#FFF7ED;border:.5px solid #FAC775;border-radius:5px;padding:9px 12px;margin-bottom:14px;font-size:11px;color:#854F0B">↻ Rerun de l\'analyse <strong>'+esc(an.title)+'</strong> avec les fichiers actuels de SharePoint. Tu peux mettre à jour l\'analyse existante (l\'historique est perdu) ou créer une nouvelle analyse (l\'ancienne reste).</div>';
+
+  // KPIs
+  body += _daRenderKpis(r, an.type);
+
+  // Comparaison avec l'ancien résultat
+  var oldR = an.results || {};
+  var diffs = [];
+  if (an.type === 'reconciliation' || an.type === 'comparison') {
+    if ((oldR.matches || 0) !== (r.matches || 0)) diffs.push('Matchs : '+(oldR.matches||0)+' → '+(r.matches||0));
+    if (an.type === 'reconciliation') {
+      if ((oldR.missingA || 0) !== (r.missingA || 0)) diffs.push('Manquants A : '+(oldR.missingA||0)+' → '+(r.missingA||0));
+      if ((oldR.missingB || 0) !== (r.missingB || 0)) diffs.push('Manquants B : '+(oldR.missingB||0)+' → '+(r.missingB||0));
+    } else {
+      if ((oldR.discrepancies || 0) !== (r.discrepancies || 0)) diffs.push('Écarts : '+(oldR.discrepancies||0)+' → '+(r.discrepancies||0));
+    }
+  } else if (an.type === 'anomaly') {
+    var oldExc = (oldR.exceptions || []).length;
+    var newExc = (r.exceptions || []).length;
+    if (oldExc !== newExc) diffs.push('Exceptions : '+oldExc+' → '+newExc);
+  } else if (an.type === 'stratification') {
+    var oldNb = (oldR.strata || []).length;
+    var newNb = (r.strata || []).length;
+    if (oldNb !== newNb) diffs.push('Strates : '+oldNb+' → '+newNb);
+  }
+  if (diffs.length > 0) {
+    body += '<div style="background:#EEEDFE;border:.5px solid #CECBF6;border-radius:5px;padding:9px 12px;margin-bottom:14px;font-size:11px;color:#3C3489">📊 Changements vs précédent : '+esc(diffs.join(' · '))+'</div>';
+  } else {
+    body += '<div style="background:#E8F5E9;border:.5px solid #A6E2CD;border-radius:5px;padding:9px 12px;margin-bottom:14px;font-size:11px;color:#085041">✓ Résultats identiques à l\'analyse précédente</div>';
+  }
+
+  // Tableau résultats
+  if (an.type === 'stratification') {
+    body += _daRenderStrataTable(r);
+  } else {
+    var pseudoFiles = _daWizard.files;
+    body += _daRenderExceptionsTable(r, an.type, pseudoFiles);
+  }
+
+  // Boutons : Update existant OU Create nouveau
+  body += '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;padding-top:10px;border-top:.5px solid var(--border)">';
+  body += '<button class="bs" style="font-size:11px;padding:5px 12px" onclick="closeModal();_daWizard=null">Annuler</button>';
+  body += '<button class="bs" style="font-size:11px;padding:5px 12px" onclick="_daRerunSave(\''+_escJsArg(an.id)+'\',\'new\')">+ Créer une nouvelle analyse</button>';
+  body += '<button class="bp" style="font-size:11px;padding:5px 12px" onclick="_daRerunSave(\''+_escJsArg(an.id)+'\',\'update\')">↻ Mettre à jour l\'analyse</button>';
+  body += '</div>';
+
+  openModal('↻ Rerun : '+an.title, body, null, {wide: true, hideOk: true, cancelLabel: 'Fermer'});
+}
+
+// Sauvegarde du rerun : soit update soit create
+async function _daRerunSave(originalId, mode) {
+  if (!_daWizard || !_daWizard.results) return;
+  var d = getAudData(CA);
+  var r = _daWizard.results;
+  var exc = r.exceptions || [];
+  var maxStored = 500;
+  var storedExceptions = exc.slice(0, maxStored);
+
+  // Construire results selon le type
+  var savedResults = {
+    totalRows: r.totalRows || 0,
+    exceptions: storedExceptions,
+    truncated: exc.length > maxStored,
+  };
+  if (_daWizard.type === 'reconciliation') {
+    savedResults.matches = r.matches || 0;
+    savedResults.missingA = r.missingA || 0;
+    savedResults.missingB = r.missingB || 0;
+  } else if (_daWizard.type === 'comparison') {
+    savedResults.matches = r.matches || 0;
+    savedResults.discrepancies = r.discrepancies || 0;
+    savedResults.totalAbsDiff = r.totalAbsDiff || 0;
+    savedResults.tolerance = r.tolerance || 0;
+  } else if (_daWizard.type === 'stratification') {
+    savedResults.strata = r.strata || [];
+    savedResults.aggColumn = r.aggColumn || null;
+    savedResults.totalSum = r.totalSum || null;
+  }
+
+  if (mode === 'update') {
+    // Mettre à jour l'analyse existante
+    var idx = d.dataAnalyses.findIndex(function(x){return x.id === originalId;});
+    if (idx >= 0) {
+      // Garder id + createdAt original, mettre à jour le reste
+      var old = d.dataAnalyses[idx];
+      d.dataAnalyses[idx] = Object.assign({}, old, {
+        results: savedResults,
+        fileColumns: _daWizard.files.map(function(f){return f.columns;}),
+        lastRunAt: new Date().toISOString(),
+        lastRunBy: (typeof CU !== 'undefined' && CU ? CU.name : '—'),
+      });
+    }
+    try {
+      await saveAuditData(CA);
+      toast('✓ Analyse mise à jour');
+    } catch(e) {
+      toast('Erreur sauvegarde : '+e.message);
+      return;
+    }
+  } else {
+    // Créer une nouvelle analyse (clone de l'originale + nouveaux résultats)
+    var original = d.dataAnalyses.find(function(x){return x.id === originalId;});
+    var newId = _daId('analysis');
+    var newAn = {
+      id: newId,
+      type: _daWizard.type,
+      title: _daWizard.title, // déjà avec "(rerun)" appendé
+      fileNames: _daWizard.files.map(function(f){return f.name;}),
+      fileColumns: _daWizard.files.map(function(f){return f.columns;}),
+      spFileIds: original ? (original.spFileIds || []).slice() : [], // réutilise les mêmes fichiers SP
+      mapping: _daWizard.mapping,
+      filters: _daWizard.filters,
+      createdAt: new Date().toISOString(),
+      createdBy: (typeof CU !== 'undefined' && CU ? CU.name : '—'),
+      clonedFrom: originalId,
+      results: savedResults,
+    };
+    d.dataAnalyses.push(newAn);
+    try {
+      await saveAuditData(CA);
+      toast('✓ Nouvelle analyse créée');
+    } catch(e) {
+      toast('Erreur sauvegarde : '+e.message);
+      return;
+    }
+  }
+  _daWizard = null;
+  closeModal();
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+
+// ─── 15. Suppression d'une analyse ─────────────────────────────
 
 async function daDeleteAnalysis(analysisId) {
   if (!confirm('Supprimer cette analyse définitivement ?')) return;
