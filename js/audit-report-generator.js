@@ -1051,6 +1051,14 @@ async function generateAuditReportPptx(auditId, options) {
   }
 
   // ════════════════════════════════════════════════════════════════════
+  // v77.18 : SLIDES — DATA ANALYSES (après Tests Performed, avant Appendix)
+  // ════════════════════════════════════════════════════════════════════
+  const dataAnalyses = (d && Array.isArray(d.dataAnalyses)) ? d.dataAnalyses : [];
+  if (dataAnalyses.length > 0) {
+    ar_addDataAnalysesSection(pres, dataAnalyses);
+  }
+
+  // ════════════════════════════════════════════════════════════════════
   // SLIDE — APPENDIX DIVIDER
   // ════════════════════════════════════════════════════════════════════
   const sAd = pres.addSlide();
@@ -2289,4 +2297,446 @@ function ar_addAnalysisDetailSlides(pres, test, cfg, data, parentTitle) {
 
     ar_addFooter(pres, s);
   }
+}
+
+// ════════════════════════════════════════════════════════════════════
+// v77.18 : DATA ANALYSES — Annexe rapport PPT
+// ════════════════════════════════════════════════════════════════════
+
+// Labels lisibles des types d'analyse (cohérence avec views.js _daTypeLabels)
+const AR_DA_TYPE_LABELS = {
+  'reconciliation': 'Rapprochement',
+  'anomaly': 'Détection anomalies',
+  'comparison': 'Comparaison valeurs',
+  'stratification': 'Stratification',
+  'visualization': 'Visualisation',
+};
+
+// Couleur par type (pour bandeau du slide détail)
+const AR_DA_TYPE_COLORS = {
+  'reconciliation': '3C3489',
+  'anomaly': '854F0B',
+  'comparison': '085041',
+  'stratification': '722F66',
+  'visualization': '0EA5E9',
+};
+
+// Point d'entrée : ajoute toutes les slides Data Analyses
+function ar_addDataAnalysesSection(pres, analyses) {
+  if (!analyses || analyses.length === 0) return;
+
+  // ─── Slide overview ───
+  ar_addDataAnalysesOverviewSlide(pres, analyses);
+
+  // ─── Slide(s) détail : 1 par analyse ───
+  analyses.forEach((an, idx) => {
+    ar_addDataAnalysisDetailSlide(pres, an, idx + 1, analyses.length);
+  });
+}
+
+// Slide d'aperçu listant toutes les analyses
+function ar_addDataAnalysesOverviewSlide(pres, analyses) {
+  const s = pres.addSlide();
+  ar_addTitleBar(pres, s, "Data Analyses", "Overview");
+
+  // Sous-titre : intro
+  s.addText(
+    "The following data analyses were performed during this audit. They include reconciliations between files, value comparisons, anomaly detections, stratifications and ad-hoc visualizations. Each analysis is detailed on the following slides.",
+    {
+      x: 0.4, y: 1.5, w: 12.5, h: 0.6,
+      fontSize: 10, italic: true, color: AR_COLORS.textDark, fontFace: "Calibri",
+    }
+  );
+
+  // Tableau récap
+  const headerRow = [
+    {text: "#", options: {bold: true, fill: AR_COLORS.navy, color: AR_COLORS.white, align: "center"}},
+    {text: "Title", options: {bold: true, fill: AR_COLORS.navy, color: AR_COLORS.white}},
+    {text: "Type", options: {bold: true, fill: AR_COLORS.navy, color: AR_COLORS.white}},
+    {text: "Files", options: {bold: true, fill: AR_COLORS.navy, color: AR_COLORS.white}},
+    {text: "Total rows", options: {bold: true, fill: AR_COLORS.navy, color: AR_COLORS.white, align: "right"}},
+    {text: "Exceptions", options: {bold: true, fill: AR_COLORS.navy, color: AR_COLORS.white, align: "right"}},
+    {text: "Date", options: {bold: true, fill: AR_COLORS.navy, color: AR_COLORS.white}},
+  ];
+
+  const dataRows = analyses.map((an, idx) => {
+    const r = an.results || {};
+    const typeLabel = AR_DA_TYPE_LABELS[an.type] || an.type;
+    const files = (an.fileNames || []).join(' + ');
+    const totalRows = (r.totalRows != null) ? r.totalRows.toString() : '—';
+    // Compteur exception adapté par type
+    let excCount = '—';
+    if (an.type === 'stratification') {
+      excCount = ((r.strata || []).length) + ' strata';
+    } else if (an.type === 'visualization') {
+      if (r.chartType === 'scatter') excCount = ((r.points || []).length) + ' pts';
+      else excCount = ((r.data || []).length) + ' cat.';
+    } else {
+      excCount = ((r.exceptions || []).length).toString();
+    }
+    const dateStr = an.createdAt ? an.createdAt.slice(0, 10) : '—';
+
+    // Couleur exception : rouge si > 0 et type avec exceptions
+    const isException = (an.type === 'reconciliation' || an.type === 'anomaly' || an.type === 'comparison')
+                    && (r.exceptions || []).length > 0;
+    const excColor = isException ? AR_COLORS.red : AR_COLORS.textDark;
+
+    return [
+      {text: (idx + 1).toString(), options: {align: "center"}},
+      {text: an.title || '—', options: {bold: true}},
+      {text: typeLabel, options: {}},
+      {text: files, options: {fontSize: 8, italic: true, color: AR_COLORS.textDark}},
+      {text: totalRows, options: {align: "right"}},
+      {text: excCount, options: {align: "right", color: excColor, bold: isException}},
+      {text: dateStr, options: {fontSize: 8, color: AR_COLORS.textDark}},
+    ];
+  });
+
+  s.addTable([headerRow, ...dataRows], {
+    x: 0.4, y: 2.2, w: 12.5,
+    fontSize: 9, fontFace: "Calibri",
+    border: {type: "solid", pt: 0.4, color: AR_COLORS.grayMed},
+    colW: [0.4, 3.0, 1.7, 3.0, 1.2, 1.2, 2.0],
+    rowH: 0.32,
+    valign: "middle",
+  });
+
+  ar_addFooter(pres, s);
+}
+
+// Slide détail d'une analyse
+function ar_addDataAnalysisDetailSlide(pres, an, idx, total) {
+  const s = pres.addSlide();
+  const title = "Data Analysis " + idx + " / " + total;
+  ar_addTitleBar(pres, s, title, an.title || '');
+
+  const r = an.results || {};
+  const typeLabel = AR_DA_TYPE_LABELS[an.type] || an.type;
+  const typeColor = AR_DA_TYPE_COLORS[an.type] || AR_COLORS.grayMed;
+
+  // ─── Bandeau type (similaire au pattern de ar_addDetailedTestSlides) ───
+  s.addShape(pres.ShapeType.rect, {
+    x: 0.4, y: 1.55, w: 12.5, h: 0.4,
+    fill: {color: typeColor}, line: {type: "none"},
+  });
+  s.addText("📊 " + typeLabel, {
+    x: 0.5, y: 1.55, w: 12.3, h: 0.4,
+    fontSize: 13, bold: true, color: AR_COLORS.white,
+    fontFace: "Calibri", valign: "middle",
+  });
+
+  // ─── Métadonnées (sous le bandeau) ───
+  const meta = [];
+  if (an.fileNames && an.fileNames.length) meta.push("Files : " + an.fileNames.join(' + '));
+  if (an.createdAt) meta.push("Created : " + an.createdAt.slice(0, 10));
+  if (an.createdBy) meta.push("by " + an.createdBy);
+  if (an.lastRunAt) meta.push("Last run : " + an.lastRunAt.slice(0, 10));
+  s.addText(meta.join(' · '), {
+    x: 0.5, y: 2.05, w: 12.3, h: 0.3,
+    fontSize: 9, italic: true, color: AR_COLORS.textDark, fontFace: "Calibri",
+  });
+
+  // ─── KPIs (4 encadrés) ───
+  const kpis = ar_buildDaKpis(an);
+  const kpiY = 2.45;
+  const kpiH = 0.7;
+  const kpiW = 3.0;
+  const kpiGap = 0.13;
+  kpis.forEach((k, i) => {
+    const x = 0.5 + i * (kpiW + kpiGap);
+    s.addShape(pres.ShapeType.rect, {
+      x: x, y: kpiY, w: kpiW, h: kpiH,
+      fill: {color: k.bg || "F5F5F8"}, line: {color: AR_COLORS.grayMed, pt: 0.4},
+    });
+    s.addText(k.label, {
+      x: x + 0.1, y: kpiY + 0.05, w: kpiW - 0.2, h: 0.25,
+      fontSize: 8.5, color: k.labelColor || AR_COLORS.textDark, fontFace: "Calibri",
+    });
+    s.addText(String(k.value), {
+      x: x + 0.1, y: kpiY + 0.3, w: kpiW - 0.2, h: 0.35,
+      fontSize: 18, bold: true, color: k.valueColor || AR_COLORS.navy,
+      fontFace: "Calibri",
+    });
+  });
+
+  // ─── Mapping (encadré) ───
+  const mappingText = ar_buildDaMappingText(an);
+  if (mappingText) {
+    s.addShape(pres.ShapeType.rect, {
+      x: 0.5, y: 3.3, w: 12.4, h: 0.55,
+      fill: {color: "EEEDFE"}, line: {color: "CECBF6", pt: 0.4},
+    });
+    s.addText([
+      {text: "Configuration : ", options: {bold: true, color: "3C3489"}},
+      {text: mappingText, options: {color: AR_COLORS.textDark}},
+    ], {
+      x: 0.6, y: 3.3, w: 12.2, h: 0.55,
+      fontSize: 9, fontFace: "Calibri", valign: "middle",
+    });
+  }
+
+  // ─── Table : exceptions (ou strates pour stratification, ou data pour visualization) ───
+  ar_addDaResultsTable(pres, s, an);
+
+  ar_addFooter(pres, s);
+}
+
+// Helper : construit les 4 KPIs adaptés au type
+function ar_buildDaKpis(an) {
+  const r = an.results || {};
+  const totalRows = r.totalRows || 0;
+
+  if (an.type === 'reconciliation') {
+    return [
+      {label: "Total rows", value: totalRows},
+      {label: "Matches", value: r.matches || 0, bg: "E8F5E9", labelColor: "085041", valueColor: "085041"},
+      {label: "Missing A", value: r.missingA || 0, bg: "FEF3F2", labelColor: "7F1D1D", valueColor: "7F1D1D"},
+      {label: "Missing B", value: r.missingB || 0, bg: "FEF3F2", labelColor: "7F1D1D", valueColor: "7F1D1D"},
+    ];
+  }
+  if (an.type === 'comparison') {
+    return [
+      {label: "Total rows", value: totalRows},
+      {label: "OK (within tolerance)", value: r.matches || 0, bg: "E8F5E9", labelColor: "085041", valueColor: "085041"},
+      {label: "Discrepancies", value: r.discrepancies || 0, bg: "FEF3F2", labelColor: "7F1D1D", valueColor: "7F1D1D"},
+      {label: "Total abs. gap", value: ar_fmtNumFr(r.totalAbsDiff || 0)},
+    ];
+  }
+  if (an.type === 'anomaly') {
+    const exc = (r.exceptions || []).length;
+    const pct = totalRows > 0 ? Math.round(exc / totalRows * 100) : 0;
+    return [
+      {label: "Total rows", value: totalRows},
+      {label: "OK rows", value: totalRows - exc, bg: "E8F5E9", labelColor: "085041", valueColor: "085041"},
+      {label: "Exceptions", value: exc, bg: "FEF3F2", labelColor: "7F1D1D", valueColor: "7F1D1D"},
+      {label: "% exceptions", value: pct + "%"},
+    ];
+  }
+  if (an.type === 'stratification') {
+    const nbStrata = (r.strata || []).length;
+    return [
+      {label: "Total rows", value: totalRows},
+      {label: "Strata", value: nbStrata, bg: "F3E8FF", labelColor: "722F66", valueColor: "722F66"},
+      {label: r.aggColumn ? ("Sum " + r.aggColumn) : "—", value: r.aggColumn ? ar_fmtNumFr(r.totalSum || 0) : "—"},
+      {label: r.aggColumn ? "Avg" : "—", value: (r.aggColumn && totalRows > 0) ? ar_fmtNumFr(r.totalSum / totalRows) : "—"},
+    ];
+  }
+  if (an.type === 'visualization') {
+    const isScatter = r.chartType === 'scatter';
+    return [
+      {label: "Total rows", value: totalRows},
+      {label: "Chart type", value: AR_DA_TYPE_LABELS[r.chartType] || r.chartType || "—", bg: "E0F2FE", labelColor: "075985", valueColor: "075985"},
+      {label: isScatter ? "Points" : "Categories", value: isScatter ? ((r.points || []).length) : ((r.data || []).length)},
+      {label: "Aggregate", value: r.agg || "count"},
+    ];
+  }
+  return [];
+}
+
+// Helper : texte du mapping adapté au type
+function ar_buildDaMappingText(an) {
+  const m = an.mapping || {};
+  const r = an.results || {};
+  if (an.type === 'reconciliation') {
+    return "Key A = " + (m.keyA || '?') + " ↔ Key B = " + (m.keyB || '?');
+  }
+  if (an.type === 'comparison') {
+    return "Keys " + (m.keyA || '?') + " ↔ " + (m.keyB || '?')
+         + ", Values " + (m.valueA || '?') + " vs " + (m.valueB || '?')
+         + ", tolerance ±" + (r.tolerance || 0);
+  }
+  if (an.type === 'anomaly') {
+    let s = "Rule = " + (m.ruleType || '?');
+    if (m.column) s += " on column " + m.column;
+    if (m.threshold != null) s += ", threshold = " + m.threshold;
+    if (m.pattern) s += ", pattern = " + m.pattern;
+    return s;
+  }
+  if (an.type === 'stratification') {
+    let s = "Column = " + (m.column || '?') + ", mode = " + (m.strataMode || '?');
+    if (m.aggColumn) s += ", aggregated by " + m.aggColumn;
+    return s;
+  }
+  if (an.type === 'visualization') {
+    let s = "X = " + (m.xField || '?');
+    if (m.yField) s += ", Y = " + m.yField;
+    if (m.agg) s += " (" + m.agg + ")";
+    if (m.seriesField) s += ", Series = " + m.seriesField;
+    return s;
+  }
+  return '';
+}
+
+// Helper : table des résultats (exceptions ou strates ou data agrégée)
+function ar_addDaResultsTable(pres, slide, an) {
+  const r = an.results || {};
+  const tableY = 4.05;
+  const tableW = 12.5;
+  const maxRows = 8; // pour ne pas déborder du slide
+
+  // ─── Cas spécial : stratification → table des strates ───
+  if (an.type === 'stratification') {
+    const strata = (r.strata || []).slice(0, maxRows);
+    if (strata.length === 0) {
+      slide.addText("No strata computed.", {
+        x: 0.5, y: tableY, w: tableW, h: 0.3,
+        fontSize: 10, italic: true, color: AR_COLORS.textDark, fontFace: "Calibri",
+      });
+      return;
+    }
+    const hasAgg = !!r.aggColumn;
+    const headers = hasAgg
+      ? ["Stratum", "Rows", "%", "Sum", "Avg", "Min", "Max"]
+      : ["Stratum", "Rows", "%"];
+    const headerRow = headers.map(h => ({
+      text: h, options: {bold: true, fill: AR_COLORS.navy, color: AR_COLORS.white, align: "left"},
+    }));
+    const dataRows = strata.map(st => {
+      const pct = r.totalRows > 0 ? ((st.count / r.totalRows * 100).toFixed(1) + '%') : '—';
+      const row = [
+        {text: String(st.label || ''), options: {}},
+        {text: String(st.count), options: {align: "right"}},
+        {text: pct, options: {align: "right"}},
+      ];
+      if (hasAgg) {
+        row.push({text: ar_fmtNumFr(st.sum), options: {align: "right"}});
+        row.push({text: ar_fmtNumFr(st.avg), options: {align: "right"}});
+        row.push({text: ar_fmtNumFr(st.min), options: {align: "right"}});
+        row.push({text: ar_fmtNumFr(st.max), options: {align: "right"}});
+      }
+      return row;
+    });
+    slide.addTable([headerRow, ...dataRows], {
+      x: 0.4, y: tableY, w: tableW,
+      fontSize: 8.5, fontFace: "Calibri",
+      border: {type: "solid", pt: 0.4, color: AR_COLORS.grayMed},
+      rowH: 0.28,
+      valign: "middle",
+    });
+    if ((r.strata || []).length > maxRows) {
+      slide.addText("+ " + ((r.strata || []).length - maxRows) + " more strata (see Excel export)", {
+        x: 0.4, y: tableY + (maxRows + 1) * 0.28 + 0.05, w: tableW, h: 0.2,
+        fontSize: 8, italic: true, color: AR_COLORS.textDark, fontFace: "Calibri", align: "right",
+      });
+    }
+    return;
+  }
+
+  // ─── Cas spécial : visualization → table des données agrégées ou points ───
+  if (an.type === 'visualization') {
+    if (r.chartType === 'scatter') {
+      const points = (r.points || []).slice(0, maxRows);
+      if (points.length === 0) {
+        slide.addText("No points to display.", {
+          x: 0.5, y: tableY, w: tableW, h: 0.3,
+          fontSize: 10, italic: true, color: AR_COLORS.textDark, fontFace: "Calibri",
+        });
+        return;
+      }
+      const headerRow = [
+        {text: "X (" + (an.mapping.xField || '?') + ")", options: {bold: true, fill: AR_COLORS.navy, color: AR_COLORS.white}},
+        {text: "Y (" + (an.mapping.yField || '?') + ")", options: {bold: true, fill: AR_COLORS.navy, color: AR_COLORS.white}},
+      ];
+      const dataRows = points.map(p => [
+        {text: ar_fmtNumFr(p.x), options: {align: "right"}},
+        {text: ar_fmtNumFr(p.y), options: {align: "right"}},
+      ]);
+      slide.addTable([headerRow, ...dataRows], {
+        x: 0.4, y: tableY, w: tableW,
+        fontSize: 9, fontFace: "Calibri",
+        border: {type: "solid", pt: 0.4, color: AR_COLORS.grayMed},
+        rowH: 0.28, valign: "middle",
+      });
+      if ((r.points || []).length > maxRows) {
+        slide.addText("+ " + ((r.points || []).length - maxRows) + " more points (see Excel export)", {
+          x: 0.4, y: tableY + (maxRows + 1) * 0.28 + 0.05, w: tableW, h: 0.2,
+          fontSize: 8, italic: true, color: AR_COLORS.textDark, fontFace: "Calibri", align: "right",
+        });
+      }
+      return;
+    }
+    // bar/line/donut : table agrégée
+    const data = (r.data || []).slice(0, maxRows);
+    if (data.length === 0) {
+      slide.addText("No aggregated data.", {
+        x: 0.5, y: tableY, w: tableW, h: 0.3,
+        fontSize: 10, italic: true, color: AR_COLORS.textDark, fontFace: "Calibri",
+      });
+      return;
+    }
+    const seriesKeys = r.seriesKeys || ['__default__'];
+    const headers = [an.mapping.xField || 'X'].concat(seriesKeys.map(sk => sk === '__default__' ? (an.mapping.yField || r.agg || 'value') : sk));
+    const headerRow = headers.map(h => ({
+      text: h, options: {bold: true, fill: AR_COLORS.navy, color: AR_COLORS.white},
+    }));
+    const dataRows = data.map(d => {
+      const row = [{text: String(d.label || ''), options: {}}];
+      seriesKeys.forEach(sk => {
+        row.push({text: ar_fmtNumFr(d.values[sk] || 0), options: {align: "right"}});
+      });
+      return row;
+    });
+    slide.addTable([headerRow, ...dataRows], {
+      x: 0.4, y: tableY, w: tableW,
+      fontSize: 8.5, fontFace: "Calibri",
+      border: {type: "solid", pt: 0.4, color: AR_COLORS.grayMed},
+      rowH: 0.28, valign: "middle",
+    });
+    if ((r.data || []).length > maxRows) {
+      slide.addText("+ " + ((r.data || []).length - maxRows) + " more rows (see Excel export)", {
+        x: 0.4, y: tableY + (maxRows + 1) * 0.28 + 0.05, w: tableW, h: 0.2,
+        fontSize: 8, italic: true, color: AR_COLORS.textDark, fontFace: "Calibri", align: "right",
+      });
+    }
+    return;
+  }
+
+  // ─── Cas par défaut (reconciliation / anomaly / comparison) : table d'exceptions ───
+  const exc = (r.exceptions || []).slice(0, maxRows);
+  if (exc.length === 0) {
+    // Pas d'exceptions : message OK
+    slide.addShape(pres.ShapeType.rect, {
+      x: 0.5, y: tableY, w: tableW - 0.2, h: 0.5,
+      fill: {color: "E8F5E9"}, line: {color: "A6E2CD", pt: 0.4},
+    });
+    slide.addText("✓ No exceptions detected", {
+      x: 0.5, y: tableY, w: tableW - 0.2, h: 0.5,
+      fontSize: 11, bold: true, color: "085041", fontFace: "Calibri",
+      align: "center", valign: "middle",
+    });
+    return;
+  }
+  // Colonnes (depuis 1ère exception)
+  const cols = Object.keys(exc[0]).filter(c => !c.startsWith('_')); // skip _type etc.
+  const headerRow = cols.map(c => ({
+    text: c, options: {bold: true, fill: AR_COLORS.navy, color: AR_COLORS.white},
+  }));
+  const dataRows = exc.map(e => cols.map(c => {
+    let val = e[c];
+    if (typeof val === 'number') val = ar_fmtNumFr(val);
+    else if (val == null) val = '—';
+    else val = String(val);
+    // Trop long : tronquer pour ne pas déborder
+    if (val.length > 35) val = val.slice(0, 33) + '…';
+    return {text: val, options: {}};
+  }));
+  slide.addTable([headerRow, ...dataRows], {
+    x: 0.4, y: tableY, w: tableW,
+    fontSize: 8, fontFace: "Calibri",
+    border: {type: "solid", pt: 0.4, color: AR_COLORS.grayMed},
+    rowH: 0.26, valign: "middle",
+  });
+  const totalExc = (r.exceptions || []).length;
+  if (totalExc > maxRows) {
+    slide.addText("+ " + (totalExc - maxRows) + " more exceptions (see Excel export)", {
+      x: 0.4, y: tableY + (maxRows + 1) * 0.26 + 0.05, w: tableW, h: 0.2,
+      fontSize: 8, italic: true, color: AR_COLORS.textDark, fontFace: "Calibri", align: "right",
+    });
+  }
+}
+
+// Helper : format nombre français (réutilise pattern de ar_fmtEur mais sans symbole)
+function ar_fmtNumFr(n) {
+  if (n == null || isNaN(n)) return '—';
+  return Number(n).toLocaleString('fr-FR', {maximumFractionDigits: 2});
 }
