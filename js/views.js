@@ -6450,8 +6450,6 @@ function renderDetContent(){
   // Plus besoin de répéter ici.
 
   // ── 3. SECTIONS SPÉCIFIQUES MÉTIER selon l'étape ─────────
-  // v77.19c-debug : logs pour identifier bug Flowchart Process
-  console.log('[renderDetContent] CS=', CS, 'auditType=', a.type, 'auditId=', CA);
   if (CS === 1) {
     // Étape 2 (index 1) : Work Program
     // Pour les audits BU : sélection des Process + tests substantifs depuis le référentiel
@@ -6475,21 +6473,16 @@ function renderDetContent(){
     }
   } else if (CS === 4) {
     // Étape 5 affichée (index 4) : Flowcharts (WCGW & Contrôles) Process / WCGW & Contrôles BU
-    console.log('[renderDetContent CS=4] entré dans la branche Flowchart');
     html += renderRiskSection();
     if (a.type === 'BU') {
-      console.log('[renderDetContent CS=4] BU → renderControlsBySpSection');
       // BU : pas de flowchart, vue simplifiée Contrôles par sous-processus (v65)
       html += renderControlsBySpSection();
     } else {
-      console.log('[renderDetContent CS=4] Process → flowchart editor/splash');
       // Process : vue flowchart prioritaire
       _fcEnsureState();
       if (_flowchartEditor) {
-        console.log('[renderDetContent CS=4] _flowchartEditor existe → renderFlowchartEditor');
         html += renderFlowchartEditor();
       } else {
-        console.log('[renderDetContent CS=4] _flowchartEditor null → renderFlowchartSplash');
         // Splash : pas encore de flowchart pour cet audit
         html += renderFlowchartSplash();
       }
@@ -10462,7 +10455,7 @@ function _fcRenderEdge(edge, nodes) {
   var bFrom = _fcNodeBox(nodeFrom);
   var bTo = _fcNodeBox(nodeTo);
 
-  var label = (edge.label || '').esc(replace(/&/g,'&amp;')).replace(/>/g,'&gt;');
+  var label = esc(edge.label || '');
   var style = edge.style || 'straight';
 
   // v69.1 : si lien WCGW ↔ Contrôle → ligne d'association (pas de flèche, plus fine)
@@ -13632,6 +13625,80 @@ function _daRunComparison() {
   };
 }
 
+// v77.19c (Bug 3) : Helper de parsing de date robuste
+// Reconnaît : ISO (YYYY-MM-DD), français (DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY),
+// Excel serial (nombre depuis 1900-01-01), objet Date, formats avec heure (T..., 12:34:56), etc.
+// Retourne un objet Date valide ou null si non parsable.
+function _daParseDate(v) {
+  if (v == null || v === '') return null;
+  // Cas 1 : déjà un objet Date
+  if (v instanceof Date) return isNaN(v.getTime()) ? null : v;
+  // Cas 2 : nombre → potentiellement un serial Excel
+  if (typeof v === 'number') {
+    // Excel serial : nombre de jours depuis 1900-01-01 (avec le fameux bug 1900 = bissextile)
+    // Plage plausible : entre 1 (1900-01-01) et 60000 (~ 2064)
+    if (v > 0 && v < 100000) {
+      // 25569 = nombre de jours entre 1900-01-01 et 1970-01-01 (epoch Unix)
+      var msSinceEpoch = (v - 25569) * 86400 * 1000;
+      var d = new Date(msSinceEpoch);
+      if (!isNaN(d.getTime())) return d;
+    }
+    return null;
+  }
+  // Cas 3 : chaîne — multiples formats à essayer
+  var s = String(v).trim();
+  if (!s) return null;
+  // ISO : YYYY-MM-DD, YYYY/MM/DD, optionnellement avec heure
+  var mIso = s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})(?:[T\s](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/);
+  if (mIso) {
+    var dIso = new Date(Date.UTC(
+      parseInt(mIso[1]), parseInt(mIso[2])-1, parseInt(mIso[3]),
+      mIso[4]?parseInt(mIso[4]):0, mIso[5]?parseInt(mIso[5]):0, mIso[6]?parseInt(mIso[6]):0
+    ));
+    if (!isNaN(dIso.getTime())) return dIso;
+  }
+  // Français : DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY (avec année 2 ou 4 chiffres)
+  var mFr = s.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})(?:[T\s](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/);
+  if (mFr) {
+    var dd = parseInt(mFr[1]);
+    var mo = parseInt(mFr[2]);
+    var yy = parseInt(mFr[3]);
+    if (yy < 100) yy += (yy < 50 ? 2000 : 1900); // 2-digit year
+    // Heuristique : si dd > 12, c'est forcément DD/MM (pas MM/DD US)
+    // Si dd <= 12 et mo > 12, c'est MM/DD US
+    // Sinon, par défaut on prend DD/MM (français)
+    var realDay = dd, realMonth = mo;
+    if (dd <= 12 && mo > 12) {
+      realDay = mo; realMonth = dd;
+    }
+    var dFr = new Date(Date.UTC(
+      yy, realMonth-1, realDay,
+      mFr[4]?parseInt(mFr[4]):0, mFr[5]?parseInt(mFr[5]):0, mFr[6]?parseInt(mFr[6]):0
+    ));
+    if (!isNaN(dFr.getTime())) return dFr;
+  }
+  // Fallback : JS native (gère certains formats verbeux comme "Jan 15 2026")
+  var dNative = new Date(s);
+  if (!isNaN(dNative.getTime())) return dNative;
+  return null;
+}
+
+// v77.19c (Bug 3) : Détection rapide : la valeur ressemble-t-elle à une date ?
+// Utilisée pour décider de l'auto-bucketing temporel dans visualization.
+function _daLooksLikeDate(v) {
+  if (v instanceof Date) return true;
+  if (v == null || v === '') return false;
+  if (typeof v === 'number') {
+    // Excel serial plausible
+    return v > 1 && v < 100000;
+  }
+  var s = String(v).trim();
+  if (!s) return false;
+  // Pattern ISO ou français
+  return /^\d{4}[-\/]\d{1,2}[-\/]\d{1,2}/.test(s)
+      || /^\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}/.test(s);
+}
+
 // v77.16b1 : Stratification : grouper par strate + calculer count + agrégats
 function _daRunStratification() {
   var f = _daWizard.files[0];
@@ -13695,12 +13762,12 @@ function _daRunStratification() {
   } else if (mode === 'date_month' || mode === 'date_year') {
     bucketize = function(r) {
       var v = r[col];
-      if (!v) return '(vide)';
-      var d = new Date(v);
-      if (isNaN(d.getTime())) return '(date invalide)';
-      var yy = d.getFullYear();
+      if (v == null || v === '') return '(vide)';
+      var d = _daParseDate(v);
+      if (!d) return '(date invalide)';
+      var yy = d.getUTCFullYear();
       if (mode === 'date_year') return String(yy);
-      var mm = String(d.getMonth() + 1).padStart(2, '0');
+      var mm = String(d.getUTCMonth() + 1).padStart(2, '0');
       return yy + '-' + mm;
     };
   } else {
@@ -13777,23 +13844,24 @@ function _daRunVisualization() {
   };
 
   // Helper : valeur X normalisée (pour groupement)
-  // Auto-détection si X ressemble à une date → format YYYY-MM ou YYYY
+  // v77.19c (Bug 3) : auto-détection robuste de format date sur plusieurs lignes
   var xIsDate = false;
   if (m.xField && rows.length > 0) {
-    var sample = String(rows[0][m.xField] || '');
-    if (/^\d{4}-\d{1,2}/.test(sample) || /^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}/.test(sample)) {
-      var d = new Date(sample);
-      if (!isNaN(d.getTime())) xIsDate = true;
+    // Examiner les 5 premières lignes : si la majorité ressemble à une date, on active le mode date
+    var dateCount = 0, sampleSize = Math.min(5, rows.length);
+    for (var iSample = 0; iSample < sampleSize; iSample++) {
+      if (_daLooksLikeDate(rows[iSample][m.xField])) dateCount++;
     }
+    xIsDate = dateCount >= Math.ceil(sampleSize / 2);
   }
 
   var xLabel = function(v) {
     if (v == null || v === '') return '(vide)';
     if (xIsDate) {
-      var d = new Date(v);
-      if (!isNaN(d.getTime())) {
-        var yy = d.getFullYear();
-        var mm = String(d.getMonth() + 1).padStart(2, '0');
+      var d = _daParseDate(v);
+      if (d) {
+        var yy = d.getUTCFullYear();
+        var mm = String(d.getUTCMonth() + 1).padStart(2, '0');
         return yy + '-' + mm;
       }
     }
@@ -16472,6 +16540,93 @@ function _issueShortLabel(iss) {
 }
 
 // ────────────────────────────────────────────────────────────────────
+//  v77.19c (Bug 1) : Section "Issues issues des Data Analyses"
+//  Affiche les issues source='data_analysis' comme issues séparées
+//  (non agrégées en findings) dans le Report et les MR.
+// ────────────────────────────────────────────────────────────────────
+
+function renderDataAnalysisIssuesSection(opts) {
+  opts = opts || {};
+  var d = getAudData(CA);
+  _ensureIssues(d);
+  var daIssues = d.issues.filter(function(i){return i.source === 'data_analysis';});
+  if (daIssues.length === 0) return '';
+
+  var compact = !!opts.compact; // version compacte pour MR
+  var titleLabel = opts.titleLabel || '📊 Issues issues des Data Analyses';
+
+  var h = '<div style="margin-top:18px">';
+
+  // Header
+  h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">';
+  h += '<div style="display:flex;align-items:baseline;gap:10px">';
+  h += '<span style="font-size:13px;font-weight:600;color:var(--text-1)">'+titleLabel+'</span>';
+  h += '<span style="font-size:10px;color:var(--text-3);font-style:italic">Issues identifiées via les analyses de données (non agrégées en findings)</span>';
+  h += '</div>';
+  h += '<span style="background:#3C3489;color:#fff;font-size:9px;padding:2px 7px;border-radius:3px;font-weight:500">'+daIssues.length+'</span>';
+  h += '</div>';
+
+  // Liste
+  h += '<div style="display:grid;gap:6px">';
+  daIssues.forEach(function(iss){
+    var idx = d.issues.indexOf(iss);
+    var an = (d.dataAnalyses || []).find(function(x){return x.id === iss.analysisId;});
+    var anType = an ? (_daTypeLabels[an.type] || an.type) : null;
+    var anIcon = an ? (_daTypeIcons[an.type] || '📋') : '📋';
+    var excCount = an ? ((an.results && an.results.exceptions) || []).length : 0;
+
+    h += '<div style="background:#FFF7ED;border:.5px solid #FAC775;border-left:3px solid #854F0B;border-radius:4px;padding:10px 12px">';
+    h += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">';
+    h += '<div style="flex:1;min-width:200px">';
+    // Header : type + status
+    h += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px">';
+    h += '<span style="font-size:11px;font-weight:600;color:#854F0B">'+anIcon+' Data Analysis</span>';
+    if (anType) h += '<span style="font-size:9px;background:#fff;color:#854F0B;padding:1px 6px;border-radius:2px;border:.5px solid #FAC775;font-weight:500">'+esc(anType)+'</span>';
+    if (excCount > 0) h += '<span style="font-size:9px;background:#FEF3F2;color:#7F1D1D;padding:1px 6px;border-radius:2px;border:.5px solid #FCA5A5;font-weight:500">'+excCount+' exception'+(excCount>1?'s':'')+'</span>';
+    if (iss.createdAt) h += '<span style="font-size:9px;color:var(--text-3)">'+esc(iss.createdAt.slice(0,10))+'</span>';
+    h += '</div>';
+    // Titre
+    h += '<div style="font-size:12px;font-weight:500;color:var(--text-1);margin-bottom:3px">'+esc((iss.title||'(sans titre)'))+'</div>';
+    // Description (tronquée en mode compact)
+    if (iss.description) {
+      var desc = iss.description;
+      if (compact && desc.length > 200) desc = desc.slice(0, 200) + '…';
+      h += '<div style="font-size:11px;color:var(--text-2);line-height:1.5;white-space:pre-wrap">'+esc(desc)+'</div>';
+    }
+    h += '</div>';
+    // Actions
+    h += '<div style="display:flex;flex-direction:column;gap:3px;flex-shrink:0">';
+    if (an) {
+      h += '<button onclick="daShowResults(\''+_escJsArg(iss.analysisId)+'\')" title="Voir les détails de l\'analyse source" style="font-size:10px;padding:4px 10px;background:#fff;color:#3C3489;border:.5px solid #3C3489;border-radius:3px;cursor:pointer;font-weight:500">📊 Voir analyse</button>';
+    } else {
+      h += '<button disabled title="Analyse source introuvable (supprimée ?)" style="font-size:10px;padding:4px 10px;background:#fff;color:var(--text-3);border:.5px solid var(--border);border-radius:3px;cursor:not-allowed;font-style:italic">Analyse supprimée</button>';
+    }
+    h += '<button onclick="_daDeleteIssue('+idx+')" title="Supprimer cette issue" style="font-size:10px;padding:4px 10px;background:#fff;color:#993C1D;border:.5px solid var(--border);border-radius:3px;cursor:pointer">🗑</button>';
+    h += '</div>';
+    h += '</div>';
+    h += '</div>';
+  });
+  h += '</div>';
+  h += '</div>';
+  return h;
+}
+
+// Supprimer une issue data_analysis (avec confirmation)
+async function _daDeleteIssue(idx) {
+  if (!confirm('Supprimer cette issue (issue de l\'analyse) ?')) return;
+  var d = getAudData(CA);
+  if (!d.issues || !d.issues[idx]) return;
+  d.issues.splice(idx, 1);
+  try {
+    await saveAuditData(CA);
+    toast('Issue supprimée');
+    document.getElementById('det-content').innerHTML = renderDetContent();
+  } catch(e) {
+    toast('Erreur : '+e.message);
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────
 //  RENDU PRINCIPAL — Section Findings BU
 // ────────────────────────────────────────────────────────────────────
 
@@ -16554,6 +16709,9 @@ function renderFindingsBuSection() {
   }
 
   html += '</div>';
+
+  // v77.19c (Bug 1) : Ajouter la section des issues issues des Data Analyses (non agrégées)
+  html += renderDataAnalysisIssuesSection();
 
   return html;
 }
@@ -17142,6 +17300,8 @@ function renderFindingsSection() {
   });
 
   html += '</div>';
+  // v77.19c (Bug 1) : Ajouter la section des issues issues des Data Analyses (non agrégées)
+  html += renderDataAnalysisIssuesSection();
   return html;
 }
 
@@ -17772,6 +17932,8 @@ function renderMgtRespSection() {
     });
   }
   html += '</div>';
+  // v77.19c (Bug 1) : Issues data_analysis dans MR aussi (compact)
+  html += renderDataAnalysisIssuesSection({compact: true, titleLabel: '📊 Issues Data Analyses (sans MR formelle)'});
   return html;
 }
 
