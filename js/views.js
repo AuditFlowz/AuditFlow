@@ -11892,6 +11892,13 @@ async function removeControlAt(idx) {
 // État global du wizard en cours (effacé à la fermeture de la modale)
 var _daWizard = null;
 
+// v77.16b2 : Filtre actif sur les KPIs cliquables (contexte courant)
+// Valeurs possibles : null (tout afficher) | 'missing_a' | 'missing_b' | 'discrepancy' | 'non_numeric'
+var _daActiveFilter = null;
+// Contexte courant : 'wizard' (étape 5) ou 'details' (modale Détails) — permet le re-render approprié
+var _daActiveContext = null;
+var _daActiveAnalysisId = null;
+
 // Cache mémoire des fichiers parsés pour la session (clés : fileId → {name, rows, columns})
 var _daFileCache = {};
 
@@ -12079,9 +12086,12 @@ function _daCanGoNext() {
 function _daWizardNext() {
   if (!_daCanGoNext()) return;
   _daWizard.step++;
-  // Au passage à l'étape 5 : lancer le calcul
+  // Au passage à l'étape 5 : lancer le calcul + reset filtre KPI
   if (_daWizard.step === 5 && !_daWizard.results) {
     _daRunAnalysis();
+    _daActiveFilter = null;
+    _daActiveContext = 'wizard';
+    _daActiveAnalysisId = null;
   }
   _daRenderWizard();
 }
@@ -12533,34 +12543,90 @@ function _daRenderStep5() {
 }
 
 // v77.16b1 : KPIs adaptés à chaque type
+// v77.16b2 : KPIs cliquables (filtre table d'exceptions). Les KPIs sans lignes en stockage sont grisés.
 function _daRenderKpis(r, type) {
+  // Helper de rendu d'une cellule KPI
+  // opts : {label, value, color, bg, border, filterKey, disabled}
+  function kpi(opts) {
+    var isActive = _daActiveFilter === opts.filterKey;
+    var isClickable = !opts.disabled && !!opts.filterKey;
+    var bg = opts.bg || '#FAFAFE';
+    var border = opts.border || 'var(--border)';
+    var color = opts.color || 'var(--text-1)';
+    var labelColor = opts.color || 'var(--text-3)';
+    var cursor = isClickable ? 'cursor:pointer;' : '';
+    var opacity = opts.disabled ? 'opacity:0.55;' : '';
+    var ring = isActive ? 'box-shadow:0 0 0 2px #3C3489 inset;' : '';
+    var hoverHint = isClickable ? ' title="Cliquer pour filtrer la table"' : (opts.disabled ? ' title="Ces lignes ne sont pas conservées dans l\'analyse"' : '');
+    var onclick = isClickable ? ' onclick="_daToggleKpiFilter(\''+opts.filterKey+'\')"' : '';
+    var h = '<div'+onclick+hoverHint+' style="background:'+bg+';border:.5px solid '+border+';border-radius:5px;padding:10px;'+cursor+opacity+ring+'">';
+    h += '<div style="font-size:10px;color:'+labelColor+'">'+esc(opts.label);
+    if (isActive) h += ' <span style="color:#3C3489;font-weight:600">●</span>';
+    h += '</div>';
+    h += '<div style="font-size:18px;font-weight:600;margin-top:2px;color:'+color+'">'+opts.value+'</div>';
+    h += '</div>';
+    return h;
+  }
+
   var h = '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px">';
-  h += '<div style="background:#FAFAFE;border:.5px solid var(--border);border-radius:5px;padding:10px"><div style="font-size:10px;color:var(--text-3)">Total lignes</div><div style="font-size:18px;font-weight:600;margin-top:2px">'+(r.totalRows||0)+'</div></div>';
+  // Total lignes : cliquable pour réinitialiser (filtre = null)
+  h += kpi({label:'Total lignes', value:(r.totalRows||0), filterKey:'all'});
 
   if (type === 'reconciliation') {
-    h += '<div style="background:#E8F5E9;border:.5px solid #A6E2CD;border-radius:5px;padding:10px"><div style="font-size:10px;color:#085041">Matchs</div><div style="font-size:18px;font-weight:600;color:#085041;margin-top:2px">'+(r.matches||0)+'</div></div>';
-    h += '<div style="background:#FEF3F2;border:.5px solid #FCA5A5;border-radius:5px;padding:10px"><div style="font-size:10px;color:#7F1D1D">Manquants A</div><div style="font-size:18px;font-weight:600;color:#7F1D1D;margin-top:2px">'+(r.missingA||0)+'</div></div>';
-    h += '<div style="background:#FEF3F2;border:.5px solid #FCA5A5;border-radius:5px;padding:10px"><div style="font-size:10px;color:#7F1D1D">Manquants B</div><div style="font-size:18px;font-weight:600;color:#7F1D1D;margin-top:2px">'+(r.missingB||0)+'</div></div>';
+    // Matchs : pas de lignes stockées → grisé
+    h += kpi({label:'Matchs', value:(r.matches||0), color:'#085041', bg:'#E8F5E9', border:'#A6E2CD', disabled:true});
+    h += kpi({label:'Manquants A', value:(r.missingA||0), color:'#7F1D1D', bg:'#FEF3F2', border:'#FCA5A5', filterKey:'missing_a', disabled:(r.missingA||0)===0});
+    h += kpi({label:'Manquants B', value:(r.missingB||0), color:'#7F1D1D', bg:'#FEF3F2', border:'#FCA5A5', filterKey:'missing_b', disabled:(r.missingB||0)===0});
   } else if (type === 'comparison') {
-    h += '<div style="background:#E8F5E9;border:.5px solid #A6E2CD;border-radius:5px;padding:10px"><div style="font-size:10px;color:#085041">OK (dans tolérance)</div><div style="font-size:18px;font-weight:600;color:#085041;margin-top:2px">'+(r.matches||0)+'</div></div>';
-    h += '<div style="background:#FEF3F2;border:.5px solid #FCA5A5;border-radius:5px;padding:10px"><div style="font-size:10px;color:#7F1D1D">Écarts > tolérance</div><div style="font-size:18px;font-weight:600;color:#7F1D1D;margin-top:2px">'+(r.discrepancies||0)+'</div></div>';
-    h += '<div style="background:#FAFAFE;border:.5px solid var(--border);border-radius:5px;padding:10px"><div style="font-size:10px;color:var(--text-3)">Total écart cumulé</div><div style="font-size:18px;font-weight:600;margin-top:2px">'+(_daFmtNum(r.totalAbsDiff||0))+'</div></div>';
+    // OK : grisé (pas stockées)
+    h += kpi({label:'OK (dans tolérance)', value:(r.matches||0), color:'#085041', bg:'#E8F5E9', border:'#A6E2CD', disabled:true});
+    h += kpi({label:'Écarts > tolérance', value:(r.discrepancies||0), color:'#7F1D1D', bg:'#FEF3F2', border:'#FCA5A5', filterKey:'discrepancy', disabled:(r.discrepancies||0)===0});
+    // Total écart cumulé : pas un filtre, c'est une stat → non-cliquable mais pas grisée
+    h += kpi({label:'Total écart cumulé', value:_daFmtNum(r.totalAbsDiff||0)});
   } else if (type === 'stratification') {
-    h += '<div style="background:#FAFAFE;border:.5px solid var(--border);border-radius:5px;padding:10px"><div style="font-size:10px;color:var(--text-3)">Nombre de strates</div><div style="font-size:18px;font-weight:600;margin-top:2px">'+((r.strata||[]).length)+'</div></div>';
+    h += kpi({label:'Nombre de strates', value:((r.strata||[]).length)});
     if (r.aggColumn) {
-      h += '<div style="background:#FAFAFE;border:.5px solid var(--border);border-radius:5px;padding:10px"><div style="font-size:10px;color:var(--text-3)">Somme '+esc(r.aggColumn)+'</div><div style="font-size:18px;font-weight:600;margin-top:2px">'+_daFmtNum(r.totalSum||0)+'</div></div>';
-      h += '<div style="background:#FAFAFE;border:.5px solid var(--border);border-radius:5px;padding:10px"><div style="font-size:10px;color:var(--text-3)">Moyenne globale</div><div style="font-size:18px;font-weight:600;margin-top:2px">'+_daFmtNum((r.totalRows>0?r.totalSum/r.totalRows:0))+'</div></div>';
+      h += kpi({label:'Somme '+esc(r.aggColumn), value:_daFmtNum(r.totalSum||0)});
+      h += kpi({label:'Moyenne globale', value:_daFmtNum((r.totalRows>0?r.totalSum/r.totalRows:0))});
     } else {
       h += '<div></div><div></div>';
     }
   } else {
     // anomaly
-    h += '<div style="background:#E8F5E9;border:.5px solid #A6E2CD;border-radius:5px;padding:10px"><div style="font-size:10px;color:#085041">Lignes OK</div><div style="font-size:18px;font-weight:600;color:#085041;margin-top:2px">'+((r.totalRows||0)-((r.exceptions||[]).length))+'</div></div>';
-    h += '<div style="background:#FEF3F2;border:.5px solid #FCA5A5;border-radius:5px;padding:10px"><div style="font-size:10px;color:#7F1D1D">Exceptions</div><div style="font-size:18px;font-weight:600;color:#7F1D1D;margin-top:2px">'+((r.exceptions||[]).length)+'</div></div>';
-    h += '<div style="background:#FAFAFE;border:.5px solid var(--border);border-radius:5px;padding:10px"><div style="font-size:10px;color:var(--text-3)">% exceptions</div><div style="font-size:18px;font-weight:600;margin-top:2px">'+(r.totalRows>0?Math.round((r.exceptions||[]).length / r.totalRows * 100):0)+'%</div></div>';
+    var nbExc = (r.exceptions || []).length;
+    h += kpi({label:'Lignes OK', value:((r.totalRows||0) - nbExc), color:'#085041', bg:'#E8F5E9', border:'#A6E2CD', disabled:true});
+    h += kpi({label:'Exceptions', value:nbExc, color:'#7F1D1D', bg:'#FEF3F2', border:'#FCA5A5'});
+    h += kpi({label:'% exceptions', value:(r.totalRows>0?Math.round(nbExc/r.totalRows*100):0)+'%'});
   }
   h += '</div>';
   return h;
+}
+
+// v77.16b2 : Toggle filtre KPI + re-render
+function _daToggleKpiFilter(filterKey) {
+  if (filterKey === 'all' || _daActiveFilter === filterKey) {
+    _daActiveFilter = null; // re-click sur le KPI actif OU sur "Total" = reset
+  } else {
+    _daActiveFilter = filterKey;
+  }
+  // Re-render selon contexte
+  if (_daActiveContext === 'wizard') {
+    _daRenderWizard();
+  } else if (_daActiveContext === 'details' && _daActiveAnalysisId) {
+    daShowResults(_daActiveAnalysisId);
+  }
+}
+
+// v77.16b2 : Filtrer les exceptions selon le filtre KPI actif
+function _daFilterExceptions(exceptions, filter, type) {
+  if (!filter || filter === 'all') return exceptions;
+  if (type === 'reconciliation') {
+    if (filter === 'missing_a') return exceptions.filter(function(e){return e['Type'] === 'Manque dans A';});
+    if (filter === 'missing_b') return exceptions.filter(function(e){return e['Type'] === 'Manque dans B';});
+  } else if (type === 'comparison') {
+    if (filter === 'discrepancy') return exceptions.filter(function(e){return e._type === 'discrepancy';});
+  }
+  return exceptions;
 }
 
 // v77.16b1 : helper format nombre lisible
@@ -12572,39 +12638,69 @@ function _daFmtNum(n) {
 // Table d'exceptions (réutilisée par Step5 + showResults)
 function _daRenderExceptionsTable(r, type, files) {
   var h = '';
-  var exc = r.exceptions || [];
-  if (exc.length > 0) {
-    h += '<div style="font-size:11px;color:var(--text-2);font-weight:500;margin-bottom:6px">Exceptions (max 50 affichées)</div>';
-    h += '<div style="overflow-x:auto;border:.5px solid var(--border);border-radius:5px;max-height:300px;overflow-y:auto">';
-    h += '<table style="width:100%;font-size:10px;border-collapse:collapse">';
-    h += '<thead style="position:sticky;top:0;background:#F5F4FE"><tr>';
-    var cols = _daGetExceptionColumnsForType(type, files);
-    cols.forEach(function(c){
-      h += '<th style="padding:5px 8px;text-align:left;font-weight:500;color:var(--text-2);border-bottom:.5px solid var(--border)">'+esc(c)+'</th>';
-    });
-    h += '</tr></thead><tbody>';
-    exc.slice(0, 50).forEach(function(e){
-      h += '<tr style="border-bottom:.5px solid var(--border)">';
+  var allExc = r.exceptions || [];
+  // v77.16b2 : appliquer le filtre KPI actif
+  var exc = _daFilterExceptions(allExc, _daActiveFilter, type);
+  var isFiltered = _daActiveFilter && _daActiveFilter !== 'all' && exc.length !== allExc.length;
+
+  if (allExc.length > 0) {
+    // En-tête avec indicateur de filtre
+    h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">';
+    h += '<div style="font-size:11px;color:var(--text-2);font-weight:500">Exceptions</div>';
+    if (isFiltered) {
+      var filterLabel = _daFilterLabel(_daActiveFilter, type);
+      h += '<span style="background:#3C3489;color:#fff;font-size:9px;padding:2px 7px;border-radius:3px;font-weight:500">Filtre : '+esc(filterLabel)+' ('+exc.length+'/'+allExc.length+')</span>';
+      h += '<button class="bs" style="font-size:9px;padding:2px 7px;color:#3C3489" onclick="_daToggleKpiFilter(\'all\')">✕ Réinitialiser</button>';
+    } else {
+      h += '<span style="font-size:10px;color:var(--text-3);font-style:italic">('+allExc.length+' au total, max 50 affichées)</span>';
+    }
+    h += '</div>';
+
+    if (exc.length === 0) {
+      h += '<div style="text-align:center;padding:20px;background:var(--bg-card);border-radius:5px;color:var(--text-3);font-size:11px;font-style:italic">Aucune exception ne correspond à ce filtre.</div>';
+    } else {
+      h += '<div style="overflow-x:auto;border:.5px solid var(--border);border-radius:5px;max-height:300px;overflow-y:auto">';
+      h += '<table style="width:100%;font-size:10px;border-collapse:collapse">';
+      h += '<thead style="position:sticky;top:0;background:#F5F4FE"><tr>';
+      var cols = _daGetExceptionColumnsForType(type, files);
       cols.forEach(function(c){
-        var val = e[c];
-        var color = '';
-        if (c === 'Type' && val) {
-          if (val.indexOf('Manque') >= 0) color = ';color:#7F1D1D';
-          else if (val.indexOf('Doublon') >= 0) color = ';color:#854F0B';
-          else if (val.indexOf('Écart') >= 0) color = ';color:#7F1D1D';
-        }
-        h += '<td style="padding:4px 8px'+color+'">'+esc(val == null ? '' : String(val))+'</td>';
+        h += '<th style="padding:5px 8px;text-align:left;font-weight:500;color:var(--text-2);border-bottom:.5px solid var(--border)">'+esc(c)+'</th>';
       });
-      h += '</tr>';
-    });
-    h += '</tbody></table></div>';
-    if (exc.length > 50) {
-      h += '<div style="font-size:10px;color:var(--text-3);font-style:italic;text-align:center;margin-top:5px">+ '+(exc.length-50)+' autres exceptions (visibles dans l\'export Excel)</div>';
+      h += '</tr></thead><tbody>';
+      exc.slice(0, 50).forEach(function(e){
+        h += '<tr style="border-bottom:.5px solid var(--border)">';
+        cols.forEach(function(c){
+          var val = e[c];
+          var color = '';
+          if (c === 'Type' && val) {
+            if (val.indexOf('Manque') >= 0) color = ';color:#7F1D1D';
+            else if (val.indexOf('Doublon') >= 0) color = ';color:#854F0B';
+            else if (val.indexOf('Écart') >= 0) color = ';color:#7F1D1D';
+          }
+          h += '<td style="padding:4px 8px'+color+'">'+esc(val == null ? '' : String(val))+'</td>';
+        });
+        h += '</tr>';
+      });
+      h += '</tbody></table></div>';
+      if (exc.length > 50) {
+        h += '<div style="font-size:10px;color:var(--text-3);font-style:italic;text-align:center;margin-top:5px">+ '+(exc.length-50)+' autres exceptions (visibles dans l\'export Excel)</div>';
+      }
     }
   } else {
     h += '<div style="text-align:center;padding:20px;background:#E8F5E9;border-radius:5px;color:#085041;font-size:11px">✓ Aucune exception détectée.</div>';
   }
   return h;
+}
+
+// v77.16b2 : Label lisible d'un filtre KPI
+function _daFilterLabel(filter, type) {
+  if (type === 'reconciliation') {
+    if (filter === 'missing_a') return 'Manque dans A';
+    if (filter === 'missing_b') return 'Manque dans B';
+  } else if (type === 'comparison') {
+    if (filter === 'discrepancy') return 'Écarts > tolérance';
+  }
+  return filter;
 }
 
 // v77.16b1 : Table des strates (pour stratification)
@@ -13132,6 +13228,14 @@ function daShowResults(analysisId) {
   var an = (d.dataAnalyses || []).find(function(x){return x.id === analysisId;});
   if (!an) { toast('Analyse introuvable'); return; }
 
+  // v77.16b2 : définir le contexte courant pour les KPIs cliquables
+  // Reset le filtre si on change d'analyse (pas si on re-render la même)
+  if (_daActiveContext !== 'details' || _daActiveAnalysisId !== analysisId) {
+    _daActiveFilter = null;
+  }
+  _daActiveContext = 'details';
+  _daActiveAnalysisId = analysisId;
+
   var r = an.results || {};
   var exc = r.exceptions || [];
   var icon = _daTypeIcons[an.type] || '📋';
@@ -13159,39 +13263,14 @@ function daShowResults(analysisId) {
   }
   body += '</div>';
 
-  // KPIs adaptés au type (helper commun)
+  // KPIs adaptés au type (helper commun, cliquables en v77.16b2)
   body += _daRenderKpis(r, an.type);
 
-  // Tableau adapté au type
+  // Tableau adapté au type — utilise _daRenderExceptionsTable pour bénéficier du filtre
   if (an.type === 'stratification') {
     body += _daRenderStrataTable(r);
   } else {
-    if (exc.length > 0) {
-      body += '<div style="font-size:11px;color:var(--text-2);font-weight:500;margin-bottom:6px">Exceptions';
-      if (r.truncated) body += ' <span style="font-size:9px;color:#7F1D1D">(limitées à 500 stockées ; rerun pour voir toutes — v77.16b2)</span>';
-      body += '</div>';
-      body += '<div style="overflow-x:auto;border:.5px solid var(--border);border-radius:5px;max-height:300px;overflow-y:auto">';
-      body += '<table style="width:100%;font-size:10px;border-collapse:collapse">';
-      body += '<thead style="position:sticky;top:0;background:#F5F4FE"><tr>';
-      var cols = _daGetExceptionColumnsForType(an.type, pseudoFiles);
-      cols.forEach(function(c){
-        body += '<th style="padding:5px 8px;text-align:left;font-weight:500;color:var(--text-2);border-bottom:.5px solid var(--border)">'+esc(c)+'</th>';
-      });
-      body += '</tr></thead><tbody>';
-      exc.slice(0, 100).forEach(function(e){
-        body += '<tr style="border-bottom:.5px solid var(--border)">';
-        cols.forEach(function(c){
-          body += '<td style="padding:4px 8px">'+esc(e[c] == null ? '' : String(e[c]))+'</td>';
-        });
-        body += '</tr>';
-      });
-      body += '</tbody></table></div>';
-      if (exc.length > 100) {
-        body += '<div style="font-size:10px;color:var(--text-3);font-style:italic;text-align:center;margin-top:5px">+ '+(exc.length-100)+' autres (export Excel pour tout voir)</div>';
-      }
-    } else {
-      body += '<div style="text-align:center;padding:20px;background:#E8F5E9;border-radius:5px;color:#085041;font-size:11px">✓ Aucune exception détectée.</div>';
-    }
+    body += _daRenderExceptionsTable(r, an.type, pseudoFiles);
   }
 
   // Boutons d'action
