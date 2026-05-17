@@ -11922,8 +11922,8 @@ var _daTypeIcons = {
   'stratification': '📊',
 };
 
-// Types disponibles en v77.16a
-var _daAvailableTypes = ['reconciliation', 'anomaly'];
+// Types disponibles en v77.16b1 (les 4 types)
+var _daAvailableTypes = ['reconciliation', 'anomaly', 'comparison', 'stratification'];
 
 // ─── 2. Rendu section dans la page Testings ────────────────────
 
@@ -11957,8 +11957,6 @@ function _daRenderCard(an, idx) {
   var typeLabel = _daTypeLabels[an.type] || an.type;
   var r = an.results || {};
   var totalRows = r.totalRows || 0;
-  var nbException = (r.exceptions || []).length;
-  var nbMatch = r.matches || 0;
 
   var h = '<div style="background:#fff;border:.5px solid var(--border);border-radius:5px;padding:10px 12px;display:flex;align-items:center;gap:10px">';
   // Icône
@@ -11968,8 +11966,25 @@ function _daRenderCard(an, idx) {
   h += '<div style="font-size:12px;font-weight:500">'+esc(an.title||'(sans titre)')+'</div>';
   h += '<div style="font-size:10px;color:var(--text-3);margin-top:2px">';
   h += esc(typeLabel)+' · '+esc((an.fileNames||[]).join(' + ')) + ' · ' + totalRows + ' lignes';
-  if (nbMatch > 0) h += ' · <span style="color:#16A34A;font-weight:500">'+nbMatch+' OK</span>';
-  if (nbException > 0) h += ' · <span style="color:#DC2626;font-weight:500">'+nbException+' exception'+(nbException>1?'s':'')+'</span>';
+
+  // Compteurs adaptés au type
+  if (an.type === 'reconciliation') {
+    if (r.matches > 0) h += ' · <span style="color:#16A34A;font-weight:500">'+r.matches+' OK</span>';
+    var missTot = (r.missingA||0) + (r.missingB||0);
+    if (missTot > 0) h += ' · <span style="color:#DC2626;font-weight:500">'+missTot+' manquant'+(missTot>1?'s':'')+'</span>';
+  } else if (an.type === 'comparison') {
+    if (r.matches > 0) h += ' · <span style="color:#16A34A;font-weight:500">'+r.matches+' OK</span>';
+    if (r.discrepancies > 0) h += ' · <span style="color:#DC2626;font-weight:500">'+r.discrepancies+' écart'+(r.discrepancies>1?'s':'')+'</span>';
+  } else if (an.type === 'stratification') {
+    var nbStrata = (r.strata||[]).length;
+    h += ' · <span style="color:#3C3489;font-weight:500">'+nbStrata+' strate'+(nbStrata>1?'s':'')+'</span>';
+    if (r.totalSum != null) h += ' · Σ='+_daFmtNum(r.totalSum);
+  } else {
+    // anomaly
+    var nbException = (r.exceptions || []).length;
+    if (nbException > 0) h += ' · <span style="color:#DC2626;font-weight:500">'+nbException+' exception'+(nbException>1?'s':'')+'</span>';
+  }
+
   if (an.createdAt) h += ' · <span style="color:var(--text-3)">'+esc(an.createdAt.slice(0,10))+'</span>';
   h += '</div>';
   h += '</div>';
@@ -12047,18 +12062,16 @@ function _daCanGoNext() {
   var s = _daWizard.step;
   if (s === 1) return !!_daWizard.type && !!_daWizard.title;
   if (s === 2) {
-    var need = (_daWizard.type === 'reconciliation') ? 2 : 1;
+    // 2 fichiers pour reconciliation + comparison, 1 pour anomaly + stratification
+    var need = (_daWizard.type === 'reconciliation' || _daWizard.type === 'comparison') ? 2 : 1;
     return _daWizard.files.length >= need;
   }
   if (s === 3) {
-    if (_daWizard.type === 'reconciliation') {
-      var m = _daWizard.mapping || {};
-      return !!(m.keyA && m.keyB);
-    }
-    if (_daWizard.type === 'anomaly') {
-      var m2 = _daWizard.mapping || {};
-      return !!m2.ruleType;
-    }
+    var m = _daWizard.mapping || {};
+    if (_daWizard.type === 'reconciliation') return !!(m.keyA && m.keyB);
+    if (_daWizard.type === 'anomaly') return !!m.ruleType;
+    if (_daWizard.type === 'comparison') return !!(m.keyA && m.keyB && m.valueA && m.valueB);
+    if (_daWizard.type === 'stratification') return !!(m.column && m.strataMode);
   }
   return true;
 }
@@ -12094,8 +12107,8 @@ function _daRenderStep1() {
   var types = [
     {key:'reconciliation', label:'Rapprochement', icon:'🔗', desc:'Matching ligne-à-ligne entre 2 fichiers sur une clé commune (IBAN, ID, etc.)'},
     {key:'anomaly', label:'Détection anomalies', icon:'⚠️', desc:'Règles sur 1 fichier : doublons, seuils, conditions, regex'},
-    {key:'comparison', label:'Comparaison valeurs', icon:'🧮', desc:'Écarts de montants/quantités avec tolérance (v77.16b)', disabled:true},
-    {key:'stratification', label:'Stratification', icon:'📊', desc:'Statistiques par tranches / catégories sur 1 fichier (v77.16b)', disabled:true},
+    {key:'comparison', label:'Comparaison valeurs', icon:'🧮', desc:'Écarts de montants/quantités avec tolérance entre 2 fichiers sur clé commune'},
+    {key:'stratification', label:'Stratification', icon:'📊', desc:'Statistiques par tranches / catégories sur 1 fichier'},
   ];
   types.forEach(function(t){
     var isSel = _daWizard.type === t.key;
@@ -12140,7 +12153,7 @@ function _daUpdateNavButton() {
 
 function _daRenderStep2() {
   var d = getAudData(CA);
-  var nbRequired = (_daWizard.type === 'reconciliation') ? 2 : 1;
+  var nbRequired = (_daWizard.type === 'reconciliation' || _daWizard.type === 'comparison') ? 2 : 1;
   var labels = (_daWizard.type === 'reconciliation') ? ['Fichier A','Fichier B'] : ['Fichier source'];
 
   // Fichiers déjà uploadés sur cet audit (cache mémoire de la session)
@@ -12272,6 +12285,8 @@ function _daPreviewFile(fileId) {
 function _daRenderStep3() {
   if (_daWizard.type === 'reconciliation') return _daRenderStep3_reconciliation();
   if (_daWizard.type === 'anomaly') return _daRenderStep3_anomaly();
+  if (_daWizard.type === 'comparison') return _daRenderStep3_comparison();
+  if (_daWizard.type === 'stratification') return _daRenderStep3_stratification();
   return '<div>Type non supporté.</div>';
 }
 
@@ -12347,6 +12362,108 @@ function _daRenderStep3_anomaly() {
   return h;
 }
 
+// v77.16b1 : Mapping pour Comparaison de valeurs (2 fichiers, clé + valeurs avec tolérance)
+function _daRenderStep3_comparison() {
+  var fA = _daWizard.files[0];
+  var fB = _daWizard.files[1];
+  var m = _daWizard.mapping;
+
+  var optsA = '<option value="">— choisir —</option>' + fA.columns.map(function(c){
+    return '<option value="'+esc(c)+'"'+(m.keyA===c?' selected':'')+'>'+esc(c)+'</option>';
+  }).join('');
+  var optsB = '<option value="">— choisir —</option>' + fB.columns.map(function(c){
+    return '<option value="'+esc(c)+'"'+(m.keyB===c?' selected':'')+'>'+esc(c)+'</option>';
+  }).join('');
+  var optsVA = '<option value="">— choisir —</option>' + fA.columns.map(function(c){
+    return '<option value="'+esc(c)+'"'+(m.valueA===c?' selected':'')+'>'+esc(c)+'</option>';
+  }).join('');
+  var optsVB = '<option value="">— choisir —</option>' + fB.columns.map(function(c){
+    return '<option value="'+esc(c)+'"'+(m.valueB===c?' selected':'')+'>'+esc(c)+'</option>';
+  }).join('');
+
+  var h = '<div>';
+  // Clé de rapprochement
+  h += '<div style="font-size:11px;color:var(--text-2);font-weight:500;margin-bottom:8px">Clé de rapprochement <span style="color:var(--red)">*</span></div>';
+  h += '<div style="background:#FAFAFE;border:.5px solid var(--border);border-radius:5px;padding:10px;margin-bottom:10px">';
+  h += '<div style="display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:end">';
+  h += '<div><label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:3px">Fichier A : '+esc(fA.name)+'</label><select onchange="_daWizard.mapping.keyA=this.value;_daUpdateNavButton()" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px">'+optsA+'</select></div>';
+  h += '<div style="font-size:14px;color:var(--text-3);padding-bottom:5px">↔</div>';
+  h += '<div><label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:3px">Fichier B : '+esc(fB.name)+'</label><select onchange="_daWizard.mapping.keyB=this.value;_daUpdateNavButton()" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px">'+optsB+'</select></div>';
+  h += '</div></div>';
+
+  // Valeurs à comparer
+  h += '<div style="font-size:11px;color:var(--text-2);font-weight:500;margin-bottom:8px">Valeurs à comparer <span style="color:var(--red)">*</span></div>';
+  h += '<div style="background:#FAFAFE;border:.5px solid var(--border);border-radius:5px;padding:10px;margin-bottom:10px">';
+  h += '<div style="display:grid;grid-template-columns:1fr auto 1fr 90px;gap:8px;align-items:end">';
+  h += '<div><label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:3px">Valeur A (numérique)</label><select onchange="_daWizard.mapping.valueA=this.value;_daUpdateNavButton()" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px">'+optsVA+'</select></div>';
+  h += '<div style="font-size:14px;color:var(--text-3);padding-bottom:5px">vs</div>';
+  h += '<div><label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:3px">Valeur B (numérique)</label><select onchange="_daWizard.mapping.valueB=this.value;_daUpdateNavButton()" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px">'+optsVB+'</select></div>';
+  h += '<div><label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:3px">Tolérance ±</label><input type="number" step="any" value="'+esc(m.tolerance!=null?m.tolerance:0.01)+'" onchange="_daWizard.mapping.tolerance=parseFloat(this.value)||0" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box"/></div>';
+  h += '</div>';
+  h += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:6px">Les écarts strictement supérieurs à la tolérance seront listés comme exceptions.</div>';
+  h += '</div>';
+  h += '</div>';
+  return h;
+}
+
+// v77.16b1 : Mapping pour Stratification (1 fichier, colonne + mode strates)
+function _daRenderStep3_stratification() {
+  var f = _daWizard.files[0];
+  var m = _daWizard.mapping;
+  var optsCol = '<option value="">— choisir —</option>' + f.columns.map(function(c){
+    return '<option value="'+esc(c)+'"'+(m.column===c?' selected':'')+'>'+esc(c)+'</option>';
+  }).join('');
+  var optsAgg = '<option value="">aucune (juste compter)</option>' + f.columns.map(function(c){
+    return '<option value="'+esc(c)+'"'+(m.aggColumn===c?' selected':'')+'>'+esc(c)+'</option>';
+  }).join('');
+
+  var h = '<div>';
+  // Colonne à stratifier
+  h += '<div style="font-size:11px;color:var(--text-2);font-weight:500;margin-bottom:8px">Colonne à stratifier <span style="color:var(--red)">*</span></div>';
+  h += '<div style="background:#FAFAFE;border:.5px solid var(--border);border-radius:5px;padding:10px;margin-bottom:10px">';
+  h += '<select onchange="_daWizard.mapping.column=this.value;_daUpdateNavButton()" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px">'+optsCol+'</select>';
+  h += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:4px">Sélectionne la colonne dont tu veux étudier la distribution.</div>';
+  h += '</div>';
+
+  // Mode de strates
+  h += '<div style="font-size:11px;color:var(--text-2);font-weight:500;margin-bottom:8px">Type de strates <span style="color:var(--red)">*</span></div>';
+  h += '<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px">';
+  var modes = [
+    {key:'category', label:'Par catégorie (texte)', desc:'Une strate par valeur distincte. Idéal pour : fournisseur, statut, pays...'},
+    {key:'numeric_custom', label:'Tranches numériques personnalisées', desc:'Découpe en bornes : 0-1000, 1000-10000, etc.'},
+    {key:'numeric_quartiles', label:'Quartiles (numérique auto)', desc:'4 strates équilibrées : Q1 / Q2 / Q3 / Q4'},
+    {key:'numeric_deciles', label:'Déciles (numérique auto)', desc:'10 strates équilibrées'},
+    {key:'date_month', label:'Par mois (date)', desc:'Une strate par mois (YYYY-MM)'},
+    {key:'date_year', label:'Par année (date)', desc:'Une strate par année'},
+  ];
+  modes.forEach(function(mo){
+    var isSel = m.strataMode === mo.key;
+    h += '<div onclick="_daWizard.mapping.strataMode=\''+mo.key+'\';_daRenderWizard()" style="border:1.5px solid '+(isSel?'#3C3489':'var(--border)')+';border-radius:4px;padding:8px 12px;cursor:pointer;background:'+(isSel?'#EEEDFE':'#fff')+'">';
+    h += '<div style="font-size:11px;font-weight:600;color:'+(isSel?'#3C3489':'var(--text-1)')+'">'+esc(mo.label)+'</div>';
+    h += '<div style="font-size:10px;color:var(--text-3);margin-top:1px">'+esc(mo.desc)+'</div>';
+    h += '</div>';
+  });
+  h += '</div>';
+
+  // Si tranches custom : input bornes
+  if (m.strataMode === 'numeric_custom') {
+    h += '<div style="background:#FAFAFE;border:.5px solid var(--border);border-radius:5px;padding:10px;margin-bottom:10px">';
+    h += '<label style="font-size:11px;color:var(--text-2);font-weight:500;display:block;margin-bottom:3px">Bornes (séparées par des virgules)</label>';
+    h += '<input type="text" value="'+esc(m.bounds||'0,1000,10000,100000')+'" onchange="_daWizard.mapping.bounds=this.value" placeholder="0,1000,10000,100000" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box;font-family:monospace"/>';
+    h += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:3px">Crée des tranches : ]−∞,1000], ]1000,10000], etc. Et ]100000,+∞[ en queue.</div>';
+    h += '</div>';
+  }
+
+  // Colonne à agréger (optionnel)
+  h += '<div style="font-size:11px;color:var(--text-2);font-weight:500;margin-bottom:8px">Colonne à agréger (optionnel)</div>';
+  h += '<div style="background:#FAFAFE;border:.5px solid var(--border);border-radius:5px;padding:10px">';
+  h += '<select onchange="_daWizard.mapping.aggColumn=this.value" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px">'+optsAgg+'</select>';
+  h += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:4px">Si renseigné, on calcule somme/moyenne/min/max de cette colonne par strate.</div>';
+  h += '</div>';
+  h += '</div>';
+  return h;
+}
+
 // ─── 7. Étape 4 : Filtres préalables ───────────────────────────
 
 function _daRenderStep4() {
@@ -12401,29 +12518,67 @@ function _daRenderStep5() {
   }
 
   var h = '<div>';
-  // KPIs
-  h += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px">';
+  // KPIs adaptés au type
+  h += _daRenderKpis(r, _daWizard.type);
+
+  // Tableau : exceptions OU strates selon le type
+  if (_daWizard.type === 'stratification') {
+    h += _daRenderStrataTable(r);
+  } else {
+    h += _daRenderExceptionsTable(r, _daWizard.type, _daWizard.files);
+  }
+
+  h += '</div>';
+  return h;
+}
+
+// v77.16b1 : KPIs adaptés à chaque type
+function _daRenderKpis(r, type) {
+  var h = '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px">';
   h += '<div style="background:#FAFAFE;border:.5px solid var(--border);border-radius:5px;padding:10px"><div style="font-size:10px;color:var(--text-3)">Total lignes</div><div style="font-size:18px;font-weight:600;margin-top:2px">'+(r.totalRows||0)+'</div></div>';
-  if (_daWizard.type === 'reconciliation') {
+
+  if (type === 'reconciliation') {
     h += '<div style="background:#E8F5E9;border:.5px solid #A6E2CD;border-radius:5px;padding:10px"><div style="font-size:10px;color:#085041">Matchs</div><div style="font-size:18px;font-weight:600;color:#085041;margin-top:2px">'+(r.matches||0)+'</div></div>';
     h += '<div style="background:#FEF3F2;border:.5px solid #FCA5A5;border-radius:5px;padding:10px"><div style="font-size:10px;color:#7F1D1D">Manquants A</div><div style="font-size:18px;font-weight:600;color:#7F1D1D;margin-top:2px">'+(r.missingA||0)+'</div></div>';
     h += '<div style="background:#FEF3F2;border:.5px solid #FCA5A5;border-radius:5px;padding:10px"><div style="font-size:10px;color:#7F1D1D">Manquants B</div><div style="font-size:18px;font-weight:600;color:#7F1D1D;margin-top:2px">'+(r.missingB||0)+'</div></div>';
+  } else if (type === 'comparison') {
+    h += '<div style="background:#E8F5E9;border:.5px solid #A6E2CD;border-radius:5px;padding:10px"><div style="font-size:10px;color:#085041">OK (dans tolérance)</div><div style="font-size:18px;font-weight:600;color:#085041;margin-top:2px">'+(r.matches||0)+'</div></div>';
+    h += '<div style="background:#FEF3F2;border:.5px solid #FCA5A5;border-radius:5px;padding:10px"><div style="font-size:10px;color:#7F1D1D">Écarts > tolérance</div><div style="font-size:18px;font-weight:600;color:#7F1D1D;margin-top:2px">'+(r.discrepancies||0)+'</div></div>';
+    h += '<div style="background:#FAFAFE;border:.5px solid var(--border);border-radius:5px;padding:10px"><div style="font-size:10px;color:var(--text-3)">Total écart cumulé</div><div style="font-size:18px;font-weight:600;margin-top:2px">'+(_daFmtNum(r.totalAbsDiff||0))+'</div></div>';
+  } else if (type === 'stratification') {
+    h += '<div style="background:#FAFAFE;border:.5px solid var(--border);border-radius:5px;padding:10px"><div style="font-size:10px;color:var(--text-3)">Nombre de strates</div><div style="font-size:18px;font-weight:600;margin-top:2px">'+((r.strata||[]).length)+'</div></div>';
+    if (r.aggColumn) {
+      h += '<div style="background:#FAFAFE;border:.5px solid var(--border);border-radius:5px;padding:10px"><div style="font-size:10px;color:var(--text-3)">Somme '+esc(r.aggColumn)+'</div><div style="font-size:18px;font-weight:600;margin-top:2px">'+_daFmtNum(r.totalSum||0)+'</div></div>';
+      h += '<div style="background:#FAFAFE;border:.5px solid var(--border);border-radius:5px;padding:10px"><div style="font-size:10px;color:var(--text-3)">Moyenne globale</div><div style="font-size:18px;font-weight:600;margin-top:2px">'+_daFmtNum((r.totalRows>0?r.totalSum/r.totalRows:0))+'</div></div>';
+    } else {
+      h += '<div></div><div></div>';
+    }
   } else {
+    // anomaly
     h += '<div style="background:#E8F5E9;border:.5px solid #A6E2CD;border-radius:5px;padding:10px"><div style="font-size:10px;color:#085041">Lignes OK</div><div style="font-size:18px;font-weight:600;color:#085041;margin-top:2px">'+((r.totalRows||0)-((r.exceptions||[]).length))+'</div></div>';
     h += '<div style="background:#FEF3F2;border:.5px solid #FCA5A5;border-radius:5px;padding:10px"><div style="font-size:10px;color:#7F1D1D">Exceptions</div><div style="font-size:18px;font-weight:600;color:#7F1D1D;margin-top:2px">'+((r.exceptions||[]).length)+'</div></div>';
     h += '<div style="background:#FAFAFE;border:.5px solid var(--border);border-radius:5px;padding:10px"><div style="font-size:10px;color:var(--text-3)">% exceptions</div><div style="font-size:18px;font-weight:600;margin-top:2px">'+(r.totalRows>0?Math.round((r.exceptions||[]).length / r.totalRows * 100):0)+'%</div></div>';
   }
   h += '</div>';
+  return h;
+}
 
-  // Table d'exceptions (limite à 50 pour pas exploser le DOM)
+// v77.16b1 : helper format nombre lisible
+function _daFmtNum(n) {
+  if (n == null || isNaN(n)) return '—';
+  return Number(n).toLocaleString('fr-FR', {maximumFractionDigits: 2});
+}
+
+// Table d'exceptions (réutilisée par Step5 + showResults)
+function _daRenderExceptionsTable(r, type, files) {
+  var h = '';
   var exc = r.exceptions || [];
   if (exc.length > 0) {
     h += '<div style="font-size:11px;color:var(--text-2);font-weight:500;margin-bottom:6px">Exceptions (max 50 affichées)</div>';
     h += '<div style="overflow-x:auto;border:.5px solid var(--border);border-radius:5px;max-height:300px;overflow-y:auto">';
     h += '<table style="width:100%;font-size:10px;border-collapse:collapse">';
     h += '<thead style="position:sticky;top:0;background:#F5F4FE"><tr>';
-    // En-têtes : la première colonne = type, puis les colonnes pertinentes
-    var cols = _daGetExceptionColumns();
+    var cols = _daGetExceptionColumnsForType(type, files);
     cols.forEach(function(c){
       h += '<th style="padding:5px 8px;text-align:left;font-weight:500;color:var(--text-2);border-bottom:.5px solid var(--border)">'+esc(c)+'</th>';
     });
@@ -12436,6 +12591,7 @@ function _daRenderStep5() {
         if (c === 'Type' && val) {
           if (val.indexOf('Manque') >= 0) color = ';color:#7F1D1D';
           else if (val.indexOf('Doublon') >= 0) color = ';color:#854F0B';
+          else if (val.indexOf('Écart') >= 0) color = ';color:#7F1D1D';
         }
         h += '<td style="padding:4px 8px'+color+'">'+esc(val == null ? '' : String(val))+'</td>';
       });
@@ -12448,15 +12604,68 @@ function _daRenderStep5() {
   } else {
     h += '<div style="text-align:center;padding:20px;background:#E8F5E9;border-radius:5px;color:#085041;font-size:11px">✓ Aucune exception détectée.</div>';
   }
-  h += '</div>';
   return h;
 }
 
+// v77.16b1 : Table des strates (pour stratification)
+function _daRenderStrataTable(r) {
+  var strata = r.strata || [];
+  if (strata.length === 0) {
+    return '<div style="text-align:center;padding:20px;background:var(--bg-card);border-radius:5px;color:var(--text-3);font-size:11px;font-style:italic">Aucune strate calculée.</div>';
+  }
+
+  var hasAgg = !!r.aggColumn;
+  var h = '<div style="font-size:11px;color:var(--text-2);font-weight:500;margin-bottom:6px">Strates ('+strata.length+')</div>';
+  h += '<div style="overflow-x:auto;border:.5px solid var(--border);border-radius:5px;max-height:400px;overflow-y:auto">';
+  h += '<table style="width:100%;font-size:11px;border-collapse:collapse">';
+  h += '<thead style="position:sticky;top:0;background:#F5F4FE"><tr>';
+  h += '<th style="padding:6px 10px;text-align:left;font-weight:500;color:var(--text-2);border-bottom:.5px solid var(--border)">Strate</th>';
+  h += '<th style="padding:6px 10px;text-align:right;font-weight:500;color:var(--text-2);border-bottom:.5px solid var(--border)">Nb lignes</th>';
+  h += '<th style="padding:6px 10px;text-align:right;font-weight:500;color:var(--text-2);border-bottom:.5px solid var(--border)">% du total</th>';
+  if (hasAgg) {
+    h += '<th style="padding:6px 10px;text-align:right;font-weight:500;color:var(--text-2);border-bottom:.5px solid var(--border)">Somme '+esc(r.aggColumn)+'</th>';
+    h += '<th style="padding:6px 10px;text-align:right;font-weight:500;color:var(--text-2);border-bottom:.5px solid var(--border)">Moyenne</th>';
+    h += '<th style="padding:6px 10px;text-align:right;font-weight:500;color:var(--text-2);border-bottom:.5px solid var(--border)">Min</th>';
+    h += '<th style="padding:6px 10px;text-align:right;font-weight:500;color:var(--text-2);border-bottom:.5px solid var(--border)">Max</th>';
+  }
+  h += '</tr></thead><tbody>';
+  // Trouver le max pour barres visuelles
+  var maxCount = Math.max.apply(null, strata.map(function(s){return s.count;}));
+  strata.forEach(function(s){
+    var pct = r.totalRows > 0 ? (s.count / r.totalRows * 100) : 0;
+    var barWidth = maxCount > 0 ? (s.count / maxCount * 100) : 0;
+    h += '<tr style="border-bottom:.5px solid var(--border)">';
+    // Strate avec barre visuelle
+    h += '<td style="padding:5px 10px;position:relative">';
+    h += '<div style="position:absolute;top:0;bottom:0;left:0;width:'+barWidth+'%;background:#EEEDFE;opacity:0.5;pointer-events:none"></div>';
+    h += '<span style="position:relative">'+esc(s.label)+'</span>';
+    h += '</td>';
+    h += '<td style="padding:5px 10px;text-align:right;font-variant-numeric:tabular-nums">'+s.count+'</td>';
+    h += '<td style="padding:5px 10px;text-align:right;font-variant-numeric:tabular-nums;color:var(--text-3)">'+pct.toFixed(1)+'%</td>';
+    if (hasAgg) {
+      h += '<td style="padding:5px 10px;text-align:right;font-variant-numeric:tabular-nums">'+_daFmtNum(s.sum)+'</td>';
+      h += '<td style="padding:5px 10px;text-align:right;font-variant-numeric:tabular-nums">'+_daFmtNum(s.avg)+'</td>';
+      h += '<td style="padding:5px 10px;text-align:right;font-variant-numeric:tabular-nums;color:var(--text-3)">'+_daFmtNum(s.min)+'</td>';
+      h += '<td style="padding:5px 10px;text-align:right;font-variant-numeric:tabular-nums;color:var(--text-3)">'+_daFmtNum(s.max)+'</td>';
+    }
+    h += '</tr>';
+  });
+  h += '</tbody></table></div>';
+  return h;
+}
+
+// Anciens helper (gardés pour rétrocompat avec showResults)
 function _daGetExceptionColumns() {
-  if (_daWizard.type === 'reconciliation') {
+  return _daGetExceptionColumnsForType(_daWizard.type, _daWizard.files);
+}
+
+function _daGetExceptionColumnsForType(type, files) {
+  if (type === 'reconciliation') {
     return ['Type', 'Clé', 'Source'];
-  } else if (_daWizard.type === 'anomaly') {
-    var f = _daWizard.files[0];
+  } else if (type === 'comparison') {
+    return ['Clé', 'Valeur A', 'Valeur B', 'Écart', '|Écart|'];
+  } else if (type === 'anomaly') {
+    var f = (files || [])[0];
     if (f && f.columns) return ['Raison'].concat(f.columns.slice(0, 5));
     return ['Raison'];
   }
@@ -12469,7 +12678,9 @@ function _daRunAnalysis() {
   try {
     if (_daWizard.type === 'reconciliation') _daRunReconciliation();
     else if (_daWizard.type === 'anomaly') _daRunAnomalies();
-    else _daWizard.results = {error: 'Type non supporté en v77.16a'};
+    else if (_daWizard.type === 'comparison') _daRunComparison();
+    else if (_daWizard.type === 'stratification') _daRunStratification();
+    else _daWizard.results = {error: 'Type non supporté'};
   } catch(e) {
     console.error('Erreur calcul analyse:', e);
     _daWizard.results = {error: e.message};
@@ -12625,17 +12836,260 @@ function _daRunAnomalies() {
   };
 }
 
+// v77.16b1 : Comparaison de valeurs entre 2 fichiers sur clé commune
+function _daRunComparison() {
+  var fA = _daWizard.files[0];
+  var fB = _daWizard.files[1];
+  var m = _daWizard.mapping;
+  var keyA = m.keyA, keyB = m.keyB;
+  var valA = m.valueA, valB = m.valueB;
+  var tol = (m.tolerance == null) ? 0 : Math.abs(m.tolerance);
+
+  var rowsA = _daApplyFilters(fA.rows, _daWizard.filters);
+  var rowsB = fB.rows;
+  var keyNorm = function(v) { return (v == null ? '' : String(v)).trim().toLowerCase(); };
+  var asNum = function(v) {
+    if (v == null || v === '') return NaN;
+    // Tolère les formats "1 234,56" ou "1234.56"
+    var s = String(v).replace(/\s/g, '').replace(',', '.');
+    return parseFloat(s);
+  };
+
+  // Indexer B par clé
+  var indexB = {};
+  rowsB.forEach(function(r){
+    var k = keyNorm(r[keyB]);
+    if (!k) return;
+    if (!indexB[k]) indexB[k] = [];
+    indexB[k].push(r);
+  });
+
+  var matches = 0;
+  var discrepancies = 0;
+  var totalAbsDiff = 0;
+  var exceptions = [];
+
+  rowsA.forEach(function(rA){
+    var k = keyNorm(rA[keyA]);
+    if (!k) return;
+    var match = (indexB[k] && indexB[k][0]) || null;
+    if (!match) {
+      exceptions.push({
+        'Clé': rA[keyA],
+        'Valeur A': asNum(rA[valA]),
+        'Valeur B': null,
+        'Écart': null,
+        '|Écart|': null,
+        '_type': 'missing_in_B',
+      });
+      return;
+    }
+    var vA = asNum(rA[valA]);
+    var vB = asNum(match[valB]);
+    if (isNaN(vA) || isNaN(vB)) {
+      exceptions.push({
+        'Clé': rA[keyA],
+        'Valeur A': isNaN(vA) ? rA[valA] : vA,
+        'Valeur B': isNaN(vB) ? match[valB] : vB,
+        'Écart': '—',
+        '|Écart|': '—',
+        '_type': 'non_numeric',
+      });
+      return;
+    }
+    var diff = vA - vB;
+    var absDiff = Math.abs(diff);
+    if (absDiff > tol) {
+      discrepancies++;
+      totalAbsDiff += absDiff;
+      exceptions.push({
+        'Clé': rA[keyA],
+        'Valeur A': vA,
+        'Valeur B': vB,
+        'Écart': diff,
+        '|Écart|': absDiff,
+        '_type': 'discrepancy',
+      });
+    } else {
+      matches++;
+    }
+  });
+
+  _daWizard.results = {
+    totalRows: rowsA.length,
+    matches: matches,
+    discrepancies: discrepancies,
+    totalAbsDiff: totalAbsDiff,
+    tolerance: tol,
+    exceptions: exceptions,
+  };
+}
+
+// v77.16b1 : Stratification : grouper par strate + calculer count + agrégats
+function _daRunStratification() {
+  var f = _daWizard.files[0];
+  var m = _daWizard.mapping;
+  var col = m.column;
+  var aggCol = m.aggColumn || '';
+  var mode = m.strataMode;
+
+  var rows = _daApplyFilters(f.rows, _daWizard.filters);
+  var asNum = function(v) {
+    if (v == null || v === '') return NaN;
+    var s = String(v).replace(/\s/g, '').replace(',', '.');
+    return parseFloat(s);
+  };
+
+  // Calculer la strate de chaque ligne
+  var bucketize;
+  if (mode === 'category') {
+    bucketize = function(r) {
+      var v = r[col];
+      return (v == null || v === '') ? '(vide)' : String(v);
+    };
+  } else if (mode === 'numeric_custom') {
+    var bounds = (m.bounds || '0,1000,10000,100000').split(',').map(function(b){return parseFloat(b);}).filter(function(b){return !isNaN(b);});
+    bounds.sort(function(a,b){return a-b;});
+    bucketize = function(r) {
+      var v = asNum(r[col]);
+      if (isNaN(v)) return '(non numérique)';
+      for (var i = 0; i < bounds.length; i++) {
+        if (v <= bounds[i]) {
+          if (i === 0) return '≤ ' + _daFmtNum(bounds[0]);
+          return ']' + _daFmtNum(bounds[i-1]) + ' ; ' + _daFmtNum(bounds[i]) + ']';
+        }
+      }
+      return '> ' + _daFmtNum(bounds[bounds.length-1]);
+    };
+  } else if (mode === 'numeric_quartiles' || mode === 'numeric_deciles') {
+    // Calculer les seuils de quartiles/déciles
+    var nums = rows.map(function(r){return asNum(r[col]);}).filter(function(v){return !isNaN(v);});
+    nums.sort(function(a,b){return a-b;});
+    var nbStrata = (mode === 'numeric_quartiles') ? 4 : 10;
+    var seuils = [];
+    for (var i = 1; i < nbStrata; i++) {
+      var idx = Math.floor(nums.length * i / nbStrata);
+      seuils.push(nums[idx]);
+    }
+    var labels = [];
+    for (var j = 0; j < nbStrata; j++) {
+      if (j === 0) labels.push('Strate 1 (≤ '+_daFmtNum(seuils[0])+')');
+      else if (j === nbStrata - 1) labels.push('Strate '+(j+1)+' (> '+_daFmtNum(seuils[j-1])+')');
+      else labels.push('Strate '+(j+1)+' (]'+_daFmtNum(seuils[j-1])+' ; '+_daFmtNum(seuils[j])+'])');
+    }
+    bucketize = function(r) {
+      var v = asNum(r[col]);
+      if (isNaN(v)) return '(non numérique)';
+      for (var k = 0; k < seuils.length; k++) {
+        if (v <= seuils[k]) return labels[k];
+      }
+      return labels[labels.length - 1];
+    };
+  } else if (mode === 'date_month' || mode === 'date_year') {
+    bucketize = function(r) {
+      var v = r[col];
+      if (!v) return '(vide)';
+      var d = new Date(v);
+      if (isNaN(d.getTime())) return '(date invalide)';
+      var yy = d.getFullYear();
+      if (mode === 'date_year') return String(yy);
+      var mm = String(d.getMonth() + 1).padStart(2, '0');
+      return yy + '-' + mm;
+    };
+  } else {
+    _daWizard.results = {error: 'Mode de stratification non supporté'};
+    return;
+  }
+
+  // Grouper
+  var groups = {};
+  var totalSum = 0;
+  rows.forEach(function(r){
+    var b = bucketize(r);
+    if (!groups[b]) groups[b] = {count: 0, sum: 0, min: Infinity, max: -Infinity, values: []};
+    groups[b].count++;
+    if (aggCol) {
+      var v = asNum(r[aggCol]);
+      if (!isNaN(v)) {
+        groups[b].sum += v;
+        groups[b].values.push(v);
+        if (v < groups[b].min) groups[b].min = v;
+        if (v > groups[b].max) groups[b].max = v;
+        totalSum += v;
+      }
+    }
+  });
+
+  // Construire le tableau des strates
+  var strata = Object.keys(groups).map(function(label){
+    var g = groups[label];
+    return {
+      label: label,
+      count: g.count,
+      sum: aggCol ? g.sum : null,
+      avg: (aggCol && g.values.length > 0) ? (g.sum / g.values.length) : null,
+      min: (aggCol && g.values.length > 0) ? g.min : null,
+      max: (aggCol && g.values.length > 0) ? g.max : null,
+    };
+  });
+
+  // Trier : par valeur de strate (essai ordre naturel pour date / num, sinon par count desc)
+  if (mode === 'date_month' || mode === 'date_year' || mode === 'numeric_custom' || mode === 'numeric_quartiles' || mode === 'numeric_deciles') {
+    strata.sort(function(a, b){
+      // Pour les modes ordonnés, tri par label (alphabétique fonctionne sur YYYY-MM et labels num formatés)
+      // Pour les quartiles/déciles labels "Strate N", on extrait le num
+      var ma = a.label.match(/Strate (\d+)/);
+      var mb = b.label.match(/Strate (\d+)/);
+      if (ma && mb) return parseInt(ma[1]) - parseInt(mb[1]);
+      return a.label.localeCompare(b.label);
+    });
+  } else {
+    // Catégoriel : tri par count décroissant
+    strata.sort(function(a,b){return b.count - a.count;});
+  }
+
+  _daWizard.results = {
+    totalRows: rows.length,
+    strata: strata,
+    aggColumn: aggCol || null,
+    totalSum: aggCol ? totalSum : null,
+    exceptions: [], // pas d'exceptions pour stratification
+  };
+}
+
 // ─── 10. Sauvegarde de l'analyse ───────────────────────────────
 
 async function daSaveAnalysis() {
   if (!_daWizard || !_daWizard.results) return;
   var d = getAudData(CA);
   _daEnsure(d);
+  var r = _daWizard.results;
 
   // Limiter le nb d'exceptions stockées (les autres sont retrouvables via rerun)
-  var exc = _daWizard.results.exceptions || [];
+  var exc = r.exceptions || [];
   var maxStored = 500; // limite raisonnable pour SP
   var storedExceptions = exc.slice(0, maxStored);
+
+  // v77.16b1 : construire results selon le type (préserver tous les compteurs spécifiques)
+  var savedResults = {
+    totalRows: r.totalRows || 0,
+    exceptions: storedExceptions,
+    truncated: exc.length > maxStored,
+  };
+  if (_daWizard.type === 'reconciliation') {
+    savedResults.matches = r.matches || 0;
+    savedResults.missingA = r.missingA || 0;
+    savedResults.missingB = r.missingB || 0;
+  } else if (_daWizard.type === 'comparison') {
+    savedResults.matches = r.matches || 0;
+    savedResults.discrepancies = r.discrepancies || 0;
+    savedResults.totalAbsDiff = r.totalAbsDiff || 0;
+    savedResults.tolerance = r.tolerance || 0;
+  } else if (_daWizard.type === 'stratification') {
+    savedResults.strata = r.strata || [];
+    savedResults.aggColumn = r.aggColumn || null;
+    savedResults.totalSum = r.totalSum || null;
+  }
 
   var an = {
     id: _daId('analysis'),
@@ -12647,20 +13101,19 @@ async function daSaveAnalysis() {
     filters: _daWizard.filters,
     createdAt: new Date().toISOString(),
     createdBy: (typeof CU !== 'undefined' && CU ? CU.name : '—'),
-    results: {
-      totalRows: _daWizard.results.totalRows,
-      matches: _daWizard.results.matches,
-      missingA: _daWizard.results.missingA,
-      missingB: _daWizard.results.missingB,
-      exceptions: storedExceptions,
-      truncated: exc.length > maxStored,
-    },
+    results: savedResults,
   };
   d.dataAnalyses.push(an);
 
   try {
     await saveAuditData(CA);
-    toast('✓ Analyse sauvegardée ('+exc.length+' exceptions)');
+    var msg;
+    if (_daWizard.type === 'stratification') {
+      msg = '✓ Analyse sauvegardée ('+((r.strata||[]).length)+' strates)';
+    } else {
+      msg = '✓ Analyse sauvegardée ('+exc.length+' exception'+(exc.length>1?'s':'')+')';
+    }
+    toast(msg);
   } catch(e) {
     toast('Erreur de sauvegarde : '+e.message);
     return;
@@ -12684,6 +13137,11 @@ function daShowResults(analysisId) {
   var icon = _daTypeIcons[an.type] || '📋';
   var typeLabel = _daTypeLabels[an.type] || an.type;
 
+  // Reconstituer "files" depuis fileColumns pour _daRenderExceptionsTable
+  var pseudoFiles = (an.fileNames || []).map(function(name, i){
+    return {name: name, columns: (an.fileColumns && an.fileColumns[i]) || []};
+  });
+
   var body = '<div style="background:#F5F4FE;padding:10px 12px;border-radius:5px;margin-bottom:14px">';
   body += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:17px">'+icon+'</span><span style="font-size:13px;font-weight:600;color:#3C3489">'+esc(an.title)+'</span></div>';
   body += '<div style="font-size:10px;color:var(--text-3)">';
@@ -12695,56 +13153,52 @@ function daShowResults(analysisId) {
     body += '<div style="font-size:10px;color:var(--text-3);margin-top:4px">Mapping : ';
     if (an.type === 'reconciliation') body += 'Clé A = '+esc(an.mapping.keyA)+' ↔ Clé B = '+esc(an.mapping.keyB);
     else if (an.type === 'anomaly') body += 'Règle = '+esc(an.mapping.ruleType)+' sur colonne '+esc(an.mapping.column);
+    else if (an.type === 'comparison') body += 'Clé A↔B = '+esc(an.mapping.keyA)+'↔'+esc(an.mapping.keyB)+', Valeurs : '+esc(an.mapping.valueA)+' vs '+esc(an.mapping.valueB)+' (tol ±'+(r.tolerance||0)+')';
+    else if (an.type === 'stratification') body += 'Colonne : '+esc(an.mapping.column)+', mode : '+esc(an.mapping.strataMode)+(an.mapping.aggColumn?(', agrégat sur '+esc(an.mapping.aggColumn)):'');
     body += '</div>';
   }
   body += '</div>';
 
-  // KPIs
-  body += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px">';
-  body += '<div style="background:#FAFAFE;border:.5px solid var(--border);border-radius:5px;padding:10px"><div style="font-size:10px;color:var(--text-3)">Total lignes</div><div style="font-size:18px;font-weight:600;margin-top:2px">'+(r.totalRows||0)+'</div></div>';
-  if (an.type === 'reconciliation') {
-    body += '<div style="background:#E8F5E9;border:.5px solid #A6E2CD;border-radius:5px;padding:10px"><div style="font-size:10px;color:#085041">Matchs</div><div style="font-size:18px;font-weight:600;color:#085041;margin-top:2px">'+(r.matches||0)+'</div></div>';
-    body += '<div style="background:#FEF3F2;border:.5px solid #FCA5A5;border-radius:5px;padding:10px"><div style="font-size:10px;color:#7F1D1D">Manquants A</div><div style="font-size:18px;font-weight:600;color:#7F1D1D;margin-top:2px">'+(r.missingA||0)+'</div></div>';
-    body += '<div style="background:#FEF3F2;border:.5px solid #FCA5A5;border-radius:5px;padding:10px"><div style="font-size:10px;color:#7F1D1D">Manquants B</div><div style="font-size:18px;font-weight:600;color:#7F1D1D;margin-top:2px">'+(r.missingB||0)+'</div></div>';
+  // KPIs adaptés au type (helper commun)
+  body += _daRenderKpis(r, an.type);
+
+  // Tableau adapté au type
+  if (an.type === 'stratification') {
+    body += _daRenderStrataTable(r);
   } else {
-    body += '<div style="background:#E8F5E9;border:.5px solid #A6E2CD;border-radius:5px;padding:10px"><div style="font-size:10px;color:#085041">Lignes OK</div><div style="font-size:18px;font-weight:600;color:#085041;margin-top:2px">'+((r.totalRows||0) - exc.length)+'</div></div>';
-    body += '<div style="background:#FEF3F2;border:.5px solid #FCA5A5;border-radius:5px;padding:10px"><div style="font-size:10px;color:#7F1D1D">Exceptions</div><div style="font-size:18px;font-weight:600;color:#7F1D1D;margin-top:2px">'+exc.length+'</div></div>';
-    body += '<div style="background:#FAFAFE;border:.5px solid var(--border);border-radius:5px;padding:10px"><div style="font-size:10px;color:var(--text-3)">% exceptions</div><div style="font-size:18px;font-weight:600;margin-top:2px">'+(r.totalRows>0?Math.round(exc.length/r.totalRows*100):0)+'%</div></div>';
-  }
-  body += '</div>';
-
-  // Table exceptions
-  if (exc.length > 0) {
-    body += '<div style="font-size:11px;color:var(--text-2);font-weight:500;margin-bottom:6px">Exceptions';
-    if (r.truncated) body += ' <span style="font-size:9px;color:#7F1D1D">(limitées à 500 ; rerunne pour voir toutes)</span>';
-    body += '</div>';
-    body += '<div style="overflow-x:auto;border:.5px solid var(--border);border-radius:5px;max-height:300px;overflow-y:auto">';
-    body += '<table style="width:100%;font-size:10px;border-collapse:collapse">';
-    body += '<thead style="position:sticky;top:0;background:#F5F4FE"><tr>';
-    var cols = Object.keys(exc[0] || {});
-    cols.forEach(function(c){
-      body += '<th style="padding:5px 8px;text-align:left;font-weight:500;color:var(--text-2);border-bottom:.5px solid var(--border)">'+esc(c)+'</th>';
-    });
-    body += '</tr></thead><tbody>';
-    exc.slice(0, 100).forEach(function(e){
-      body += '<tr style="border-bottom:.5px solid var(--border)">';
+    if (exc.length > 0) {
+      body += '<div style="font-size:11px;color:var(--text-2);font-weight:500;margin-bottom:6px">Exceptions';
+      if (r.truncated) body += ' <span style="font-size:9px;color:#7F1D1D">(limitées à 500 stockées ; rerun pour voir toutes — v77.16b2)</span>';
+      body += '</div>';
+      body += '<div style="overflow-x:auto;border:.5px solid var(--border);border-radius:5px;max-height:300px;overflow-y:auto">';
+      body += '<table style="width:100%;font-size:10px;border-collapse:collapse">';
+      body += '<thead style="position:sticky;top:0;background:#F5F4FE"><tr>';
+      var cols = _daGetExceptionColumnsForType(an.type, pseudoFiles);
       cols.forEach(function(c){
-        body += '<td style="padding:4px 8px">'+esc(e[c] == null ? '' : String(e[c]))+'</td>';
+        body += '<th style="padding:5px 8px;text-align:left;font-weight:500;color:var(--text-2);border-bottom:.5px solid var(--border)">'+esc(c)+'</th>';
       });
-      body += '</tr>';
-    });
-    body += '</tbody></table></div>';
-    if (exc.length > 100) {
-      body += '<div style="font-size:10px;color:var(--text-3);font-style:italic;text-align:center;margin-top:5px">+ '+(exc.length-100)+' autres exceptions (visibles dans l\'export Excel)</div>';
+      body += '</tr></thead><tbody>';
+      exc.slice(0, 100).forEach(function(e){
+        body += '<tr style="border-bottom:.5px solid var(--border)">';
+        cols.forEach(function(c){
+          body += '<td style="padding:4px 8px">'+esc(e[c] == null ? '' : String(e[c]))+'</td>';
+        });
+        body += '</tr>';
+      });
+      body += '</tbody></table></div>';
+      if (exc.length > 100) {
+        body += '<div style="font-size:10px;color:var(--text-3);font-style:italic;text-align:center;margin-top:5px">+ '+(exc.length-100)+' autres (export Excel pour tout voir)</div>';
+      }
+    } else {
+      body += '<div style="text-align:center;padding:20px;background:#E8F5E9;border-radius:5px;color:#085041;font-size:11px">✓ Aucune exception détectée.</div>';
     }
-  } else {
-    body += '<div style="text-align:center;padding:20px;background:#E8F5E9;border-radius:5px;color:#085041;font-size:11px">✓ Aucune exception détectée.</div>';
   }
 
   // Boutons d'action
   body += '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;padding-top:10px;border-top:.5px solid var(--border)">';
   body += '<button class="bs" style="font-size:11px;padding:5px 12px" onclick="daExportExcel(\''+_escJsArg(analysisId)+'\')">⬇ Export Excel</button>';
-  if (exc.length > 0) {
+  // Pas de création d'issue depuis stratification (analyse exploratoire)
+  if (exc.length > 0 && an.type !== 'stratification') {
     body += '<button class="bp" style="font-size:11px;padding:5px 12px" onclick="daCreateIssueFromAnalysis(\''+_escJsArg(analysisId)+'\')">📋 Créer Issue depuis '+exc.length+' exception'+(exc.length>1?'s':'')+'</button>';
   }
   body += '</div>';
@@ -12758,6 +13212,7 @@ function daExportExcel(analysisId) {
   var d = getAudData(CA);
   var an = (d.dataAnalyses || []).find(function(x){return x.id === analysisId;});
   if (!an) { toast('Analyse introuvable'); return; }
+  var r = an.results || {};
 
   try {
     var wb = XLSX.utils.book_new();
@@ -12768,30 +13223,68 @@ function daExportExcel(analysisId) {
       ['Fichiers', (an.fileNames||[]).join(', ')],
       ['Créé le', (an.createdAt || '').slice(0,10)],
       ['Créé par', an.createdBy || ''],
-      ['Total lignes', an.results.totalRows || 0],
+      ['Total lignes', r.totalRows || 0],
     ];
     if (an.type === 'reconciliation') {
-      summary.push(['Matchs', an.results.matches || 0]);
-      summary.push(['Manquants A', an.results.missingA || 0]);
-      summary.push(['Manquants B', an.results.missingB || 0]);
+      summary.push(['Matchs', r.matches || 0]);
+      summary.push(['Manquants A', r.missingA || 0]);
+      summary.push(['Manquants B', r.missingB || 0]);
+    } else if (an.type === 'comparison') {
+      summary.push(['OK (dans tolérance)', r.matches || 0]);
+      summary.push(['Écarts > tolérance', r.discrepancies || 0]);
+      summary.push(['Tolérance', r.tolerance || 0]);
+      summary.push(['Total écart cumulé', r.totalAbsDiff || 0]);
+    } else if (an.type === 'stratification') {
+      summary.push(['Nombre de strates', (r.strata||[]).length]);
+      if (r.aggColumn) {
+        summary.push(['Colonne agrégée', r.aggColumn]);
+        summary.push(['Somme totale', r.totalSum || 0]);
+      }
     } else {
-      summary.push(['Exceptions', (an.results.exceptions || []).length]);
+      summary.push(['Exceptions', (r.exceptions || []).length]);
     }
     if (an.mapping) {
       summary.push(['', '']);
       summary.push(['Mapping', '']);
       Object.keys(an.mapping).forEach(function(k){
-        summary.push([k, String(an.mapping[k])]);
+        var v = an.mapping[k];
+        summary.push([k, (v == null ? '' : String(v))]);
       });
     }
     var wsSummary = XLSX.utils.aoa_to_sheet(summary);
     XLSX.utils.book_append_sheet(wb, wsSummary, 'Résumé');
 
-    // Onglet 2 : Exceptions
-    var exc = an.results.exceptions || [];
-    if (exc.length > 0) {
-      var wsExc = XLSX.utils.json_to_sheet(exc);
-      XLSX.utils.book_append_sheet(wb, wsExc, 'Exceptions');
+    // Onglet 2 : selon le type
+    if (an.type === 'stratification') {
+      // Onglet Strates
+      var strata = r.strata || [];
+      if (strata.length > 0) {
+        var hasAgg = !!r.aggColumn;
+        var stRows = strata.map(function(s){
+          var row = {
+            'Strate': s.label,
+            'Nb lignes': s.count,
+            '% du total': r.totalRows > 0 ? (s.count / r.totalRows * 100).toFixed(2) + '%' : '0%',
+          };
+          if (hasAgg) {
+            row['Somme '+r.aggColumn] = s.sum;
+            row['Moyenne'] = s.avg;
+            row['Min'] = s.min;
+            row['Max'] = s.max;
+          }
+          return row;
+        });
+        var wsStrata = XLSX.utils.json_to_sheet(stRows);
+        XLSX.utils.book_append_sheet(wb, wsStrata, 'Strates');
+      }
+    } else {
+      // Onglet Exceptions (rapprochement, anomalies, comparaison)
+      var exc = r.exceptions || [];
+      if (exc.length > 0) {
+        var wsExc = XLSX.utils.json_to_sheet(exc);
+        var sheetName = (an.type === 'comparison') ? 'Écarts' : 'Exceptions';
+        XLSX.utils.book_append_sheet(wb, wsExc, sheetName);
+      }
     }
 
     var fileName = (an.title || 'analysis').replace(/[^a-z0-9_-]/gi, '_').slice(0,40) + '.xlsx';
