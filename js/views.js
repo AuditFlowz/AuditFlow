@@ -11925,6 +11925,12 @@ var _daTypeLabels = {
   'anomaly': 'Détection anomalies',
   'comparison': 'Comparaison valeurs',
   'stratification': 'Stratification',
+  'visualization': 'Visualisation',
+  // v77.17a : labels des sous-types de graphique pour visualization
+  'bar': 'Barres',
+  'line': 'Courbe',
+  'donut': 'Donut',
+  'scatter': 'Nuage',
 };
 
 var _daTypeIcons = {
@@ -11932,10 +11938,11 @@ var _daTypeIcons = {
   'anomaly': '⚠️',
   'comparison': '🧮',
   'stratification': '📊',
+  'visualization': '📈',
 };
 
-// Types disponibles en v77.16b1 (les 4 types)
-var _daAvailableTypes = ['reconciliation', 'anomaly', 'comparison', 'stratification'];
+// Types disponibles en v77.17a (les 5 types)
+var _daAvailableTypes = ['reconciliation', 'anomaly', 'comparison', 'stratification', 'visualization'];
 
 // ─── 2. Rendu section dans la page Testings ────────────────────
 
@@ -11991,6 +11998,14 @@ function _daRenderCard(an, idx) {
     var nbStrata = (r.strata||[]).length;
     h += ' · <span style="color:#3C3489;font-weight:500">'+nbStrata+' strate'+(nbStrata>1?'s':'')+'</span>';
     if (r.totalSum != null) h += ' · Σ='+_daFmtNum(r.totalSum);
+  } else if (an.type === 'visualization') {
+    var ctLabel = _daTypeLabels[r.chartType] || r.chartType || 'graphique';
+    h += ' · <span style="color:#3C3489;font-weight:500">'+esc(ctLabel)+'</span>';
+    if (r.chartType === 'scatter') {
+      h += ' · '+((r.points||[]).length)+' points';
+    } else {
+      h += ' · '+((r.data||[]).length)+' catégorie'+((r.data||[]).length>1?'s':'');
+    }
   } else {
     // anomaly
     var nbException = (r.exceptions || []).length;
@@ -12090,7 +12105,9 @@ function _daRenderWizard() {
   }
   body += '</div>';
 
-  openModal('Nouvelle analyse de données', body, null, {wide: true, hideOk: true, cancelLabel: 'Fermer'});
+  // v77.17a : modale plus large à l'étape 5 si on est sur Visualisation (pour bien voir le graphique)
+  var isVizResults = (_daWizard.step === 5 && _daWizard.type === 'visualization');
+  openModal('Nouvelle analyse de données', body, null, {wide: !isVizResults, xwide: isVizResults, hideOk: true, cancelLabel: 'Fermer'});
 }
 
 function _daCanGoNext() {
@@ -12098,7 +12115,6 @@ function _daCanGoNext() {
   var s = _daWizard.step;
   if (s === 1) return !!_daWizard.type && !!_daWizard.title;
   if (s === 2) {
-    // 2 fichiers pour reconciliation + comparison, 1 pour anomaly + stratification
     var need = (_daWizard.type === 'reconciliation' || _daWizard.type === 'comparison') ? 2 : 1;
     return _daWizard.files.length >= need;
   }
@@ -12108,6 +12124,7 @@ function _daCanGoNext() {
     if (_daWizard.type === 'anomaly') return !!m.ruleType;
     if (_daWizard.type === 'comparison') return !!(m.keyA && m.keyB && m.valueA && m.valueB);
     if (_daWizard.type === 'stratification') return !!(m.column && m.strataMode);
+    if (_daWizard.type === 'visualization') return !!(m.chartType && m.xField);
   }
   return true;
 }
@@ -12140,7 +12157,7 @@ function _daRenderStep1() {
   h += '<input id="da-title" type="text" placeholder="ex : Rapprochement Banks SAP vs Bank list officielle" value="'+esc(_daWizard.title||'')+'" oninput="_daWizard.title=this.value;_daUpdateNavButton()" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box"/></div>';
 
   h += '<div style="font-size:11px;color:var(--text-2);font-weight:500;margin-bottom:4px">Type d\'analyse <span style="color:var(--red)">*</span></div>';
-  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">';
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">';
 
   // Recommandation : 2 cards activées (Reco + Anomalies), 2 "à venir v77.16b"
   var types = [
@@ -12148,6 +12165,7 @@ function _daRenderStep1() {
     {key:'anomaly', label:'Détection anomalies', icon:'⚠️', desc:'Règles sur 1 fichier : doublons, seuils, conditions, regex'},
     {key:'comparison', label:'Comparaison valeurs', icon:'🧮', desc:'Écarts de montants/quantités avec tolérance entre 2 fichiers sur clé commune'},
     {key:'stratification', label:'Stratification', icon:'📊', desc:'Statistiques par tranches / catégories sur 1 fichier'},
+    {key:'visualization', label:'Visualisation', icon:'📈', desc:'Graphique configurable : bar, line, donut, scatter — choisis X, Y et le type'},
   ];
   types.forEach(function(t){
     var isSel = _daWizard.type === t.key;
@@ -12385,6 +12403,7 @@ function _daRenderStep3() {
   if (_daWizard.type === 'anomaly') return _daRenderStep3_anomaly();
   if (_daWizard.type === 'comparison') return _daRenderStep3_comparison();
   if (_daWizard.type === 'stratification') return _daRenderStep3_stratification();
+  if (_daWizard.type === 'visualization') return _daRenderStep3_visualization();
   return '<div>Type non supporté.</div>';
 }
 
@@ -12562,6 +12581,105 @@ function _daRenderStep3_stratification() {
   return h;
 }
 
+// v77.17a : Mapping pour Visualisation (X / Y / agrégat / série / type graphique)
+function _daRenderStep3_visualization() {
+  var f = _daWizard.files[0];
+  var m = _daWizard.mapping;
+  var optsCols = '<option value="">— choisir —</option>' + f.columns.map(function(c){
+    return '<option value="'+esc(c)+'">'+esc(c)+'</option>';
+  }).join('');
+  var optsColsX = '<option value="">— choisir —</option>' + f.columns.map(function(c){
+    return '<option value="'+esc(c)+'"'+(m.xField===c?' selected':'')+'>'+esc(c)+'</option>';
+  }).join('');
+  var optsColsY = '<option value="">— count (compte les lignes) —</option>' + f.columns.map(function(c){
+    return '<option value="'+esc(c)+'"'+(m.yField===c?' selected':'')+'>'+esc(c)+'</option>';
+  }).join('');
+  var optsColsSeries = '<option value="">— aucune (série unique) —</option>' + f.columns.map(function(c){
+    return '<option value="'+esc(c)+'"'+(m.seriesField===c?' selected':'')+'>'+esc(c)+'</option>';
+  }).join('');
+
+  var h = '<div>';
+
+  // Type de graphique
+  h += '<div style="font-size:11px;color:var(--text-2);font-weight:500;margin-bottom:8px">Type de graphique <span style="color:var(--red)">*</span></div>';
+  h += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px">';
+  var charts = [
+    {key:'bar', label:'Barres', icon:'▮▮▮', desc:'Comparer des catégories'},
+    {key:'line', label:'Courbe', icon:'📈', desc:'Évolution (auto si X = date)'},
+    {key:'donut', label:'Donut', icon:'🍩', desc:'Répartition / parts'},
+    {key:'scatter', label:'Nuage', icon:'⋯', desc:'Corrélation X/Y'},
+  ];
+  charts.forEach(function(ct){
+    var isSel = m.chartType === ct.key;
+    h += '<div onclick="_daWizard.mapping.chartType=\''+ct.key+'\';_daRenderWizard()" style="border:1.5px solid '+(isSel?'#3C3489':'var(--border)')+';border-radius:5px;padding:10px;cursor:pointer;background:'+(isSel?'#EEEDFE':'#fff')+'">';
+    h += '<div style="display:flex;align-items:center;gap:7px;margin-bottom:3px"><span style="font-size:14px">'+ct.icon+'</span><span style="font-size:12px;font-weight:600;color:'+(isSel?'#3C3489':'var(--text-1)')+'">'+esc(ct.label)+'</span></div>';
+    h += '<div style="font-size:9px;color:var(--text-3);line-height:1.4">'+esc(ct.desc)+'</div>';
+    h += '</div>';
+  });
+  h += '</div>';
+
+  if (!m.chartType) {
+    h += '<div style="background:#FFF7ED;border:.5px solid #FAC775;border-radius:5px;padding:8px 12px;font-size:11px;color:#854F0B">↑ Choisis un type de graphique pour configurer les axes.</div>';
+    h += '</div>';
+    return h;
+  }
+
+  // Axe X
+  h += '<div style="background:#FAFAFE;border:.5px solid var(--border);border-radius:5px;padding:10px;margin-bottom:8px">';
+  h += '<label style="font-size:11px;color:var(--text-2);font-weight:500;display:block;margin-bottom:4px">Axe X <span style="color:var(--red)">*</span> <span style="font-weight:400;color:var(--text-3);font-size:10px">(catégorie, date ou valeur numérique)</span></label>';
+  h += '<select onchange="_daWizard.mapping.xField=this.value;_daUpdateNavButton()" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px">'+optsColsX+'</select>';
+  h += '</div>';
+
+  // Axe Y (avec agrégat) — pour scatter, c'est juste une colonne numérique
+  h += '<div style="background:#FAFAFE;border:.5px solid var(--border);border-radius:5px;padding:10px;margin-bottom:8px">';
+  if (m.chartType === 'scatter') {
+    h += '<label style="font-size:11px;color:var(--text-2);font-weight:500;display:block;margin-bottom:4px">Axe Y <span style="color:var(--red)">*</span> <span style="font-weight:400;color:var(--text-3);font-size:10px">(colonne numérique)</span></label>';
+    var optsYscatter = '<option value="">— choisir —</option>' + f.columns.map(function(c){
+      return '<option value="'+esc(c)+'"'+(m.yField===c?' selected':'')+'>'+esc(c)+'</option>';
+    }).join('');
+    h += '<select onchange="_daWizard.mapping.yField=this.value" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px">'+optsYscatter+'</select>';
+  } else {
+    h += '<div style="display:grid;grid-template-columns:2fr 1fr;gap:8px">';
+    h += '<div><label style="font-size:11px;color:var(--text-2);font-weight:500;display:block;margin-bottom:4px">Mesure (Y)</label>';
+    h += '<select onchange="_daWizard.mapping.yField=this.value" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px">'+optsColsY+'</select>';
+    h += '<div style="font-size:9px;color:var(--text-3);margin-top:2px">Si vide : on compte le nombre de lignes par catégorie X.</div></div>';
+    h += '<div><label style="font-size:11px;color:var(--text-2);font-weight:500;display:block;margin-bottom:4px">Agrégat</label>';
+    var aggOpts = [
+      {key:'count', label:'Count'},
+      {key:'sum', label:'Sum'},
+      {key:'avg', label:'Avg'},
+      {key:'min', label:'Min'},
+      {key:'max', label:'Max'},
+    ];
+    h += '<select onchange="_daWizard.mapping.agg=this.value" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px">';
+    aggOpts.forEach(function(a){
+      h += '<option value="'+a.key+'"'+(m.agg===a.key?' selected':'')+'>'+esc(a.label)+'</option>';
+    });
+    h += '</select></div>';
+    h += '</div>';
+  }
+  h += '</div>';
+
+  // Série (groupement supplémentaire) — pas pour donut/scatter
+  if (m.chartType === 'bar' || m.chartType === 'line') {
+    h += '<div style="background:#FAFAFE;border:.5px solid var(--border);border-radius:5px;padding:10px;margin-bottom:8px">';
+    h += '<label style="font-size:11px;color:var(--text-2);font-weight:500;display:block;margin-bottom:4px">Série (optionnel)</label>';
+    h += '<select onchange="_daWizard.mapping.seriesField=this.value" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px">'+optsColsSeries+'</select>';
+    h += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:3px">Si renseigné : génère plusieurs séries comparées (ex: 1 barre par fournisseur côte à côte par mois).</div>';
+    h += '</div>';
+  }
+
+  // Limite top N (pour catégoriel)
+  h += '<div style="background:#FAFAFE;border:.5px solid var(--border);border-radius:5px;padding:10px">';
+  h += '<label style="font-size:11px;color:var(--text-2);font-weight:500;display:block;margin-bottom:4px">Top N (optionnel)</label>';
+  h += '<input type="number" value="'+esc(m.topN!=null?m.topN:'')+'" onchange="_daWizard.mapping.topN=this.value?parseInt(this.value):null" placeholder="ex : 10 (afficher seulement les 10 plus grands)" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box"/>';
+  h += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:3px">Pour éviter les graphiques illisibles. Vide = tout afficher.</div>';
+  h += '</div>';
+
+  h += '</div>';
+  return h;
+}
+
 // ─── 7. Étape 4 : Filtres préalables ───────────────────────────
 
 function _daRenderStep4() {
@@ -12619,14 +12737,51 @@ function _daRenderStep5() {
   // KPIs adaptés au type
   h += _daRenderKpis(r, _daWizard.type);
 
-  // Tableau : exceptions OU strates selon le type
-  if (_daWizard.type === 'stratification') {
+  // v77.17a : Affichage selon le type
+  if (_daWizard.type === 'visualization') {
+    // Graphique au-dessus + tableau données agrégées en dessous
+    h += '<div style="background:#fff;border:.5px solid var(--border);border-radius:5px;padding:12px;margin-bottom:10px">';
+    h += _daRenderVisualization(r, {width: 720, height: 360});
+    h += '</div>';
+    // Tableau de données agrégées (pour scatter on saute)
+    if (r.chartType !== 'scatter' && r.data && r.data.length > 0) {
+      h += _daRenderVisualizationDataTable(r);
+    }
+  } else if (_daWizard.type === 'stratification') {
     h += _daRenderStrataTable(r);
   } else {
     h += _daRenderExceptionsTable(r, _daWizard.type, _daWizard.files);
   }
 
   h += '</div>';
+  return h;
+}
+
+// v77.17a : Petit tableau des données agrégées (pour visualization, en dessous du graphique)
+function _daRenderVisualizationDataTable(r) {
+  var data = r.data || [];
+  var seriesKeys = r.seriesKeys || ['__default__'];
+  if (data.length === 0) return '';
+
+  var h = '<details style="margin-top:8px"><summary style="font-size:11px;color:var(--text-2);font-weight:500;cursor:pointer;padding:4px 0">📋 Données agrégées ('+data.length+' lignes)</summary>';
+  h += '<div style="border:.5px solid var(--border);border-radius:5px;overflow:auto;max-height:300px;margin-top:6px">';
+  h += '<table style="width:100%;font-size:10px;border-collapse:collapse">';
+  h += '<thead style="position:sticky;top:0;background:#F5F4FE"><tr>';
+  h += '<th style="padding:5px 8px;text-align:left;font-weight:500;color:var(--text-2);border-bottom:.5px solid var(--border)">'+esc(r.xField||'X')+'</th>';
+  seriesKeys.forEach(function(s){
+    var col = (s === '__default__') ? (r.yField || r.agg) : s;
+    h += '<th style="padding:5px 8px;text-align:right;font-weight:500;color:var(--text-2);border-bottom:.5px solid var(--border)">'+esc(col)+'</th>';
+  });
+  h += '</tr></thead><tbody>';
+  data.forEach(function(d){
+    h += '<tr style="border-bottom:.5px solid var(--border)">';
+    h += '<td style="padding:4px 8px">'+esc(d.label)+'</td>';
+    seriesKeys.forEach(function(s){
+      h += '<td style="padding:4px 8px;text-align:right;font-variant-numeric:tabular-nums">'+_daFmtNum(d.values[s] || 0)+'</td>';
+    });
+    h += '</tr>';
+  });
+  h += '</tbody></table></div></details>';
   return h;
 }
 
@@ -12678,6 +12833,17 @@ function _daRenderKpis(r, type) {
       h += kpi({label:'Moyenne globale', value:_daFmtNum((r.totalRows>0?r.totalSum/r.totalRows:0))});
     } else {
       h += '<div></div><div></div>';
+    }
+  } else if (type === 'visualization') {
+    if (r.chartType === 'scatter') {
+      var nbPts = (r.points || []).length;
+      h += kpi({label:'Points', value:nbPts});
+      h += kpi({label:'X', value:esc(r.xField||'—')});
+      h += kpi({label:'Y', value:esc(r.yField||'—')});
+    } else {
+      h += kpi({label:'Catégories', value:((r.data||[]).length)});
+      h += kpi({label:'Séries', value:((r.seriesKeys||[]).filter(function(s){return s!=='__default__';}).length || 1)});
+      h += kpi({label:'Type', value:esc(_daTypeLabels[r.chartType] || r.chartType || 'Bar')});
     }
   } else {
     // anomaly
@@ -12864,6 +13030,7 @@ function _daRunAnalysis() {
     else if (_daWizard.type === 'anomaly') _daRunAnomalies();
     else if (_daWizard.type === 'comparison') _daRunComparison();
     else if (_daWizard.type === 'stratification') _daRunStratification();
+    else if (_daWizard.type === 'visualization') _daRunVisualization();
     else _daWizard.results = {error: 'Type non supporté'};
   } catch(e) {
     console.error('Erreur calcul analyse:', e);
@@ -13241,6 +13408,421 @@ function _daRunStratification() {
   };
 }
 
+// v77.17a : Visualisation — calcul des données agrégées + rendu graphique
+function _daRunVisualization() {
+  var f = _daWizard.files[0];
+  var m = _daWizard.mapping;
+  var rows = _daApplyFilters(f.rows, _daWizard.filters);
+
+  var asNum = function(v) {
+    if (v == null || v === '') return NaN;
+    var s = String(v).replace(/\s/g, '').replace(',', '.');
+    return parseFloat(s);
+  };
+
+  // Helper : valeur X normalisée (pour groupement)
+  // Auto-détection si X ressemble à une date → format YYYY-MM ou YYYY
+  var xIsDate = false;
+  if (m.xField && rows.length > 0) {
+    var sample = String(rows[0][m.xField] || '');
+    if (/^\d{4}-\d{1,2}/.test(sample) || /^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}/.test(sample)) {
+      var d = new Date(sample);
+      if (!isNaN(d.getTime())) xIsDate = true;
+    }
+  }
+
+  var xLabel = function(v) {
+    if (v == null || v === '') return '(vide)';
+    if (xIsDate) {
+      var d = new Date(v);
+      if (!isNaN(d.getTime())) {
+        var yy = d.getFullYear();
+        var mm = String(d.getMonth() + 1).padStart(2, '0');
+        return yy + '-' + mm;
+      }
+    }
+    return String(v);
+  };
+
+  // === Pour scatter : pas d'agrégation, juste un nuage de points (X, Y) ===
+  if (m.chartType === 'scatter') {
+    var points = [];
+    rows.forEach(function(r){
+      var x = asNum(r[m.xField]);
+      var y = asNum(r[m.yField]);
+      if (!isNaN(x) && !isNaN(y)) {
+        points.push({x: x, y: y});
+      }
+    });
+    // Top N : on garde les N premiers (pas de tri particulier pour scatter)
+    if (m.topN && points.length > m.topN) {
+      points = points.slice(0, m.topN);
+    }
+    _daWizard.results = {
+      totalRows: rows.length,
+      chartType: 'scatter',
+      points: points,
+      exceptions: [],
+    };
+    return;
+  }
+
+  // === Pour bar / line / donut : agrégation ===
+  // Structure : { [xLabel]: { [seriesLabel]: aggValue, ... }, ... }
+  var grouped = {};
+  var seriesSet = {};
+  var agg = m.agg || 'count';
+
+  rows.forEach(function(r){
+    var xv = xLabel(r[m.xField]);
+    var sv = m.seriesField ? String(r[m.seriesField] || '(vide)') : '__default__';
+    seriesSet[sv] = true;
+    if (!grouped[xv]) grouped[xv] = {};
+    if (!grouped[xv][sv]) grouped[xv][sv] = {count: 0, sum: 0, min: Infinity, max: -Infinity, values: []};
+    grouped[xv][sv].count++;
+    if (m.yField) {
+      var yv = asNum(r[m.yField]);
+      if (!isNaN(yv)) {
+        grouped[xv][sv].sum += yv;
+        grouped[xv][sv].values.push(yv);
+        if (yv < grouped[xv][sv].min) grouped[xv][sv].min = yv;
+        if (yv > grouped[xv][sv].max) grouped[xv][sv].max = yv;
+      }
+    }
+  });
+
+  // Convertir en tableau de catégories ordonnées
+  var xKeys = Object.keys(grouped);
+  // Tri : dates en ordre chronologique, sinon par "premier value desc"
+  if (xIsDate) {
+    xKeys.sort();
+  } else {
+    // Tri par valeur agrégée descendante de la 1ère série
+    xKeys.sort(function(a,b){
+      var av = _daAggValue(grouped[a][Object.keys(grouped[a])[0]], agg, m.yField);
+      var bv = _daAggValue(grouped[b][Object.keys(grouped[b])[0]], agg, m.yField);
+      return bv - av;
+    });
+  }
+  // Top N
+  if (m.topN && xKeys.length > m.topN) {
+    xKeys = xKeys.slice(0, m.topN);
+  }
+
+  var seriesKeys = Object.keys(seriesSet);
+
+  // Aplatir : data = [{xLabel, series: {key1: val1, key2: val2}}, ...]
+  var data = xKeys.map(function(xk){
+    var entry = {label: xk, values: {}};
+    seriesKeys.forEach(function(sk){
+      var bucket = grouped[xk][sk];
+      entry.values[sk] = bucket ? _daAggValue(bucket, agg, m.yField) : 0;
+    });
+    return entry;
+  });
+
+  _daWizard.results = {
+    totalRows: rows.length,
+    chartType: m.chartType,
+    xField: m.xField,
+    yField: m.yField || null,
+    agg: agg,
+    seriesField: m.seriesField || null,
+    seriesKeys: seriesKeys,
+    data: data,
+    xIsDate: xIsDate,
+    exceptions: [],
+  };
+}
+
+// Calcule la valeur agrégée selon le type d'agrégation
+function _daAggValue(bucket, agg, hasYField) {
+  if (!bucket) return 0;
+  if (agg === 'count') return bucket.count;
+  if (!hasYField) return bucket.count; // pas de yField → forcément count
+  if (agg === 'sum') return bucket.sum;
+  if (agg === 'avg') return bucket.values.length > 0 ? bucket.sum / bucket.values.length : 0;
+  if (agg === 'min') return bucket.values.length > 0 ? bucket.min : 0;
+  if (agg === 'max') return bucket.values.length > 0 ? bucket.max : 0;
+  return bucket.count;
+}
+
+// ────────────────────────────────────────────────────────────────
+// v77.17a : Helpers SVG pour rendre les graphiques
+// ────────────────────────────────────────────────────────────────
+
+// Couleurs pour les séries (cycle si plus de couleurs nécessaires)
+var _daChartColors = ['#7C73D9', '#16A34A', '#DC2626', '#F59E0B', '#0EA5E9', '#8B5CF6', '#EC4899', '#10B981'];
+
+// Rendu d'un graphique selon le type
+// r = results de _daRunVisualization
+function _daRenderVisualization(r, opts) {
+  opts = opts || {};
+  var width = opts.width || 720;
+  var height = opts.height || 360;
+  if (!r || !r.chartType) return '<div style="font-size:11px;color:var(--text-3);font-style:italic;text-align:center;padding:30px">Aucune donnée à afficher.</div>';
+  if (r.chartType === 'bar') return _daSvgBarChart(r, width, height);
+  if (r.chartType === 'line') return _daSvgLineChart(r, width, height);
+  if (r.chartType === 'donut') return _daSvgDonutChart(r, width, height);
+  if (r.chartType === 'scatter') return _daSvgScatterChart(r, width, height);
+  return '<div>Type de graphique non supporté.</div>';
+}
+
+// ─── Bar chart ─────────────────────────────────────────────────
+function _daSvgBarChart(r, width, height) {
+  var data = r.data || [];
+  if (data.length === 0) return '<div style="text-align:center;padding:30px;font-style:italic;color:var(--text-3);font-size:11px">Aucune donnée</div>';
+  var seriesKeys = r.seriesKeys || ['__default__'];
+
+  var margin = {top: 20, right: 20, bottom: 80, left: 60};
+  var w = width - margin.left - margin.right;
+  var h = height - margin.top - margin.bottom;
+
+  // Max value pour échelle Y
+  var maxVal = 0;
+  data.forEach(function(d){
+    seriesKeys.forEach(function(s){
+      if ((d.values[s] || 0) > maxVal) maxVal = d.values[s] || 0;
+    });
+  });
+  if (maxVal === 0) maxVal = 1;
+
+  // Échelle X : largeur de groupe par catégorie
+  var groupWidth = w / data.length;
+  var barInGroup = seriesKeys.length;
+  var barW = Math.max(2, (groupWidth - 6) / barInGroup);
+
+  var svg = '<svg width="100%" viewBox="0 0 '+width+' '+height+'" style="display:block;font-family:inherit">';
+  // Axes
+  svg += '<line x1="'+margin.left+'" y1="'+margin.top+'" x2="'+margin.left+'" y2="'+(margin.top+h)+'" stroke="#D0D0D8" stroke-width="0.5"/>';
+  svg += '<line x1="'+margin.left+'" y1="'+(margin.top+h)+'" x2="'+(margin.left+w)+'" y2="'+(margin.top+h)+'" stroke="#D0D0D8" stroke-width="0.5"/>';
+
+  // Grille horizontale + labels Y
+  for (var i = 0; i <= 4; i++) {
+    var yVal = maxVal * (4 - i) / 4;
+    var y = margin.top + (h * i / 4);
+    svg += '<line x1="'+margin.left+'" y1="'+y+'" x2="'+(margin.left+w)+'" y2="'+y+'" stroke="#E8E8EE" stroke-width="0.5" stroke-dasharray="2,2"/>';
+    svg += '<text x="'+(margin.left-5)+'" y="'+(y+3)+'" text-anchor="end" font-size="9" fill="var(--text-3)">'+_daFmtNum(yVal)+'</text>';
+  }
+
+  // Barres
+  data.forEach(function(d, idx){
+    var gx = margin.left + idx * groupWidth + 3;
+    seriesKeys.forEach(function(s, sIdx){
+      var v = d.values[s] || 0;
+      var barH = (v / maxVal) * h;
+      var x = gx + sIdx * barW;
+      var y = margin.top + h - barH;
+      var color = _daChartColors[sIdx % _daChartColors.length];
+      svg += '<rect x="'+x+'" y="'+y+'" width="'+barW+'" height="'+barH+'" fill="'+color+'"><title>'+esc(d.label)+(s==='__default__'?'':' · '+esc(s))+' : '+_daFmtNum(v)+'</title></rect>';
+    });
+    // Label X (rotation -45° si long)
+    var labelText = d.label.length > 12 ? d.label.slice(0, 10) + '…' : d.label;
+    var labelX = margin.left + idx * groupWidth + groupWidth / 2;
+    svg += '<text x="'+labelX+'" y="'+(margin.top + h + 15)+'" text-anchor="end" font-size="9" fill="var(--text-2)" transform="rotate(-30 '+labelX+' '+(margin.top + h + 15)+')">'+esc(labelText)+'</text>';
+  });
+
+  svg += '</svg>';
+
+  // Légende
+  if (seriesKeys.length > 1 || seriesKeys[0] !== '__default__') {
+    svg += '<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:6px;font-size:10px;justify-content:center">';
+    seriesKeys.forEach(function(s, sIdx){
+      if (s === '__default__') return;
+      var color = _daChartColors[sIdx % _daChartColors.length];
+      svg += '<div style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;background:'+color+';border-radius:2px"></span><span>'+esc(s)+'</span></div>';
+    });
+    svg += '</div>';
+  }
+  return svg;
+}
+
+// ─── Line chart ────────────────────────────────────────────────
+function _daSvgLineChart(r, width, height) {
+  var data = r.data || [];
+  if (data.length === 0) return '<div style="text-align:center;padding:30px;font-style:italic;color:var(--text-3);font-size:11px">Aucune donnée</div>';
+  var seriesKeys = r.seriesKeys || ['__default__'];
+
+  var margin = {top: 20, right: 20, bottom: 80, left: 60};
+  var w = width - margin.left - margin.right;
+  var h = height - margin.top - margin.bottom;
+
+  var maxVal = 0;
+  data.forEach(function(d){
+    seriesKeys.forEach(function(s){
+      if ((d.values[s] || 0) > maxVal) maxVal = d.values[s] || 0;
+    });
+  });
+  if (maxVal === 0) maxVal = 1;
+
+  var stepX = data.length > 1 ? w / (data.length - 1) : w / 2;
+
+  var svg = '<svg width="100%" viewBox="0 0 '+width+' '+height+'" style="display:block;font-family:inherit">';
+  // Axes
+  svg += '<line x1="'+margin.left+'" y1="'+margin.top+'" x2="'+margin.left+'" y2="'+(margin.top+h)+'" stroke="#D0D0D8" stroke-width="0.5"/>';
+  svg += '<line x1="'+margin.left+'" y1="'+(margin.top+h)+'" x2="'+(margin.left+w)+'" y2="'+(margin.top+h)+'" stroke="#D0D0D8" stroke-width="0.5"/>';
+
+  // Grille + Y labels
+  for (var i = 0; i <= 4; i++) {
+    var yVal = maxVal * (4 - i) / 4;
+    var y = margin.top + (h * i / 4);
+    svg += '<line x1="'+margin.left+'" y1="'+y+'" x2="'+(margin.left+w)+'" y2="'+y+'" stroke="#E8E8EE" stroke-width="0.5" stroke-dasharray="2,2"/>';
+    svg += '<text x="'+(margin.left-5)+'" y="'+(y+3)+'" text-anchor="end" font-size="9" fill="var(--text-3)">'+_daFmtNum(yVal)+'</text>';
+  }
+
+  // Courbes (1 par série)
+  seriesKeys.forEach(function(s, sIdx){
+    var color = _daChartColors[sIdx % _daChartColors.length];
+    var path = '';
+    data.forEach(function(d, idx){
+      var x = margin.left + idx * stepX;
+      var v = d.values[s] || 0;
+      var y = margin.top + h - (v / maxVal) * h;
+      path += (idx === 0 ? 'M' : 'L') + x + ',' + y + ' ';
+    });
+    svg += '<path d="'+path+'" fill="none" stroke="'+color+'" stroke-width="2"/>';
+    // Points
+    data.forEach(function(d, idx){
+      var x = margin.left + idx * stepX;
+      var v = d.values[s] || 0;
+      var y = margin.top + h - (v / maxVal) * h;
+      svg += '<circle cx="'+x+'" cy="'+y+'" r="3" fill="'+color+'"><title>'+esc(d.label)+(s==='__default__'?'':' · '+esc(s))+' : '+_daFmtNum(v)+'</title></circle>';
+    });
+  });
+
+  // Labels X
+  data.forEach(function(d, idx){
+    var x = margin.left + idx * stepX;
+    var labelText = d.label.length > 12 ? d.label.slice(0, 10) + '…' : d.label;
+    svg += '<text x="'+x+'" y="'+(margin.top + h + 15)+'" text-anchor="end" font-size="9" fill="var(--text-2)" transform="rotate(-30 '+x+' '+(margin.top + h + 15)+')">'+esc(labelText)+'</text>';
+  });
+
+  svg += '</svg>';
+  // Légende
+  if (seriesKeys.length > 1 || seriesKeys[0] !== '__default__') {
+    svg += '<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:6px;font-size:10px;justify-content:center">';
+    seriesKeys.forEach(function(s, sIdx){
+      if (s === '__default__') return;
+      var color = _daChartColors[sIdx % _daChartColors.length];
+      svg += '<div style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;background:'+color+';border-radius:2px"></span><span>'+esc(s)+'</span></div>';
+    });
+    svg += '</div>';
+  }
+  return svg;
+}
+
+// ─── Donut chart ───────────────────────────────────────────────
+function _daSvgDonutChart(r, width, height) {
+  var data = r.data || [];
+  if (data.length === 0) return '<div style="text-align:center;padding:30px;font-style:italic;color:var(--text-3);font-size:11px">Aucune donnée</div>';
+
+  // Donut : on prend la 1ère série uniquement (pas de groupement multi-séries pour donut)
+  var firstSeries = (r.seriesKeys && r.seriesKeys[0]) || '__default__';
+  var total = 0;
+  var slices = data.map(function(d){
+    var v = d.values[firstSeries] || 0;
+    total += v;
+    return {label: d.label, value: v};
+  });
+  if (total === 0) return '<div style="text-align:center;padding:30px;font-style:italic;color:var(--text-3);font-size:11px">Aucune donnée (total = 0)</div>';
+
+  var cx = width / 2;
+  var cy = height / 2 - 10;
+  var radius = Math.min(width, height) / 3;
+  var innerRadius = radius * 0.55;
+
+  var svg = '<svg width="100%" viewBox="0 0 '+width+' '+height+'" style="display:block;font-family:inherit">';
+
+  var startAngle = -Math.PI / 2; // commencer en haut
+  slices.forEach(function(s, idx){
+    var angle = (s.value / total) * 2 * Math.PI;
+    var endAngle = startAngle + angle;
+    var color = _daChartColors[idx % _daChartColors.length];
+    // Arc path
+    var x1 = cx + radius * Math.cos(startAngle);
+    var y1 = cy + radius * Math.sin(startAngle);
+    var x2 = cx + radius * Math.cos(endAngle);
+    var y2 = cy + radius * Math.sin(endAngle);
+    var x3 = cx + innerRadius * Math.cos(endAngle);
+    var y3 = cy + innerRadius * Math.sin(endAngle);
+    var x4 = cx + innerRadius * Math.cos(startAngle);
+    var y4 = cy + innerRadius * Math.sin(startAngle);
+    var largeArc = angle > Math.PI ? 1 : 0;
+    var path = 'M'+x1+','+y1+' A'+radius+','+radius+' 0 '+largeArc+',1 '+x2+','+y2
+             + ' L'+x3+','+y3
+             + ' A'+innerRadius+','+innerRadius+' 0 '+largeArc+',0 '+x4+','+y4+' Z';
+    var pct = Math.round((s.value / total) * 100);
+    svg += '<path d="'+path+'" fill="'+color+'"><title>'+esc(s.label)+' : '+_daFmtNum(s.value)+' ('+pct+'%)</title></path>';
+    startAngle = endAngle;
+  });
+
+  // Total au centre
+  svg += '<text x="'+cx+'" y="'+(cy-4)+'" text-anchor="middle" font-size="22" font-weight="600" fill="var(--text-1)">'+_daFmtNum(total)+'</text>';
+  svg += '<text x="'+cx+'" y="'+(cy+14)+'" text-anchor="middle" font-size="10" fill="var(--text-3)">total</text>';
+  svg += '</svg>';
+
+  // Légende
+  svg += '<div style="display:flex;flex-direction:column;gap:4px;margin-top:8px;font-size:10px;max-height:140px;overflow-y:auto">';
+  slices.forEach(function(s, idx){
+    if (s.value === 0) return;
+    var pct = Math.round((s.value / total) * 100);
+    var color = _daChartColors[idx % _daChartColors.length];
+    svg += '<div style="display:flex;align-items:center;gap:7px"><span style="width:11px;height:11px;background:'+color+';border-radius:2px;flex-shrink:0"></span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(s.label)+'</span><strong style="color:var(--text-2)">'+_daFmtNum(s.value)+'</strong><span style="color:var(--text-3);font-size:9px">('+pct+'%)</span></div>';
+  });
+  svg += '</div>';
+  return svg;
+}
+
+// ─── Scatter chart ─────────────────────────────────────────────
+function _daSvgScatterChart(r, width, height) {
+  var points = r.points || [];
+  if (points.length === 0) return '<div style="text-align:center;padding:30px;font-style:italic;color:var(--text-3);font-size:11px">Aucun point (vérifie que X et Y sont numériques)</div>';
+
+  var margin = {top: 20, right: 20, bottom: 50, left: 60};
+  var w = width - margin.left - margin.right;
+  var h = height - margin.top - margin.bottom;
+
+  var xMin = Math.min.apply(null, points.map(function(p){return p.x;}));
+  var xMax = Math.max.apply(null, points.map(function(p){return p.x;}));
+  var yMin = Math.min.apply(null, points.map(function(p){return p.y;}));
+  var yMax = Math.max.apply(null, points.map(function(p){return p.y;}));
+  // Petites marges visuelles
+  var xRange = xMax - xMin || 1;
+  var yRange = yMax - yMin || 1;
+  xMin -= xRange * 0.05;
+  xMax += xRange * 0.05;
+  yMin -= yRange * 0.05;
+  yMax += yRange * 0.05;
+
+  var scaleX = function(v) { return margin.left + ((v - xMin) / (xMax - xMin)) * w; };
+  var scaleY = function(v) { return margin.top + h - ((v - yMin) / (yMax - yMin)) * h; };
+
+  var svg = '<svg width="100%" viewBox="0 0 '+width+' '+height+'" style="display:block;font-family:inherit">';
+  // Axes
+  svg += '<line x1="'+margin.left+'" y1="'+margin.top+'" x2="'+margin.left+'" y2="'+(margin.top+h)+'" stroke="#D0D0D8" stroke-width="0.5"/>';
+  svg += '<line x1="'+margin.left+'" y1="'+(margin.top+h)+'" x2="'+(margin.left+w)+'" y2="'+(margin.top+h)+'" stroke="#D0D0D8" stroke-width="0.5"/>';
+
+  // Grille + labels
+  for (var i = 0; i <= 4; i++) {
+    var yVal = yMax - (yMax - yMin) * i / 4;
+    var y = margin.top + (h * i / 4);
+    svg += '<line x1="'+margin.left+'" y1="'+y+'" x2="'+(margin.left+w)+'" y2="'+y+'" stroke="#E8E8EE" stroke-width="0.5" stroke-dasharray="2,2"/>';
+    svg += '<text x="'+(margin.left-5)+'" y="'+(y+3)+'" text-anchor="end" font-size="9" fill="var(--text-3)">'+_daFmtNum(yVal)+'</text>';
+
+    var xVal = xMin + (xMax - xMin) * i / 4;
+    var x = margin.left + (w * i / 4);
+    svg += '<text x="'+x+'" y="'+(margin.top + h + 14)+'" text-anchor="middle" font-size="9" fill="var(--text-3)">'+_daFmtNum(xVal)+'</text>';
+  }
+
+  // Points
+  points.forEach(function(p){
+    svg += '<circle cx="'+scaleX(p.x)+'" cy="'+scaleY(p.y)+'" r="3.5" fill="#7C73D9" opacity="0.7"><title>X='+_daFmtNum(p.x)+' Y='+_daFmtNum(p.y)+'</title></circle>';
+  });
+
+  svg += '</svg>';
+  return svg;
+}
+
 // ─── 10. Sauvegarde de l'analyse ───────────────────────────────
 
 async function daSaveAnalysis() {
@@ -13273,6 +13855,17 @@ async function daSaveAnalysis() {
     savedResults.strata = r.strata || [];
     savedResults.aggColumn = r.aggColumn || null;
     savedResults.totalSum = r.totalSum || null;
+  } else if (_daWizard.type === 'visualization') {
+    // v77.17a : stocker chartType + data agrégée (pas les lignes brutes)
+    savedResults.chartType = r.chartType;
+    savedResults.xField = r.xField || null;
+    savedResults.yField = r.yField || null;
+    savedResults.agg = r.agg || null;
+    savedResults.seriesField = r.seriesField || null;
+    savedResults.seriesKeys = r.seriesKeys || [];
+    savedResults.data = r.data || [];
+    savedResults.points = r.points || [];
+    savedResults.xIsDate = !!r.xIsDate;
   }
 
   var analysisId = _daId('analysis');
@@ -13322,6 +13915,10 @@ async function daSaveAnalysis() {
     var msg;
     if (_daWizard.type === 'stratification') {
       msg = '✓ Analyse sauvegardée ('+((r.strata||[]).length)+' strates)';
+    } else if (_daWizard.type === 'visualization') {
+      var ctL = _daTypeLabels[r.chartType] || r.chartType || 'graphique';
+      var nbItems = r.chartType === 'scatter' ? ((r.points||[]).length+' points') : ((r.data||[]).length+' catégories');
+      msg = '✓ Visualisation sauvegardée ('+ctL+', '+nbItems+')';
     } else {
       msg = '✓ Analyse sauvegardée ('+exc.length+' exception'+(exc.length>1?'s':'')+')';
     }
@@ -13385,6 +13982,14 @@ function daShowResults(analysisId) {
   // Tableau adapté au type — utilise _daRenderExceptionsTable pour bénéficier du filtre
   if (an.type === 'stratification') {
     body += _daRenderStrataTable(r);
+  } else if (an.type === 'visualization') {
+    // v77.17a : graphique
+    body += '<div style="background:#fff;border:.5px solid var(--border);border-radius:5px;padding:12px;margin-bottom:10px">';
+    body += _daRenderVisualization(r, {width: 720, height: 360});
+    body += '</div>';
+    if (r.chartType !== 'scatter' && r.data && r.data.length > 0) {
+      body += _daRenderVisualizationDataTable(r);
+    }
   } else {
     body += _daRenderExceptionsTable(r, an.type, pseudoFiles);
   }
@@ -13393,12 +13998,14 @@ function daShowResults(analysisId) {
   body += '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;padding-top:10px;border-top:.5px solid var(--border)">';
   body += '<button class="bs" style="font-size:11px;padding:5px 12px" onclick="daExportExcel(\''+_escJsArg(analysisId)+'\')">⬇ Export Excel</button>';
   // Pas de création d'issue depuis stratification (analyse exploratoire)
-  if (exc.length > 0 && an.type !== 'stratification') {
+  if (exc.length > 0 && an.type !== 'stratification' && an.type !== 'visualization') {
     body += '<button class="bp" style="font-size:11px;padding:5px 12px" onclick="daCreateIssueFromAnalysis(\''+_escJsArg(analysisId)+'\')">📋 Créer Issue depuis '+exc.length+' exception'+(exc.length>1?'s':'')+'</button>';
   }
   body += '</div>';
 
-  openModal('Détails de l\'analyse', body, null, {wide: true, hideOk: true, cancelLabel: 'Fermer'});
+  // v77.17a : modale plus large pour visualization (graphique mieux affiché)
+  var isViz = (an.type === 'visualization');
+  openModal('Détails de l\'analyse', body, null, {wide: !isViz, xwide: isViz, hideOk: true, cancelLabel: 'Fermer'});
 }
 
 // ─── 12. Export Excel ──────────────────────────────────────────
@@ -13435,6 +14042,14 @@ function daExportExcel(analysisId) {
         summary.push(['Colonne agrégée', r.aggColumn]);
         summary.push(['Somme totale', r.totalSum || 0]);
       }
+    } else if (an.type === 'visualization') {
+      summary.push(['Type de graphique', _daTypeLabels[r.chartType] || r.chartType || '']);
+      summary.push(['Axe X', r.xField || '']);
+      summary.push(['Axe Y', r.yField || '(count)']);
+      summary.push(['Agrégat', r.agg || 'count']);
+      if (r.seriesField) summary.push(['Série', r.seriesField]);
+      if (r.chartType === 'scatter') summary.push(['Nb points', (r.points||[]).length]);
+      else summary.push(['Nb catégories', (r.data||[]).length]);
     } else {
       summary.push(['Exceptions', (r.exceptions || []).length]);
     }
@@ -13471,6 +14086,30 @@ function daExportExcel(analysisId) {
         });
         var wsStrata = XLSX.utils.json_to_sheet(stRows);
         XLSX.utils.book_append_sheet(wb, wsStrata, 'Strates');
+      }
+    } else if (an.type === 'visualization') {
+      // v77.17a : Onglet "Data" avec données agrégées
+      if (r.chartType === 'scatter') {
+        var pts = (r.points || []).map(function(p){return {'X': p.x, 'Y': p.y};});
+        if (pts.length > 0) {
+          var wsPts = XLSX.utils.json_to_sheet(pts);
+          XLSX.utils.book_append_sheet(wb, wsPts, 'Points');
+        }
+      } else {
+        var data = r.data || [];
+        if (data.length > 0) {
+          var rows = data.map(function(d){
+            var row = {};
+            row[r.xField || 'X'] = d.label;
+            (r.seriesKeys || ['__default__']).forEach(function(s){
+              var col = (s === '__default__') ? (r.yField || r.agg || 'value') : s;
+              row[col] = d.values[s] || 0;
+            });
+            return row;
+          });
+          var wsData = XLSX.utils.json_to_sheet(rows);
+          XLSX.utils.book_append_sheet(wb, wsData, 'Data');
+        }
       }
     } else {
       // Onglet Exceptions (rapprochement, anomalies, comparaison)
@@ -13709,6 +14348,16 @@ async function _daRerunSave(originalId, mode) {
     savedResults.strata = r.strata || [];
     savedResults.aggColumn = r.aggColumn || null;
     savedResults.totalSum = r.totalSum || null;
+  } else if (_daWizard.type === 'visualization') {
+    savedResults.chartType = r.chartType;
+    savedResults.xField = r.xField || null;
+    savedResults.yField = r.yField || null;
+    savedResults.agg = r.agg || null;
+    savedResults.seriesField = r.seriesField || null;
+    savedResults.seriesKeys = r.seriesKeys || [];
+    savedResults.data = r.data || [];
+    savedResults.points = r.points || [];
+    savedResults.xIsDate = !!r.xIsDate;
   }
 
   if (mode === 'update') {

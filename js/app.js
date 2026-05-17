@@ -318,6 +318,8 @@ function openModal(title, body, onOk, opts) {
   // Toggle wide class
   var modalContainer = document.querySelector('#modal .md');
   if (modalContainer) {
+    if (opts.xwide) modalContainer.classList.add('md-xwide');
+    else modalContainer.classList.remove('md-xwide');
     if (opts.wide) modalContainer.classList.add('md-wide');
     else modalContainer.classList.remove('md-wide');
   }
