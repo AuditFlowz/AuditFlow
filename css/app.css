@@ -331,6 +331,7 @@ tbody tr:hover td{background:#FAFAFE;}
 .mo.show{display:flex;}
 .md{background:var(--white);border-radius:var(--radius-lg);border:1px solid var(--border);padding:1.5rem;width:500px;max-width:92vw;max-height:90vh;overflow-y:auto;box-shadow:var(--shadow-lg);}
 .md.md-wide{width:900px;}
+.md.md-xwide{width:1200px;max-width:95vw;}
 .md.md-fullscreen{width:95vw;max-width:95vw;height:92vh;max-height:92vh;}
 .mh{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem;padding-bottom:1rem;border-bottom:1px solid var(--border);}
 .mt{font-size:15px;font-weight:700;letter-spacing:-.02em;}
