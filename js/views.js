@@ -6482,6 +6482,9 @@ function renderDetContent(){
   } else if (CS === 6) {
     // Étape 7 (index 6) : Report — Header + Maturity (côte-à-côte) puis Findings
     html += renderAuditReportGenerateBanner();
+    // v77.19 : banner de planification de restitution + UI de booking si ouverte
+    html += renderRestitutionBookingBanner();
+    html += renderKickoffBookingSection();
     html += renderHeaderAndMaturitySection();
     // Pour les audits BU : refonte avec Findings agrégeant des Issues + bloc Issues non agrégées
     // Pour les audits Process : section Findings classique inchangée
@@ -6773,6 +6776,93 @@ function toEditableOfficeUrl(webUrl) {
   // Si le webUrl contient déjà des query params, on ajoute &web=1, sinon ?web=1
   var separator = webUrl.indexOf('?') >= 0 ? '&' : '?';
   return webUrl + separator + 'web=1';
+}
+
+// ─── v77.19 : ÉTAPE 7 (CS=6) : Bandeau de planification de la restitution ──
+function renderRestitutionBookingBanner() {
+  // Ne pas afficher si la UI de booking est déjà ouverte (le panneau prend le relais)
+  if (_kickoffBooking && _kickoffBooking.open) return '';
+
+  var d = getAudData(CA);
+  var attR = d.attachments && d.attachments.report;
+  var hasFinal = !!(attR && attR.final && attR.final.webUrl);
+
+  // Historique : événements déjà créés pour la restitution
+  var restiEvents = (d.attachments && d.attachments.restitution && d.attachments.restitution.outlookEvents) || [];
+
+  var html = '<div class="card" style="margin-bottom:.75rem;background:linear-gradient(135deg,#E0F2FE 0%,#F0F9FF 100%);border:.5px solid #BAE0FD;padding:6px 12px">';
+  html += '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:11px">';
+  html += '<span style="font-weight:600;color:#075985;flex-shrink:0">📅 Restitution</span>';
+  html += '<span style="color:#075985;font-size:10px">Planifier la (les) réunion(s) de restitution avec les audités</span>';
+  if (restiEvents.length > 0) {
+    html += '<span style="color:#085041;font-size:10px;font-weight:500">✓ '+restiEvents.length+' réunion'+(restiEvents.length>1?'s':'')+' planifiée'+(restiEvents.length>1?'s':'')+'</span>';
+  }
+  html += '<span style="flex:1"></span>';
+  // Bouton principal
+  html += '<button class="bp" style="font-size:11px;padding:4px 12px;background:#0EA5E9;color:#fff;font-weight:500" onclick="openRestitutionBookingUI()" title="Booker la (les) réunion(s) de restitution avec les audités">📅 '+(restiEvents.length>0?'Ajouter une réunion':'Booker la réunion')+'</button>';
+  html += '</div>';
+
+  // Indicateur si le rapport final n'est pas dispo
+  if (!hasFinal) {
+    html += '<div style="font-size:9px;color:#075985;font-style:italic;margin-top:4px">ⓘ Pas de version finale du rapport — l\'invitation pourra être envoyée mais sans pièce jointe rapport</div>';
+  }
+
+  // Liste compacte des réunions déjà planifiées
+  if (restiEvents.length > 0) {
+    html += '<div style="margin-top:6px;display:flex;flex-direction:column;gap:3px">';
+    restiEvents.forEach(function(ev, idx){
+      var startD = new Date(ev.startISO);
+      var dayLabel = startD.toLocaleDateString('fr-FR', {weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'});
+      html += '<div style="font-size:10px;color:#075985;padding:3px 8px;background:#fff;border:.5px solid #BAE0FD;border-radius:3px;display:flex;align-items:center;gap:8px">';
+      html += '<span style="background:#0EA5E9;color:#fff;font-size:9px;padding:1px 5px;border-radius:2px;font-weight:500">R'+(idx+1)+'</span>';
+      html += '<span style="flex:1">'+esc(dayLabel)+' · '+(ev.attendeeEmails||[]).length+' invité(s)</span>';
+      if (ev.webLink) html += '<a href="'+esc(ev.webLink)+'" target="_blank" rel="noopener" style="font-size:9px;color:#0EA5E9;text-decoration:none">Voir Outlook ↗</a>';
+      if (ev.teamsUrl) html += '<a href="'+esc(ev.teamsUrl)+'" target="_blank" rel="noopener" style="font-size:9px;color:#075985;text-decoration:none" title="Rejoindre Teams">Teams ↗</a>';
+      html += '<button class="bs" onclick="deleteRestitutionMeeting('+idx+')" title="Annuler cette réunion" style="font-size:9px;padding:1px 6px;color:#993C1D;border:.5px solid #FCA5A5;background:#fff">×</button>';
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+
+  html += '</div>';
+  return html;
+}
+
+// v77.19 : Supprimer une réunion de restitution
+async function deleteRestitutionMeeting(idx) {
+  var d = getAudData(CA);
+  var events = (d.attachments && d.attachments.restitution && d.attachments.restitution.outlookEvents) || [];
+  if (idx < 0 || idx >= events.length) return;
+  var ev = events[idx];
+  var startD = new Date(ev.startISO);
+  var label = startD.toLocaleDateString('fr-FR', {weekday:'short', day:'numeric', month:'short'}) + ' ' + startD.toLocaleTimeString('fr-FR', {hour:'2-digit',minute:'2-digit'});
+  if (!confirm('Annuler la réunion de restitution du '+label+' ? Les invités recevront une notification d\'annulation.')) return;
+
+  // Best effort : suppression côté Graph
+  try {
+    var token = await getGraphToken();
+    if (token && ev.eventId) {
+      var resp = await fetch('https://graph.microsoft.com/v1.0/me/events/' + encodeURIComponent(ev.eventId), {
+        method: 'DELETE',
+        headers: {'Authorization': 'Bearer ' + token},
+      });
+      if (!resp.ok && resp.status !== 404) {
+        console.warn('[Restitution] Suppression Graph échouée :', resp.status);
+      }
+    }
+  } catch (e) {
+    console.warn('[Restitution] Suppression Graph error :', e);
+  }
+
+  // Retirer de la liste locale
+  events.splice(idx, 1);
+  if (!d.attachments) d.attachments = {};
+  if (!d.attachments.restitution) d.attachments.restitution = {};
+  d.attachments.restitution.outlookEvents = events;
+  await saveAuditData(CA);
+  if (typeof addHist === 'function') addHist(CA, 'Réunion Restitution annulée — ' + label);
+  document.getElementById('det-content').innerHTML = renderDetContent();
+  toast('✓ Réunion annulée');
 }
 
 // ─── ÉTAPE 3 (CS=2) : Bandeau de génération du Kick Off ───────────────
@@ -8360,6 +8450,8 @@ var _kickoffBooking = null;
 function _initKickoffBooking() {
   return {
     open: false,
+    // v77.19 : type de meeting — 'kickoff' (par défaut) ou 'restitution'
+    kind: 'kickoff',
     durationMinutes: 60,
     daysAhead: 7,
     workingHours: '09-18',
@@ -8397,6 +8489,31 @@ function openKickoffBookingUI() {
 function closeKickoffBookingUI() {
   _kickoffBooking = null;
   document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+// v77.19 : point d'entrée pour la planification de la restitution
+// Réutilise la même mécanique que le Kick-off (state, UI, création d'event)
+// avec un flag 'kind=restitution' qui adapte le sujet et le corps de l'invitation.
+function openRestitutionBookingUI() {
+  _kickoffBooking = _initKickoffBooking();
+  _kickoffBooking.open = true;
+  _kickoffBooking.kind = 'restitution';
+  // Par défaut, on coche "joindre le rapport final" si présent (équivalent à attachKickoff)
+  var d = getAudData(CA);
+  var finalReport = d.attachments && d.attachments.report && d.attachments.report.final;
+  if (!finalReport || !finalReport.webUrl) {
+    _kickoffBooking.options.attachKickoff = false;
+  }
+  document.getElementById('det-content').innerHTML = renderDetContent();
+  setTimeout(function(){
+    var el = document.getElementById('kickoff-booking-section');
+    if (el) el.scrollIntoView({behavior: 'smooth', block: 'start'});
+  }, 100);
+}
+
+// Alias court partagé avec le kickoff (même fermeture)
+function closeRestitutionBookingUI() {
+  closeKickoffBookingUI();
 }
 
 function _kbGetParticipants() {
@@ -8470,22 +8587,34 @@ function _kbGetParticipants() {
   };
 }
 
-// ─── Render UI booking Kick-off (version simplifiée — création manuelle) ──
+// ─── Render UI booking Kick-off et Restitution (version simplifiée — création manuelle) ──
+// v77.19 : sert pour kickoff ET restitution (selon _kickoffBooking.kind)
 function renderKickoffBookingSection() {
   if (!_kickoffBooking || !_kickoffBooking.open) return '';
+
+  var kind = _kickoffBooking.kind || 'kickoff';
+  var isResti = (kind === 'restitution');
 
   var participants = _kbGetParticipants();
   var d = getAudData(CA);
   var finalKO = d.attachments && d.attachments.kickoff && d.attachments.kickoff.final;
+  var finalReport = d.attachments && d.attachments.report && d.attachments.report.final;
+  // Le fichier "à joindre" selon le kind
+  var finalAttach = isResti ? finalReport : finalKO;
+  var attachLabel = isResti ? 'le rapport d\'audit (final)' : 'le PPT Kick-off (final)';
   var tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Paris';
 
   var html = '<div id="kickoff-booking-section" class="card" style="margin-bottom:.75rem;background:linear-gradient(135deg,#EEEDFE 0%,#F5F4FE 100%);border:.5px solid #CECBF6">';
 
-  // Header
+  // Header — titre adapté au kind
+  var headerTitle = isResti ? '📅 Booker la (les) réunion(s) de restitution' : '📅 Booker la (les) réunion(s) Kick-off';
+  var headerSubtitle = isResti
+    ? 'Saisis manuellement un ou plusieurs créneaux et crée les réunions Outlook de restitution avec invitations.'
+    : 'Saisis manuellement un ou plusieurs créneaux et crée les réunions Outlook avec invitations.';
   html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
   html += '<div>';
-  html += '<div style="font-size:14px;font-weight:600;color:#3C3489">📅 Booker la (les) réunion(s) Kick-off</div>';
-  html += '<div style="font-size:11px;color:#534AB7;margin-top:2px">Saisis manuellement un ou plusieurs créneaux et crée les réunions Outlook avec invitations.</div>';
+  html += '<div style="font-size:14px;font-weight:600;color:#3C3489">'+headerTitle+'</div>';
+  html += '<div style="font-size:11px;color:#534AB7;margin-top:2px">'+headerSubtitle+'</div>';
   html += '</div>';
   html += '<button class="bs" style="font-size:11px;padding:4px 10px" onclick="closeKickoffBookingUI()">× Fermer</button>';
   html += '</div>';
@@ -8574,10 +8703,11 @@ function renderKickoffBookingSection() {
   if (manualSlots.length > 0) {
     html += '<div style="display:flex;gap:14px;margin:10px 0;padding:10px 12px;background:#fff;border-radius:4px;border:.5px solid var(--border);flex-wrap:wrap">';
     html += '<label style="font-size:11px;display:flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox" '+(_kickoffBooking.options.includeTeams?'checked':'')+' onchange="_kickoffBooking.options.includeTeams=this.checked"/> Inclure lien Teams (1 par réunion)</label>';
-    if (finalKO && finalKO.webUrl) {
-      html += '<label style="font-size:11px;display:flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox" '+(_kickoffBooking.options.attachKickoff?'checked':'')+' onchange="_kickoffBooking.options.attachKickoff=this.checked"/> Joindre le PPT Kick-off (final)</label>';
+    // v77.19 : label adapté au kind (Kick-off ou Restitution)
+    if (finalAttach && finalAttach.webUrl) {
+      html += '<label style="font-size:11px;display:flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox" '+(_kickoffBooking.options.attachKickoff?'checked':'')+' onchange="_kickoffBooking.options.attachKickoff=this.checked"/> Joindre '+attachLabel+'</label>';
     } else {
-      html += '<label style="font-size:11px;display:flex;align-items:center;gap:5px;color:var(--text-3)" title="Génère et marque comme final le Kick-off pour pouvoir l\'attacher"><input type="checkbox" disabled/> <em>Joindre le PPT (final non disponible)</em></label>';
+      html += '<label style="font-size:11px;display:flex;align-items:center;gap:5px;color:var(--text-3)" title="Génère et marque comme final pour pouvoir l\'attacher"><input type="checkbox" disabled/> <em>Joindre '+attachLabel+' (non disponible)</em></label>';
     }
     html += '</div>';
 
@@ -8805,18 +8935,30 @@ async function createKickoffMeetings() {
 
   if (typeof createOutlookEvent !== 'function') { toast('Helper Graph indisponible'); return; }
 
+  // v77.19 : type de réunion (kickoff ou restitution)
+  var kind = _kickoffBooking.kind || 'kickoff';
+  var isResti = (kind === 'restitution');
+
   _kickoffBooking.busy = true;
   document.getElementById('det-content').innerHTML = renderDetContent();
   toast('📅 Création de '+manualSlots.length+' réunion(s)...');
 
-  // Lien SharePoint du Kick-off final (mis dans le body — pas en attachment, plus fiable)
-  var kickoffLink = null;
-  var kickoffName = null;
+  // Lien SharePoint du fichier à joindre (Kick-off final OU rapport final selon kind)
+  var attachLink = null;
+  var attachName = null;
   if (_kickoffBooking.options.attachKickoff) {
-    var finalKO = d.attachments && d.attachments.kickoff && d.attachments.kickoff.final;
-    if (finalKO && finalKO.webUrl) {
-      kickoffLink = finalKO.webUrl;
-      kickoffName = finalKO.fileName || 'KickOff_final.pptx';
+    if (isResti) {
+      var finalReport = d.attachments && d.attachments.report && d.attachments.report.final;
+      if (finalReport && finalReport.webUrl) {
+        attachLink = finalReport.webUrl;
+        attachName = finalReport.fileName || 'AuditReport_final.pptx';
+      }
+    } else {
+      var finalKO = d.attachments && d.attachments.kickoff && d.attachments.kickoff.final;
+      if (finalKO && finalKO.webUrl) {
+        attachLink = finalKO.webUrl;
+        attachName = finalKO.fileName || 'KickOff_final.pptx';
+      }
     }
   }
 
@@ -8828,28 +8970,56 @@ async function createKickoffMeetings() {
   var calibriOpen = '<div style="font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#000">';
   var calibriClose = '</div>';
 
-  var bodyHtml = calibriOpen
-    // ─── EN ───────────────────────────────────────
-    + '<p>Hello,</p>'
-    + '<p>I invite you to the kick-off meeting of the audit &ldquo;' + auditTitle + '&rdquo;.<br/>'
-    + 'The purpose of this meeting is to present the scope, objectives, and timeline of the audit assignment.</p>';
-  if (kickoffLink) {
-    bodyHtml += '<p>Presentation deck (SharePoint): <a href="'+kickoffLink+'">'+esc(kickoffName)+'</a></p>';
+  var bodyHtml;
+  if (isResti) {
+    // ─── Restitution ───
+    bodyHtml = calibriOpen
+      // ─── EN ───────────────────────────────────────
+      + '<p>Hello,</p>'
+      + '<p>I invite you to the closing / restitution meeting of the audit &ldquo;' + auditTitle + '&rdquo;.<br/>'
+      + 'The purpose of this meeting is to present the audit findings, the recommendations and to align on the management responses and corrective actions.</p>';
+    if (attachLink) {
+      bodyHtml += '<p>Audit report (SharePoint): <a href="'+attachLink+'">'+esc(attachName)+'</a></p>';
+    }
+    bodyHtml += '<p>Kind regards,<br/>'
+      + organizerName + ' &mdash; ' + organizerTitle + '</p>'
+      + '<p style="color:#888;font-size:10pt">===================================================</p>'
+      // ─── FR ───────────────────────────────────────
+      + '<p>Bonjour,</p>'
+      + '<p>Je vous invite &agrave; la r&eacute;union de restitution de l\'audit &laquo;&nbsp;' + auditTitle + '&nbsp;&raquo;.<br/>'
+      + 'Cette r&eacute;union vise &agrave; pr&eacute;senter les constats d\'audit, les recommandations et &agrave; aligner sur les r&eacute;ponses du management et les plans d\'action.</p>';
+    if (attachLink) {
+      bodyHtml += '<p>Rapport d\'audit (SharePoint) : <a href="'+attachLink+'">'+esc(attachName)+'</a></p>';
+    }
+    bodyHtml += '<p>Cordialement,<br/>'
+      + organizerName + '<br/>'
+      + organizerTitleFr + '</p>'
+      + calibriClose;
+  } else {
+    // ─── Kickoff (comportement existant) ───
+    bodyHtml = calibriOpen
+      // ─── EN ───────────────────────────────────────
+      + '<p>Hello,</p>'
+      + '<p>I invite you to the kick-off meeting of the audit &ldquo;' + auditTitle + '&rdquo;.<br/>'
+      + 'The purpose of this meeting is to present the scope, objectives, and timeline of the audit assignment.</p>';
+    if (attachLink) {
+      bodyHtml += '<p>Presentation deck (SharePoint): <a href="'+attachLink+'">'+esc(attachName)+'</a></p>';
+    }
+    bodyHtml += '<p>Kind regards,<br/>'
+      + organizerName + ' &mdash; ' + organizerTitle + '</p>'
+      + '<p style="color:#888;font-size:10pt">===================================================</p>'
+      // ─── FR ───────────────────────────────────────
+      + '<p>Bonjour,</p>'
+      + '<p>Je vous invite &agrave; la r&eacute;union de Kick-off de l\'audit &laquo;&nbsp;' + auditTitle + '&nbsp;&raquo;.<br/>'
+      + 'Cette r&eacute;union vise &agrave; pr&eacute;senter le p&eacute;rim&egrave;tre, les objectifs et le planning de la mission.</p>';
+    if (attachLink) {
+      bodyHtml += '<p>Support de pr&eacute;sentation (SharePoint) : <a href="'+attachLink+'">'+esc(attachName)+'</a></p>';
+    }
+    bodyHtml += '<p>Cordialement,<br/>'
+      + organizerName + '<br/>'
+      + organizerTitleFr + '</p>'
+      + calibriClose;
   }
-  bodyHtml += '<p>Kind regards,<br/>'
-    + organizerName + ' &mdash; ' + organizerTitle + '</p>'
-    + '<p style="color:#888;font-size:10pt">===================================================</p>'
-    // ─── FR ───────────────────────────────────────
-    + '<p>Bonjour,</p>'
-    + '<p>Je vous invite &agrave; la r&eacute;union de Kick-off de l\'audit &laquo;&nbsp;' + auditTitle + '&nbsp;&raquo;.<br/>'
-    + 'Cette r&eacute;union vise &agrave; pr&eacute;senter le p&eacute;rim&egrave;tre, les objectifs et le planning de la mission.</p>';
-  if (kickoffLink) {
-    bodyHtml += '<p>Support de pr&eacute;sentation (SharePoint) : <a href="'+kickoffLink+'">'+esc(kickoffName)+'</a></p>';
-  }
-  bodyHtml += '<p>Cordialement,<br/>'
-    + organizerName + '<br/>'
-    + organizerTitleFr + '</p>'
-    + calibriClose;
 
   // Construire la liste des attendees (commune à toutes les réunions)
   var attendees = [];
@@ -8860,9 +9030,10 @@ async function createKickoffMeetings() {
   var createdEvents = [];
   for (var k = 0; k < manualSlots.length; k++) {
     var slot = manualSlots[k];
-    var subject = 'Kick-off audit — '+(audit.titre||'')+(manualSlots.length>1?' (Session '+(k+1)+'/'+manualSlots.length+')':'');
+    var subjectPrefix = isResti ? 'Restitution audit — ' : 'Kick-off audit — ';
+    var subject = subjectPrefix + (audit.titre||'') + (manualSlots.length>1?' (Session '+(k+1)+'/'+manualSlots.length+')':'');
 
-    console.log('[Kickoff Booking] Création réunion '+(k+1)+'/'+manualSlots.length+' :', {
+    console.log('[Booking] Création réunion '+kind+' '+(k+1)+'/'+manualSlots.length+' :', {
       subject: subject,
       start: slot.startISO,
       end: slot.endISO,
@@ -8878,8 +9049,6 @@ async function createKickoffMeetings() {
         end: new Date(slot.endISO),
         attendees: attendees,
         addTeamsLink: _kickoffBooking.options.includeTeams,
-        // Pas d'attachment Graph (referenceAttachment cause des erreurs 400 dans certains tenants)
-        // Le lien SharePoint est inclus dans le body à la place — comportement plus robuste
       });
       createdEvents.push({
         eventId: event.id,
@@ -8901,14 +9070,17 @@ async function createKickoffMeetings() {
   }
 
   // Stocker les événements créés
+  // v77.19 : stockage différent selon kind (kickoff vs restitution)
   if (!d.attachments) d.attachments = {};
-  if (!d.attachments.kickoff) d.attachments.kickoff = {};
-  if (!Array.isArray(d.attachments.kickoff.outlookEvents)) d.attachments.kickoff.outlookEvents = [];
-  d.attachments.kickoff.outlookEvents = d.attachments.kickoff.outlookEvents.concat(createdEvents);
+  var storageKey = isResti ? 'restitution' : 'kickoff';
+  if (!d.attachments[storageKey]) d.attachments[storageKey] = {};
+  if (!Array.isArray(d.attachments[storageKey].outlookEvents)) d.attachments[storageKey].outlookEvents = [];
+  d.attachments[storageKey].outlookEvents = d.attachments[storageKey].outlookEvents.concat(createdEvents);
   await saveAuditData(CA);
 
   if (typeof addHist === 'function') {
-    addHist(CA, createdEvents.length+' réunion(s) Kick-off créée(s) dans Outlook');
+    var label = isResti ? 'Restitution' : 'Kick-off';
+    addHist(CA, createdEvents.length+' réunion(s) '+label+' créée(s) dans Outlook');
   }
 
   _kickoffBooking = null; // fermer la UI
