@@ -809,7 +809,18 @@ function showProcRisksModal(procId){
         if (checkedVals.length === 0) {
           summary.innerHTML = '<span style="color:var(--text-3);font-style:italic">Aucun risque associé — le niveau sera "—"</span>';
         } else {
-          summary.innerHTML = checkedVals.length+' risque(s) associé(s) · Niveau calculé : <strong>'+level+'</strong>';
+          // v77.20 : calculer aussi le score max P×I pour pédagogie
+          var maxScore = 0;
+          var iOrd = {'Minor':1,'Limited':2,'Major':3,'Severe':4};
+          var pOrd = {'Rare':1,'Unlikely':2,'Possible':3,'Certain':4};
+          checkedVals.forEach(function(rid){
+            var rr = (RISK_UNIVERSE||[]).find(function(x){return x.id===rid;});
+            if (!rr) return;
+            var s = (iOrd[rr.impact]||0) * (pOrd[rr.probability]||0);
+            if (s > maxScore) maxScore = s;
+          });
+          var scoreStr = maxScore > 0 ? (' · Score max P×I : <strong>'+maxScore+'/16</strong>') : '';
+          summary.innerHTML = checkedVals.length+' risque(s) associé(s)'+scoreStr+' · Niveau calculé : <strong>'+level+'</strong>';
         }
       }
     };
@@ -820,21 +831,33 @@ function showProcRisksModal(procId){
 
 // Helper : calcule le niveau du process à partir des IDs de risques URD associés
 // Retourne 'faible', 'modéré', 'élevé' ou 'critique'
-// Basé sur le max des impacts des risques sélectionnés
+// v77.20 (bug fix) : basé sur le max P×I (et non plus juste max impact)
 function computeProcRiskLevelFromRefs(riskIds) {
   if (!riskIds || !riskIds.length) return 'faible';
-  // Mapping Impact -> ordre (pour calculer le max)
+  // v77.20 (bug fix) : calculer le score Probabilité × Impact pour chaque risque
+  // au lieu de regarder seulement l'impact. On prend le max parmi les risques associés
+  // puis on mappe le score (1..16) à un niveau (faible/modéré/élevé/critique) via les
+  // mêmes seuils que riskCrit (≤4, ≤8, ≤12, >12).
   var impactOrder = {'Minor':1, 'Limited':2, 'Major':3, 'Severe':4};
-  var impactToLevel = {'Minor':'faible', 'Limited':'modéré', 'Major':'élevé', 'Severe':'critique'};
-  var maxOrder = 0;
-  var maxImpact = 'Minor';
+  var probOrder = {'Rare':1, 'Unlikely':2, 'Possible':3, 'Certain':4};
+  var scoreToLevel = function(s) {
+    if (s <= 4) return 'faible';
+    if (s <= 8) return 'modéré';
+    if (s <= 12) return 'élevé';
+    return 'critique';
+  };
+  var maxScore = 0;
   riskIds.forEach(function(rid){
     var r = (RISK_UNIVERSE||[]).find(function(x){return x.id===rid;});
     if (!r) return;
-    var ord = impactOrder[r.impact] || 0;
-    if (ord > maxOrder) { maxOrder = ord; maxImpact = r.impact; }
+    var imp = impactOrder[r.impact] || 0;
+    var prob = probOrder[r.probability] || 0;
+    if (imp === 0 || prob === 0) return; // données manquantes : skip
+    var score = imp * prob;
+    if (score > maxScore) maxScore = score;
   });
-  return impactToLevel[maxImpact] || 'faible';
+  if (maxScore === 0) return 'faible'; // aucun risque exploitable
+  return scoreToLevel(maxScore);
 }
 
 function riskLevelToNum(level) {
@@ -5185,7 +5208,6 @@ V['risk-universe']=()=>`
   <div class="topbar">
     <div class="tbtitle">Risk Universe</div>
     <div style="display:flex;gap:7px">
-      <button class="bs" onclick="ruShowMatrix()" style="font-size:11px">📊 Matrice de synthèse</button>
       <button class="bp ao" onclick="ruAddGroupRisk()">+ Risque Groupe (URD)</button>
     </div>
   </div>
@@ -5196,6 +5218,121 @@ V['risk-universe']=()=>`
 I['risk-universe']=function(){
   ruRender();
 };
+
+// v77.20 : Heatmap inline (intégrée dans la page) — Probabilité × Impact 4x4
+// Affichée en haut de la page Risk Universe pour vue d'ensemble visuelle.
+function ruRenderHeatmapInline(groupRisks) {
+  var probs = typeof RISK_PROBABILITIES !== 'undefined' ? RISK_PROBABILITIES : ['Rare','Unlikely','Possible','Certain'];
+  var impacts = typeof RISK_IMPACTS !== 'undefined' ? RISK_IMPACTS : ['Minor','Limited','Major','Severe'];
+
+  var probOrder = {'Rare':1, 'Unlikely':2, 'Possible':3, 'Certain':4};
+  var impOrder = {'Minor':1, 'Limited':2, 'Major':3, 'Severe':4};
+
+  // Grouper les risques par (proba, impact)
+  var cells = {};
+  var totalPlaced = 0;
+  groupRisks.forEach(function(r){
+    if (!r.probability || !r.impact) return;
+    var key = r.probability + '__' + r.impact;
+    if (!cells[key]) cells[key] = [];
+    cells[key].push(r);
+    totalPlaced++;
+  });
+  var unplaced = groupRisks.length - totalPlaced;
+
+  // Couleur de fond d'une cellule selon le score P×I (heatmap standard)
+  // 1-4 vert, 5-8 jaune, 9-12 orange, 13-16 rouge
+  function cellColor(score) {
+    if (score <= 4)  return {bg:'#DCFCE7', border:'#86EFAC', text:'#166534'};   // vert
+    if (score <= 8)  return {bg:'#FEF3C7', border:'#FDE68A', text:'#854D0E'};   // jaune
+    if (score <= 12) return {bg:'#FFEDD5', border:'#FDBA74', text:'#9A3412'};   // orange
+    return                  {bg:'#FEE2E2', border:'#FCA5A5', text:'#991B1B'};   // rouge
+  }
+
+  var h = '<div class="card" style="padding:14px">';
+
+  // Header
+  h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">';
+  h += '<div>';
+  h += '<div style="font-size:14px;font-weight:600;color:var(--text-1)">📊 Risk Map</div>';
+  h += '<div style="font-size:10px;color:var(--text-3);margin-top:2px">'+totalPlaced+' risque'+(totalPlaced>1?'s':'')+' positionné'+(totalPlaced>1?'s':'')+' sur la matrice Probabilité × Impact';
+  if (unplaced > 0) h += ' · <span style="color:#854D0E;font-weight:500">'+unplaced+' non positionné'+(unplaced>1?'s':'')+' (P ou I manquant)</span>';
+  h += '</div></div>';
+  h += '<button class="bs" onclick="ruShowMatrix()" style="font-size:10px;padding:4px 10px" title="Ouvrir en plein écran">⛶ Plein écran</button>';
+  h += '</div>';
+
+  // Légende compacte
+  h += '<div style="display:flex;gap:14px;margin-bottom:10px;font-size:10px;color:var(--text-2);flex-wrap:wrap;justify-content:center">';
+  [
+    {l:'Faible (1-4)',     c:cellColor(2)},
+    {l:'Modéré (5-8)',     c:cellColor(6)},
+    {l:'Élevé (9-12)',     c:cellColor(10)},
+    {l:'Critique (13-16)', c:cellColor(14)},
+  ].forEach(function(item){
+    h += '<div style="display:flex;align-items:center;gap:5px"><span style="width:12px;height:12px;background:'+item.c.bg+';border:.5px solid '+item.c.border+';border-radius:2px"></span>'+item.l+'</div>';
+  });
+  h += '</div>';
+
+  // Matrice
+  h += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:10px;table-layout:fixed">';
+
+  // Header row : Impact en haut
+  h += '<thead><tr>';
+  h += '<th style="width:90px;padding:6px;background:#F5F5F8;border:.5px solid var(--border);font-size:9px;color:var(--text-3);font-weight:500">↑ Probabilité<br/>Impact →</th>';
+  impacts.forEach(function(imp){
+    h += '<th style="padding:6px;background:#F5F5F8;border:.5px solid var(--border);font-size:10px;font-weight:600;color:var(--text-1)">'+esc(imp)+'</th>';
+  });
+  h += '</tr></thead><tbody>';
+
+  // Lignes : probabilité (Certain en haut, Rare en bas — convention heatmap classique)
+  probs.slice().reverse().forEach(function(prob){
+    var pOrd = probOrder[prob] || 0;
+    h += '<tr>';
+    h += '<td style="padding:6px;background:#F5F5F8;border:.5px solid var(--border);font-weight:600;color:var(--text-1);font-size:10px;text-align:center">'+esc(prob)+'</td>';
+    impacts.forEach(function(imp){
+      var iOrd = impOrder[imp] || 0;
+      var score = pOrd * iOrd;
+      var col = cellColor(score);
+      var risks = cells[prob+'__'+imp] || [];
+      h += '<td style="padding:5px;border:.5px solid '+col.border+';background:'+col.bg+';vertical-align:top;min-height:60px;height:80px">';
+      // Score en filigrane en haut à droite
+      h += '<div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:3px">';
+      h += '<span style="font-size:8px;color:'+col.text+';font-weight:600;opacity:0.7">'+score+'</span>';
+      if (risks.length > 0) h += '<span style="font-size:8px;background:#fff;color:'+col.text+';padding:1px 5px;border-radius:2px;font-weight:600">'+risks.length+'</span>';
+      h += '</div>';
+      // Liste des risques (titre court avec tooltip si long)
+      if (risks.length > 0) {
+        h += '<div style="display:flex;flex-direction:column;gap:2px">';
+        risks.forEach(function(r){
+          var title = r.title || '(sans titre)';
+          var shortTitle = title.length > 28 ? title.slice(0, 26) + '…' : title;
+          h += '<div onclick="ruEditGroupRisk(\''+_escJsArg(r.id)+'\')" title="'+esc(title)+(r.description?' — '+esc(r.description):'')+'" style="font-size:9px;padding:3px 5px;background:#fff;color:'+col.text+';border-radius:2px;cursor:pointer;border:.5px solid '+col.border+';line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(shortTitle)+'</div>';
+        });
+        h += '</div>';
+      }
+      h += '</td>';
+    });
+    h += '</tr>';
+  });
+  h += '</tbody></table></div>';
+
+  // Risques non positionnés (sans P ou I)
+  if (unplaced > 0) {
+    h += '<details style="margin-top:8px"><summary style="font-size:10px;color:#854D0E;cursor:pointer;font-weight:500">⚠ '+unplaced+' risque'+(unplaced>1?'s':'')+' non positionné'+(unplaced>1?'s':'')+' sur la matrice</summary>';
+    h += '<div style="margin-top:6px;display:flex;flex-direction:column;gap:3px">';
+    groupRisks.forEach(function(r){
+      if (r.probability && r.impact) return;
+      var missing = [];
+      if (!r.probability) missing.push('Probabilité');
+      if (!r.impact) missing.push('Impact');
+      h += '<div onclick="ruEditGroupRisk(\''+_escJsArg(r.id)+'\')" style="font-size:10px;padding:5px 8px;background:#FEF3C7;border:.5px solid #FDE68A;border-radius:3px;cursor:pointer;color:#854D0E"><strong>'+esc(r.title||'(sans titre)')+'</strong> <span style="font-style:italic">— '+missing.join(' + ')+' manquant'+(missing.length>1?'s':'')+'</span></div>';
+    });
+    h += '</div></details>';
+  }
+
+  h += '</div>';
+  return h;
+}
 
 function ruRender(){
   var root=document.getElementById('ru-root');
@@ -5215,6 +5352,9 @@ function ruRender(){
   }
 
   var html = '<div style="display:flex;flex-direction:column;gap:12px">';
+
+  // v77.20 : Risk Map (heatmap) en haut de la page
+  html += ruRenderHeatmapInline(groupRisks);
   groupRisks.forEach(function(gr){
     var operationalRisks = RISK_UNIVERSE.filter(function(r){return r.level==='operational' && r.parentId===gr.id;});
     operationalRisks.sort(function(a,b){return (a.title||'').localeCompare(b.title||'','fr',{sensitivity:'base'});});
