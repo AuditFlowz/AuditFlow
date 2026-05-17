@@ -3854,6 +3854,26 @@ function _paTimingLabel(t) {
   return t === 'done' ? '' : (t === 'overdue' ? 'En retard' : 'On time');
 }
 
+// v77.19b (Q4) : retourne le HTML du nom d'audit (cliquable si l'audit existe encore dans le plan, texte sinon)
+function _paRenderAuditLink(a) {
+  if (!a) return '—';
+  var auditName = a.audit || '—';
+  // Résoudre l'ID d'audit : auditId d'abord (nouveau), sinon recherche par titre dans AUDIT_PLAN
+  var auditId = a.auditId || null;
+  if (!auditId && a.audit) {
+    var match = (AUDIT_PLAN || []).find(function(x){return x.titre === a.audit;});
+    if (match) auditId = match.id;
+  }
+  // Vérifier que l'audit existe toujours (sinon, on tombe sur erreur à l'ouverture)
+  var exists = auditId && (AUDIT_PLAN || []).some(function(x){return x.id === auditId;});
+  if (!exists) {
+    // Audit supprimé ou introuvable → texte simple avec indicateur
+    return '<span style="color:var(--text-3)" title="Audit introuvable dans le plan actuel">'+esc(auditName)+'</span>';
+  }
+  // Lien cliquable
+  return '<a href="javascript:void(0)" onclick="openAudit(\''+_escJsArg(auditId)+'\');event.stopPropagation()" style="color:var(--purple);text-decoration:none;font-weight:500" title="Ouvrir l\'audit">'+esc(auditName)+' ↗</a>';
+}
+
 // v77.14a : filtrer ACTIONS selon les filtres en mémoire
 function _paFilterActions() {
   return ACTIONS.filter(function(a) {
@@ -3956,7 +3976,7 @@ function renderActionList(){
       + '<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px">'
       + '<div style="flex:1;min-width:0">'
       + '<div style="font-size:12px;font-weight:500">'+esc(a.title)+'</div>'
-      + '<div style="font-size:11px;color:var(--text-2);margin-top:3px">Audit : '+esc(a.audit)+' · Resp : '+esc(a.resp)+' · '+ownerDisplay
+      + '<div style="font-size:11px;color:var(--text-2);margin-top:3px">Audit : '+_paRenderAuditLink(a)+' · Resp : '+esc(a.resp)+' · '+ownerDisplay
       + (a.findingTitle ? ' · <span style="color:var(--text-3)">"'+esc(a.findingTitle)+'"</span>' : '')
       + '</div>'
       + '<div style="font-size:10px;color:var(--text-3);margin-top:3px">'
