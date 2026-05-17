@@ -10637,7 +10637,7 @@ function _fcAnalyzeWcgwCoverage(fc) {
 function _fcRenderNode(node, allCtrls, validation) {
   var sel = _flowchartEditor && _flowchartEditor.selectedNodeId === node.id;
   var x = node.x, y = node.y, w = node.w, h = node.h;
-  var label = (node.text || '').esc(replace(/&/g,'&amp;')).replace(/>/g,'&gt;');
+  var label = esc(node.text || '');
 
   // v68 : flag d'erreur pour halo rouge
   var isOrphan = validation && validation.orphanCtrlNodeIds && validation.orphanCtrlNodeIds.indexOf(node.id) >= 0;
@@ -10647,7 +10647,7 @@ function _fcRenderNode(node, allCtrls, validation) {
   // Si lié à un contrôle, on prend le code du contrôle comme label
   if ((node.type === 'ctrl_existing' || node.type === 'ctrl_target') && node.controlId) {
     var c = allCtrls.find(function(x){return x.id===node.controlId;});
-    if (c) label = (c.code || c.name || '').esc(replace(/&/g,'&amp;')).replace(/>/g,'&gt;');
+    if (c) label = esc(c.code || c.name || '');
   }
 
   // v66 : highlight bidirectionnel — si un contrôle est highlight, dimme tout sauf
@@ -10789,7 +10789,7 @@ function _fcRenderNode(node, allCtrls, validation) {
 
   // Affichage de l'acteur (qui exécute) sous la forme — pour tous types sauf start/end et wcgw
   if (node.actor && node.type !== 'start' && node.type !== 'end' && node.type !== 'wcgw') {
-    var actorTxt = (''+node.actor).esc(replace(/&/g,'&amp;')).replace(/>/g,'&gt;');
+    var actorTxt = esc(''+node.actor);
     if (actorTxt.length > 28) actorTxt = actorTxt.substring(0, 26) + '…';
     var actorY = y + h + 14; // 14px sous le bas de la forme
     // Petit fond pour la lisibilité (pas de border, juste fond clair)
