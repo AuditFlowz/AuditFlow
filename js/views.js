@@ -5294,19 +5294,28 @@ function ruRenderHeatmapInline(groupRisks) {
       var score = pOrd * iOrd;
       var col = cellColor(score);
       var risks = cells[prob+'__'+imp] || [];
-      h += '<td style="padding:5px;border:.5px solid '+col.border+';background:'+col.bg+';vertical-align:top;min-height:60px;height:80px">';
+      // v77.21 : click cellule (zone vide) → filtre = toute la cellule
+      var cellClickable = risks.length > 0;
+      var cellOnclick = cellClickable
+        ? ' onclick="_ruFilterByCell(\''+_escJsArg(prob)+'\',\''+_escJsArg(imp)+'\')"'
+        : '';
+      var cellCursor = cellClickable ? 'cursor:pointer;' : '';
+      var cellTitle = cellClickable ? ' title="Cliquer pour filtrer le tableau sur cette cellule ('+risks.length+' risque'+(risks.length>1?'s':'')+')"' : '';
+      h += '<td'+cellOnclick+cellTitle+' style="padding:5px;border:.5px solid '+col.border+';background:'+col.bg+';vertical-align:top;min-height:60px;height:80px;'+cellCursor+'">';
       // Score en filigrane en haut à droite
       h += '<div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:3px">';
       h += '<span style="font-size:8px;color:'+col.text+';font-weight:600;opacity:0.7">'+score+'</span>';
       if (risks.length > 0) h += '<span style="font-size:8px;background:#fff;color:'+col.text+';padding:1px 5px;border-radius:2px;font-weight:600">'+risks.length+'</span>';
       h += '</div>';
       // Liste des risques (titre court avec tooltip si long)
+      // v77.21 : click sur un risque → filtre = ce risque seul (stopPropagation pour ne pas
+      // déclencher le filtre cellule)
       if (risks.length > 0) {
         h += '<div style="display:flex;flex-direction:column;gap:2px">';
         risks.forEach(function(r){
           var title = r.title || '(sans titre)';
           var shortTitle = title.length > 28 ? title.slice(0, 26) + '…' : title;
-          h += '<div onclick="ruEditGroupRisk(\''+_escJsArg(r.id)+'\')" title="'+esc(title)+(r.description?' — '+esc(r.description):'')+'" style="font-size:9px;padding:3px 5px;background:#fff;color:'+col.text+';border-radius:2px;cursor:pointer;border:.5px solid '+col.border+';line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(shortTitle)+'</div>';
+          h += '<div onclick="event.stopPropagation();_ruFilterByRisk(\''+_escJsArg(r.id)+'\')" title="'+esc(title)+(r.description?' — '+esc(r.description):'')+' — Cliquer pour filtrer le tableau sur ce risque" style="font-size:9px;padding:3px 5px;background:#fff;color:'+col.text+';border-radius:2px;cursor:pointer;border:.5px solid '+col.border+';line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(shortTitle)+'</div>';
         });
         h += '</div>';
       }
@@ -5355,68 +5364,259 @@ function ruRender(){
 
   // v77.20 : Risk Map (heatmap) en haut de la page
   html += ruRenderHeatmapInline(groupRisks);
-  groupRisks.forEach(function(gr){
-    var operationalRisks = RISK_UNIVERSE.filter(function(r){return r.level==='operational' && r.parentId===gr.id;});
-    operationalRisks.sort(function(a,b){return (a.title||'').localeCompare(b.title||'','fr',{sensitivity:'base'});});
 
-    var impactColors = (typeof RISK_IMPACT_COLORS!=='undefined' && RISK_IMPACT_COLORS[gr.impact])
-      ? RISK_IMPACT_COLORS[gr.impact]
-      : {bg:'#F3F4F6', color:'#374151'};
+  // v77.21 : Tableau des risques URD (remplace les cards individuelles)
+  // Les risques opérationnels ne sont plus exposés dans l'UI Risk Universe (ils
+  // deviennent des WCGW dans les audits où c'est pertinent).
+  html += ruRenderRisksTable(groupRisks);
 
-    var typeBadges = (gr.impactTypes||[]).map(function(t){
-      return '<span class="badge bpl" style="font-size:9px">'+t+'</span>';
-    }).join(' ');
-
-    // En-tête du risque groupe
-    html += '<div class="card" style="padding:0;overflow:hidden">';
-    html += '<div style="padding:12px 14px;border-left:4px solid '+impactColors.color+';background:'+impactColors.bg+'22">';
-    html += '<div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:6px">';
-    html += '<div style="flex:1">';
-    html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">';
-    html += '<span style="font-size:10px;font-weight:700;color:var(--purple-dk);letter-spacing:.05em">URD</span>';
-    html += '<span style="font-size:15px;font-weight:600">'+gr.title+'</span>';
-    html += '</div>';
-    if (gr.description) html += '<div style="font-size:11px;color:var(--text-2);margin-bottom:6px">'+esc(gr.description)+'</div>';
-    html += '<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-top:6px">';
-    if (gr.probability) html += '<span class="badge bpl" style="font-size:10px">Prob: '+gr.probability+'</span>';
-    if (gr.impact) html += '<span class="badge" style="background:'+impactColors.bg+';color:'+impactColors.color+';font-size:10px;font-weight:600">Impact: '+gr.impact+'</span>';
-    html += typeBadges;
-    html += '</div></div>';
-    // Boutons d'action
-    html += '<div style="display:flex;gap:4px;flex-shrink:0">';
-    if (CU && CU.role==='admin') {
-      html += '<button class="bs" style="font-size:10px;padding:2px 8px" onclick="ruAddOperationalRisk(\''+gr.id+'\')">+ Op.</button>';
-      html += '<button class="bs" style="font-size:10px;padding:2px 8px" onclick="ruEditGroupRisk(\''+gr.id+'\')">Éditer</button>';
-      html += '<button class="bd" style="font-size:10px;padding:2px 6px" onclick="ruDeleteGroupRisk(\''+gr.id+'\')">×</button>';
-    }
-    html += '</div></div></div>';
-
-    // Liste des risques opérationnels
-    if (operationalRisks.length) {
-      html += '<div style="padding:8px 14px;background:var(--bg)">';
-      html += '<div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px">Risques opérationnels ('+operationalRisks.length+')</div>';
-      operationalRisks.forEach(function(or){
-        html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:var(--bg-card);border-radius:6px;margin-bottom:4px;font-size:11px">';
-        html += '<div style="flex:1">';
-        html += '<div style="font-weight:500">'+or.title+'</div>';
-        if (or.description) html += '<div style="font-size:10px;color:var(--text-3);margin-top:2px">'+esc(or.description)+'</div>';
-        html += '</div>';
-        html += '<div style="display:flex;gap:4px;margin-left:10px">';
-        html += '<span class="badge" style="background:'+impactColors.bg+';color:'+impactColors.color+';font-size:9px">Hérite '+(gr.impact||'—')+'</span>';
-        if (CU && CU.role==='admin') {
-          html += '<button class="bs" style="font-size:10px;padding:1px 6px" onclick="ruEditOperationalRisk(\''+or.id+'\')">Éditer</button>';
-          html += '<button class="bd" style="font-size:10px;padding:1px 5px" onclick="ruDeleteOperationalRisk(\''+or.id+'\')">×</button>';
-        }
-        html += '</div></div>';
-      });
-      html += '</div>';
-    } else {
-      html += '<div style="padding:8px 14px;font-size:10px;color:var(--text-3);font-style:italic;background:var(--bg)">Aucun risque opérationnel rattaché</div>';
-    }
-    html += '</div>';
-  });
   html += '</div>';
   root.innerHTML = html;
+}
+
+// v77.21 : État du tableau (filtre + tri + recherche) — mémoire seulement
+var _ruActiveFilter = null;  // null | {type:'risk', riskId} | {type:'cell', prob, imp}
+var _ruSortCol = 'score';    // 'title' | 'probability' | 'impact' | 'score' | 'level'
+var _ruSortDir = 'desc';
+var _ruSearchText = '';
+
+function ruRenderRisksTable(groupRisks) {
+  var probOrder = {'Rare':1, 'Unlikely':2, 'Possible':3, 'Certain':4};
+  var impOrder = {'Minor':1, 'Limited':2, 'Major':3, 'Severe':4};
+  var levelOrder = {'faible':1, 'modéré':2, 'élevé':3, 'critique':4};
+  var scoreToLevel = function(s) {
+    if (s <= 0) return null;
+    if (s <= 4) return 'faible';
+    if (s <= 8) return 'modéré';
+    if (s <= 12) return 'élevé';
+    return 'critique';
+  };
+  var levelColors = {
+    'faible':   {bg:'#DCFCE7', color:'#166534'},
+    'modéré':   {bg:'#FEF3C7', color:'#854D0E'},
+    'élevé':    {bg:'#FFEDD5', color:'#9A3412'},
+    'critique': {bg:'#FEE2E2', color:'#991B1B'},
+  };
+
+  // Enrichir chaque risque avec son score numérique (utile pour tri et filtre)
+  var enriched = groupRisks.map(function(r){
+    var p = probOrder[r.probability] || 0;
+    var i = impOrder[r.impact] || 0;
+    var score = p * i;
+    var level = scoreToLevel(score);
+    return {
+      r: r,
+      pNum: p, iNum: i, score: score, level: level,
+    };
+  });
+
+  // Appliquer le filtre actif (click sur matrice)
+  var filtered = enriched;
+  var filterLabel = null;
+  if (_ruActiveFilter) {
+    if (_ruActiveFilter.type === 'risk') {
+      filtered = enriched.filter(function(e){return e.r.id === _ruActiveFilter.riskId;});
+      var fr = (RISK_UNIVERSE||[]).find(function(x){return x.id===_ruActiveFilter.riskId;});
+      filterLabel = 'Risque : ' + (fr ? fr.title : _ruActiveFilter.riskId);
+    } else if (_ruActiveFilter.type === 'cell') {
+      filtered = enriched.filter(function(e){
+        return e.r.probability === _ruActiveFilter.prob && e.r.impact === _ruActiveFilter.imp;
+      });
+      filterLabel = 'Cellule : ' + _ruActiveFilter.prob + ' × ' + _ruActiveFilter.imp;
+    }
+  }
+
+  // Recherche texte
+  if (_ruSearchText) {
+    var needle = _ruSearchText.toLowerCase();
+    filtered = filtered.filter(function(e){
+      return ((e.r.title||'') + ' ' + (e.r.description||'')).toLowerCase().indexOf(needle) >= 0;
+    });
+  }
+
+  // Tri
+  filtered.sort(function(a, b){
+    var va, vb;
+    if (_ruSortCol === 'title') {
+      va = (a.r.title||'').toLowerCase();
+      vb = (b.r.title||'').toLowerCase();
+    } else if (_ruSortCol === 'probability') {
+      va = a.pNum; vb = b.pNum;
+    } else if (_ruSortCol === 'impact') {
+      va = a.iNum; vb = b.iNum;
+    } else if (_ruSortCol === 'level') {
+      va = levelOrder[a.level] || 0;
+      vb = levelOrder[b.level] || 0;
+    } else { // score
+      va = a.score; vb = b.score;
+    }
+    if (va < vb) return _ruSortDir === 'asc' ? -1 : 1;
+    if (va > vb) return _ruSortDir === 'asc' ? 1 : -1;
+    // Tie-breaker : alpha sur titre
+    var ta = (a.r.title||'').toLowerCase();
+    var tb = (b.r.title||'').toLowerCase();
+    return ta < tb ? -1 : (ta > tb ? 1 : 0);
+  });
+
+  // Helper pour les flèches de tri sur les headers
+  var sortArrow = function(col) {
+    if (_ruSortCol !== col) return '<span style="color:var(--text-3);font-size:9px;margin-left:3px">⇅</span>';
+    return _ruSortDir === 'asc'
+      ? '<span style="color:var(--purple);font-size:10px;margin-left:3px">▲</span>'
+      : '<span style="color:var(--purple);font-size:10px;margin-left:3px">▼</span>';
+  };
+
+  var h = '<div class="card" style="padding:12px">';
+
+  // Header avec recherche + filtre actif
+  h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">';
+  h += '<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">';
+  h += '<div style="font-size:14px;font-weight:600;color:var(--text-1)">📋 Risques (URD)</div>';
+  h += '<div style="font-size:10px;color:var(--text-3)">'+filtered.length+' sur '+enriched.length+(filtered.length === enriched.length ? '' : ' (filtrés)')+'</div>';
+  h += '</div>';
+  // Recherche
+  h += '<div style="display:flex;align-items:center;gap:6px">';
+  h += '<input type="text" placeholder="🔍 Rechercher..." value="'+esc(_ruSearchText)+'" oninput="_ruSearchText=this.value;ruRender()" style="font-size:11px;padding:4px 10px;border:.5px solid var(--border);border-radius:3px;width:180px"/>';
+  h += '</div>';
+  h += '</div>';
+
+  // Bandeau filtre actif
+  if (filterLabel) {
+    h += '<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:#EEEDFE;border:.5px solid #CECBF6;border-radius:4px;margin-bottom:8px;font-size:11px;color:#3C3489">';
+    h += '<span style="font-weight:600">Filtre actif :</span> <span>'+esc(filterLabel)+'</span>';
+    h += '<button class="bs" style="font-size:10px;padding:2px 8px;margin-left:auto" onclick="_ruActiveFilter=null;ruRender()">✕ Réinitialiser</button>';
+    h += '</div>';
+  }
+
+  if (filtered.length === 0) {
+    h += '<div style="text-align:center;padding:30px;color:var(--text-3);font-size:12px;font-style:italic">Aucun risque ne correspond aux critères.</div>';
+    h += '</div>';
+    return h;
+  }
+
+  // Tableau
+  h += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">';
+  h += '<thead><tr style="background:#F5F4FE">';
+  h += '<th style="padding:8px 10px;text-align:left;border-bottom:.5px solid var(--border);font-weight:600;color:var(--text-2);cursor:pointer;user-select:none" onclick="_ruToggleSort(\'title\')">Titre'+sortArrow('title')+'</th>';
+  h += '<th style="padding:8px 10px;text-align:center;border-bottom:.5px solid var(--border);font-weight:600;color:var(--text-2);cursor:pointer;user-select:none;white-space:nowrap" onclick="_ruToggleSort(\'probability\')">Probabilité'+sortArrow('probability')+'</th>';
+  h += '<th style="padding:8px 10px;text-align:center;border-bottom:.5px solid var(--border);font-weight:600;color:var(--text-2);cursor:pointer;user-select:none" onclick="_ruToggleSort(\'impact\')">Impact'+sortArrow('impact')+'</th>';
+  h += '<th style="padding:8px 10px;text-align:center;border-bottom:.5px solid var(--border);font-weight:600;color:var(--text-2);cursor:pointer;user-select:none;white-space:nowrap" onclick="_ruToggleSort(\'score\')">Score P×I'+sortArrow('score')+'</th>';
+  h += '<th style="padding:8px 10px;text-align:center;border-bottom:.5px solid var(--border);font-weight:600;color:var(--text-2);cursor:pointer;user-select:none" onclick="_ruToggleSort(\'level\')">Niveau'+sortArrow('level')+'</th>';
+  h += '<th style="padding:8px 10px;text-align:left;border-bottom:.5px solid var(--border);font-weight:600;color:var(--text-2)">Types d\'impact</th>';
+  if (CU && CU.role==='admin') {
+    h += '<th style="padding:8px 10px;text-align:right;border-bottom:.5px solid var(--border);font-weight:600;color:var(--text-2)">Actions</th>';
+  }
+  h += '</tr></thead><tbody>';
+
+  filtered.forEach(function(e){
+    var r = e.r;
+    var lvlCol = e.level ? levelColors[e.level] : {bg:'#F3F4F6', color:'#9CA3AF'};
+    h += '<tr style="border-bottom:.5px solid var(--border)">';
+    // Titre + description (compact)
+    h += '<td style="padding:8px 10px;vertical-align:top">';
+    h += '<div style="font-weight:500;color:var(--text-1)">'+esc(r.title||'(sans titre)')+'</div>';
+    if (r.description) {
+      var desc = r.description.length > 120 ? r.description.slice(0, 118) + '…' : r.description;
+      h += '<div style="font-size:10px;color:var(--text-3);margin-top:3px;line-height:1.4">'+esc(desc)+'</div>';
+    }
+    h += '</td>';
+    // Probabilité
+    h += '<td style="padding:8px 10px;text-align:center;white-space:nowrap">';
+    if (r.probability) {
+      h += '<span class="badge bpl" style="font-size:10px">'+esc(r.probability)+'</span>';
+      h += '<div style="font-size:9px;color:var(--text-3);margin-top:2px">'+e.pNum+'/4</div>';
+    } else {
+      h += '<span style="color:var(--text-3);font-style:italic">—</span>';
+    }
+    h += '</td>';
+    // Impact
+    h += '<td style="padding:8px 10px;text-align:center;white-space:nowrap">';
+    if (r.impact) {
+      var ic = (typeof RISK_IMPACT_COLORS!=='undefined' && RISK_IMPACT_COLORS[r.impact])
+        ? RISK_IMPACT_COLORS[r.impact] : {bg:'#F3F4F6', color:'#374151'};
+      h += '<span class="badge" style="background:'+ic.bg+';color:'+ic.color+';font-size:10px;font-weight:600">'+esc(r.impact)+'</span>';
+      h += '<div style="font-size:9px;color:var(--text-3);margin-top:2px">'+e.iNum+'/4</div>';
+    } else {
+      h += '<span style="color:var(--text-3);font-style:italic">—</span>';
+    }
+    h += '</td>';
+    // Score P×I
+    h += '<td style="padding:8px 10px;text-align:center">';
+    if (e.score > 0) {
+      h += '<span style="font-size:14px;font-weight:700;color:'+lvlCol.color+'">'+e.score+'</span>';
+      h += '<span style="font-size:10px;color:var(--text-3)">/16</span>';
+    } else {
+      h += '<span style="color:var(--text-3);font-style:italic">—</span>';
+    }
+    h += '</td>';
+    // Niveau
+    h += '<td style="padding:8px 10px;text-align:center">';
+    if (e.level) {
+      h += '<span class="badge" style="background:'+lvlCol.bg+';color:'+lvlCol.color+';font-size:10px;font-weight:600;text-transform:capitalize">'+e.level+'</span>';
+    } else {
+      h += '<span style="color:var(--text-3);font-style:italic">—</span>';
+    }
+    h += '</td>';
+    // Types d'impact
+    h += '<td style="padding:8px 10px">';
+    if ((r.impactTypes||[]).length > 0) {
+      h += '<div style="display:flex;gap:3px;flex-wrap:wrap">';
+      r.impactTypes.forEach(function(t){
+        h += '<span class="badge bpl" style="font-size:9px">'+esc(t)+'</span>';
+      });
+      h += '</div>';
+    } else {
+      h += '<span style="color:var(--text-3);font-style:italic;font-size:10px">—</span>';
+    }
+    h += '</td>';
+    // Actions
+    if (CU && CU.role==='admin') {
+      h += '<td style="padding:8px 10px;text-align:right;white-space:nowrap">';
+      h += '<button class="bs" style="font-size:10px;padding:3px 8px" onclick="ruEditGroupRisk(\''+_escJsArg(r.id)+'\')">Éditer</button> ';
+      h += '<button class="bd" style="font-size:10px;padding:3px 7px" onclick="ruDeleteGroupRisk(\''+_escJsArg(r.id)+'\')">×</button>';
+      h += '</td>';
+    }
+    h += '</tr>';
+  });
+  h += '</tbody></table></div>';
+  h += '</div>';
+  return h;
+}
+
+// v77.21 : Toggle tri d'une colonne du tableau
+function _ruToggleSort(col) {
+  if (_ruSortCol === col) {
+    _ruSortDir = _ruSortDir === 'asc' ? 'desc' : 'asc';
+  } else {
+    _ruSortCol = col;
+    // Sens par défaut : alpha asc, numérique desc
+    _ruSortDir = (col === 'title') ? 'asc' : 'desc';
+  }
+  ruRender();
+}
+
+// v77.21 : Click sur un risque dans la heatmap → filtre tableau sur ce risque + scroll
+function _ruFilterByRisk(riskId) {
+  _ruActiveFilter = {type: 'risk', riskId: riskId};
+  ruRender();
+  setTimeout(function(){
+    var root = document.getElementById('ru-root');
+    if (!root) return;
+    var tableCard = root.querySelectorAll('.card');
+    if (tableCard.length >= 2) tableCard[1].scrollIntoView({behavior:'smooth', block:'start'});
+  }, 50);
+}
+
+// v77.21 : Click sur une cellule (zone vide) → filtre tableau sur cette cellule
+function _ruFilterByCell(prob, imp) {
+  _ruActiveFilter = {type: 'cell', prob: prob, imp: imp};
+  ruRender();
+  setTimeout(function(){
+    var root = document.getElementById('ru-root');
+    if (!root) return;
+    var tableCard = root.querySelectorAll('.card');
+    if (tableCard.length >= 2) tableCard[1].scrollIntoView({behavior:'smooth', block:'start'});
+  }, 50);
 }
 
 // ── Formulaire Risque Groupe (URD) ──────────────────────────
@@ -5502,66 +5702,11 @@ async function ruDeleteGroupRisk(rId){
   toast('Risque supprimé ✓');
 }
 
-// ── Formulaire Risque Opérationnel ──────────────────────────
-function ruOperationalRiskModal(parentId, existingRisk) {
-  var parent = RISK_UNIVERSE.find(function(x){return x.id===parentId;});
-  var parentInfo = parent
-    ? '<div style="padding:8px 10px;background:var(--bg);border-radius:6px;margin-bottom:10px;font-size:11px">'
-      + '<div style="color:var(--text-3);margin-bottom:2px">Rattaché au risque URD :</div>'
-      + '<div style="font-weight:500">'+parent.title+'</div>'
-      + '<div style="color:var(--text-3);margin-top:4px">Niveau hérité : <strong>'+(parent.impact||'—')+'</strong> · Prob: '+(parent.probability||'—')+'</div>'
-      + '</div>'
-    : '';
-
-  var body = parentInfo
-    + '<div><label>Intitulé du risque opérationnel <span style="color:var(--red)">*</span></label><input id="ru-title" value="'+((existingRisk&&existingRisk.title)||'')+'" placeholder="ex: Phishing employés"/></div>'
-    + '<div><label>Description</label><textarea id="ru-desc" style="width:100%;min-height:50px" placeholder="Description détaillée">'+((existingRisk&&existingRisk.description)||'')+'</textarea></div>';
-
-  openModal(existingRisk ? 'Éditer risque opérationnel' : 'Nouveau risque opérationnel', body, async function(){
-    var title = document.getElementById('ru-title').value.trim();
-    if (!title) { toast('Titre obligatoire'); return; }
-    var desc = document.getElementById('ru-desc').value.trim();
-
-    if (existingRisk) {
-      existingRisk.title = title;
-      existingRisk.description = desc;
-      await ruSaveRisk(existingRisk);
-      addHist('edit', 'Risque opérationnel "'+title+'" modifié');
-      toast('Risque modifié ✓');
-    } else {
-      var newRisk = {
-        id: 'rsk_'+Date.now(),
-        level: 'operational',
-        parentId: parentId,
-        title: title, description: desc,
-        probability: '', impact: '', impactTypes: [],  // hérite du parent
-      };
-      RISK_UNIVERSE.push(newRisk);
-      await ruSaveRisk(newRisk);
-      addHist('add', 'Risque opérationnel "'+title+'" créé');
-      toast('Risque créé ✓');
-    }
-    ruRender();
-  });
-}
-
-function ruAddOperationalRisk(parentId){ ruOperationalRiskModal(parentId, null); }
-function ruEditOperationalRisk(rId){
-  var r = RISK_UNIVERSE.find(function(x){return x.id===rId;});
-  if (!r) return;
-  ruOperationalRiskModal(r.parentId, r);
-}
-
-async function ruDeleteOperationalRisk(rId){
-  var r = RISK_UNIVERSE.find(function(x){return x.id===rId;});
-  if (!r) return;
-  if (!confirm('Supprimer le risque opérationnel "'+r.title+'" ?')) return;
-  await spDelete('AF_RiskUniverse', rId);
-  RISK_UNIVERSE = RISK_UNIVERSE.filter(function(x){return x.id!==rId;});
-  addHist('del', 'Risque opérationnel "'+r.title+'" supprimé');
-  ruRender();
-  toast('Risque supprimé ✓');
-}
+// v77.21 : Fonctions ruOperationalRiskModal / ruAddOperationalRisk /
+// ruEditOperationalRisk / ruDeleteOperationalRisk RETIRÉES.
+// Les risques opérationnels ne sont plus exposés dans l'UI Risk Universe.
+// Pour créer un risque "opérationnel" dans un audit, utiliser les WCGW
+// dans l'étape Flowchart.
 
 async function ruSaveRisk(risk) {
   try {
