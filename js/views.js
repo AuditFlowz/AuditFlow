@@ -12105,9 +12105,9 @@ function _daRenderWizard() {
   }
   body += '</div>';
 
-  // v77.17a : modale plus large à l'étape 5 si on est sur Visualisation (pour bien voir le graphique)
-  var isVizResults = (_daWizard.step === 5 && _daWizard.type === 'visualization');
-  openModal('Nouvelle analyse de données', body, null, {wide: !isVizResults, xwide: isVizResults, hideOk: true, cancelLabel: 'Fermer'});
+  // v77.17a/b : modale plus large à l'étape 5 (graphique + tableau côte à côte)
+  var isResultsStep = (_daWizard.step === 5);
+  openModal('Nouvelle analyse de données', body, null, {wide: !isResultsStep, xwide: isResultsStep, hideOk: true, cancelLabel: 'Fermer'});
 }
 
 function _daCanGoNext() {
@@ -12748,11 +12748,32 @@ function _daRenderStep5() {
       h += _daRenderVisualizationDataTable(r);
     }
   } else if (_daWizard.type === 'stratification') {
-    h += _daRenderStrataTable(r);
+    // v77.17b : graphique auto + tableau strates côte à côte
+    h += _daRenderResultsSplit(_daAutoChartStratification(r, 480, 280), _daRenderStrataTable(r));
   } else {
-    h += _daRenderExceptionsTable(r, _daWizard.type, _daWizard.files);
+    // v77.17b : graphique auto + tableau exceptions côte à côte
+    var anaCol = (_daWizard.mapping && _daWizard.mapping.column) || null;
+    var chartHtml = _daRenderAutoChart(r, _daWizard.type, {width: 480, height: 280, analysisColumn: anaCol});
+    var tableHtml = _daRenderExceptionsTable(r, _daWizard.type, _daWizard.files);
+    h += _daRenderResultsSplit(chartHtml, tableHtml);
   }
 
+  h += '</div>';
+  return h;
+}
+
+// v77.17b : layout split graph + table avec fallback si pas de graph
+function _daRenderResultsSplit(chartHtml, tableHtml) {
+  if (!chartHtml || chartHtml.trim() === '') {
+    // Pas de graph (cas vide) → juste la table
+    return tableHtml;
+  }
+  // Split horizontal : graph à gauche (40%) + table à droite (60%)
+  var h = '<div style="display:grid;grid-template-columns:minmax(280px,400px) 1fr;gap:14px;align-items:start">';
+  h += '<div style="background:#fff;border:.5px solid var(--border);border-radius:5px;padding:10px;min-width:0">';
+  h += chartHtml;
+  h += '</div>';
+  h += '<div style="min-width:0">'+tableHtml+'</div>';
   h += '</div>';
   return h;
 }
@@ -12887,6 +12908,142 @@ function _daFilterExceptions(exceptions, filter, type) {
 function _daFmtNum(n) {
   if (n == null || isNaN(n)) return '—';
   return Number(n).toLocaleString('fr-FR', {maximumFractionDigits: 2});
+}
+
+// v77.17b : Graphique automatique adapté au type d'analyse
+// Retourne le HTML d'un graphique compact placé au-dessus du tableau d'exceptions.
+// type : 'reconciliation' | 'comparison' | 'anomaly' | 'stratification'
+function _daRenderAutoChart(r, type, opts) {
+  if (!r) return '';
+  opts = opts || {};
+  var width = opts.width || 480;
+  var height = opts.height || 280;
+
+  if (type === 'reconciliation') return _daAutoChartReconciliation(r, width, height);
+  if (type === 'comparison')     return _daAutoChartComparison(r, width, height);
+  if (type === 'anomaly')        return _daAutoChartAnomaly(r, width, height, opts.analysisColumn);
+  if (type === 'stratification') return _daAutoChartStratification(r, width, height);
+  return '';
+}
+
+// Rapprochement : donut Matchs / Manquants A / Manquants B
+function _daAutoChartReconciliation(r, width, height) {
+  var matches = r.matches || 0;
+  var missA = r.missingA || 0;
+  var missB = r.missingB || 0;
+  if (matches + missA + missB === 0) return '';
+  // Construit un faux objet "results visualization" pour réutiliser le donut SVG
+  var fakeR = {
+    chartType: 'donut',
+    seriesKeys: ['__default__'],
+    data: [
+      {label: 'Matchs', values: {'__default__': matches}},
+      {label: 'Manquants A', values: {'__default__': missA}},
+      {label: 'Manquants B', values: {'__default__': missB}},
+    ],
+  };
+  return _daSvgDonutChart(fakeR, width, height);
+}
+
+// Comparaison : histogramme des écarts (auto-bucketize en 8 tranches)
+function _daAutoChartComparison(r, width, height) {
+  var exc = (r.exceptions || []).filter(function(e){
+    return e._type === 'discrepancy' && typeof e['|Écart|'] === 'number';
+  });
+  if (exc.length === 0) return '';
+
+  // Récupérer les |Écart|
+  var values = exc.map(function(e){return e['|Écart|'];});
+  var min = Math.min.apply(null, values);
+  var max = Math.max.apply(null, values);
+  if (min === max) {
+    // Tous les écarts ont la même valeur → bar chart à 1 barre
+    var fakeR1 = {
+      chartType: 'bar',
+      seriesKeys: ['__default__'],
+      data: [{label: _daFmtNum(min), values: {'__default__': exc.length}}],
+    };
+    return _daSvgBarChart(fakeR1, width, height);
+  }
+  // 8 tranches égales
+  var nBuckets = 8;
+  var range = max - min;
+  var step = range / nBuckets;
+  var buckets = [];
+  for (var i = 0; i < nBuckets; i++) {
+    var lo = min + i * step;
+    var hi = min + (i+1) * step;
+    buckets.push({lo: lo, hi: hi, count: 0});
+  }
+  values.forEach(function(v){
+    var idx = Math.min(nBuckets - 1, Math.floor((v - min) / step));
+    buckets[idx].count++;
+  });
+
+  var fakeR = {
+    chartType: 'bar',
+    seriesKeys: ['__default__'],
+    data: buckets.map(function(b){
+      return {label: _daFmtNum(b.lo) + '–' + _daFmtNum(b.hi), values: {'__default__': b.count}};
+    }),
+  };
+  return _daSvgBarChart(fakeR, width, height);
+}
+
+// Anomalies : top 10 valeurs anomales par fréquence (par colonne d'analyse)
+function _daAutoChartAnomaly(r, width, height, analysisColumn) {
+  var exc = r.exceptions || [];
+  if (exc.length === 0) return '';
+
+  // Stratégie : grouper par la colonne d'analyse si fournie, sinon par la 1ère colonne après "Raison"
+  var byKey = {};
+  exc.forEach(function(e){
+    var keyField = analysisColumn;
+    if (!keyField || !(keyField in e)) {
+      // Fallback : première colonne qui n'est pas "Raison"
+      var keys = Object.keys(e);
+      keyField = keys.find(function(k){return k !== 'Raison';});
+    }
+    if (!keyField) return;
+    var val = e[keyField];
+    var key = val == null ? '(vide)' : String(val);
+    if (key.length > 40) key = key.slice(0, 38) + '…';
+    byKey[key] = (byKey[key] || 0) + 1;
+  });
+
+  var sorted = Object.keys(byKey).map(function(k){
+    return {label: k, count: byKey[k]};
+  }).sort(function(a,b){return b.count - a.count;}).slice(0, 10);
+
+  if (sorted.length === 0) return '';
+
+  var fakeR = {
+    chartType: 'bar',
+    seriesKeys: ['__default__'],
+    data: sorted.map(function(s){
+      return {label: s.label, values: {'__default__': s.count}};
+    }),
+  };
+  return _daSvgBarChart(fakeR, width, height);
+}
+
+// Stratification : bar chart vertical des strates (compact, complémentaire au tableau)
+function _daAutoChartStratification(r, width, height) {
+  var strata = r.strata || [];
+  if (strata.length === 0) return '';
+  // Limite à 15 strates (au-delà c'est illisible)
+  var displayed = strata.slice(0, 15);
+
+  // Si on a une colonne agrégée, on affiche la somme par strate ; sinon le count
+  var useSum = !!r.aggColumn;
+  var fakeR = {
+    chartType: 'bar',
+    seriesKeys: ['__default__'],
+    data: displayed.map(function(s){
+      return {label: s.label, values: {'__default__': useSum ? (s.sum || 0) : s.count}};
+    }),
+  };
+  return _daSvgBarChart(fakeR, width, height);
 }
 
 // Table d'exceptions (réutilisée par Step5 + showResults)
@@ -13981,7 +14138,8 @@ function daShowResults(analysisId) {
 
   // Tableau adapté au type — utilise _daRenderExceptionsTable pour bénéficier du filtre
   if (an.type === 'stratification') {
-    body += _daRenderStrataTable(r);
+    // v77.17b : graphique auto + tableau strates côte à côte
+    body += _daRenderResultsSplit(_daAutoChartStratification(r, 480, 280), _daRenderStrataTable(r));
   } else if (an.type === 'visualization') {
     // v77.17a : graphique
     body += '<div style="background:#fff;border:.5px solid var(--border);border-radius:5px;padding:12px;margin-bottom:10px">';
@@ -13991,7 +14149,11 @@ function daShowResults(analysisId) {
       body += _daRenderVisualizationDataTable(r);
     }
   } else {
-    body += _daRenderExceptionsTable(r, an.type, pseudoFiles);
+    // v77.17b : graphique auto + tableau exceptions côte à côte
+    var anaColShow = (an.mapping && an.mapping.column) || null;
+    var chartHtml = _daRenderAutoChart(r, an.type, {width: 480, height: 280, analysisColumn: anaColShow});
+    var tableHtml = _daRenderExceptionsTable(r, an.type, pseudoFiles);
+    body += _daRenderResultsSplit(chartHtml, tableHtml);
   }
 
   // Boutons d'action
@@ -14003,9 +14165,8 @@ function daShowResults(analysisId) {
   }
   body += '</div>';
 
-  // v77.17a : modale plus large pour visualization (graphique mieux affiché)
-  var isViz = (an.type === 'visualization');
-  openModal('Détails de l\'analyse', body, null, {wide: !isViz, xwide: isViz, hideOk: true, cancelLabel: 'Fermer'});
+  // v77.17a/b : modale plus large pour visualization ET pour les autres types (graph + table côte à côte)
+  openModal('Détails de l\'analyse', body, null, {wide: false, xwide: true, hideOk: true, cancelLabel: 'Fermer'});
 }
 
 // ─── 12. Export Excel ──────────────────────────────────────────
@@ -14302,12 +14463,22 @@ function _daRenderRerunModal(originalAnalysis) {
     body += '<div style="background:#E8F5E9;border:.5px solid #A6E2CD;border-radius:5px;padding:9px 12px;margin-bottom:14px;font-size:11px;color:#085041">✓ Résultats identiques à l\'analyse précédente</div>';
   }
 
-  // Tableau résultats
+  // Tableau résultats — v77.17b : split graph + table
   if (an.type === 'stratification') {
-    body += _daRenderStrataTable(r);
+    body += _daRenderResultsSplit(_daAutoChartStratification(r, 480, 280), _daRenderStrataTable(r));
+  } else if (an.type === 'visualization') {
+    body += '<div style="background:#fff;border:.5px solid var(--border);border-radius:5px;padding:12px;margin-bottom:10px">';
+    body += _daRenderVisualization(r, {width: 720, height: 360});
+    body += '</div>';
+    if (r.chartType !== 'scatter' && r.data && r.data.length > 0) {
+      body += _daRenderVisualizationDataTable(r);
+    }
   } else {
     var pseudoFiles = _daWizard.files;
-    body += _daRenderExceptionsTable(r, an.type, pseudoFiles);
+    var anaColRerun = (an.mapping && an.mapping.column) || null;
+    var chartHtml = _daRenderAutoChart(r, an.type, {width: 480, height: 280, analysisColumn: anaColRerun});
+    var tableHtml = _daRenderExceptionsTable(r, an.type, pseudoFiles);
+    body += _daRenderResultsSplit(chartHtml, tableHtml);
   }
 
   // Boutons : Update existant OU Create nouveau
@@ -14317,7 +14488,7 @@ function _daRenderRerunModal(originalAnalysis) {
   body += '<button class="bp" style="font-size:11px;padding:5px 12px" onclick="_daRerunSave(\''+_escJsArg(an.id)+'\',\'update\')">↻ Mettre à jour l\'analyse</button>';
   body += '</div>';
 
-  openModal('↻ Rerun : '+an.title, body, null, {wide: true, hideOk: true, cancelLabel: 'Fermer'});
+  openModal('↻ Rerun : '+an.title, body, null, {wide: false, xwide: true, hideOk: true, cancelLabel: 'Fermer'});
 }
 
 // Sauvegarde du rerun : soit update soit create
