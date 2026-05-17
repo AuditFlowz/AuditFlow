@@ -6450,6 +6450,8 @@ function renderDetContent(){
   // Plus besoin de répéter ici.
 
   // ── 3. SECTIONS SPÉCIFIQUES MÉTIER selon l'étape ─────────
+  // v77.19c-debug : logs pour identifier bug Flowchart Process
+  console.log('[renderDetContent] CS=', CS, 'auditType=', a.type, 'auditId=', CA);
   if (CS === 1) {
     // Étape 2 (index 1) : Work Program
     // Pour les audits BU : sélection des Process + tests substantifs depuis le référentiel
@@ -6473,16 +6475,21 @@ function renderDetContent(){
     }
   } else if (CS === 4) {
     // Étape 5 affichée (index 4) : Flowcharts (WCGW & Contrôles) Process / WCGW & Contrôles BU
+    console.log('[renderDetContent CS=4] entré dans la branche Flowchart');
     html += renderRiskSection();
     if (a.type === 'BU') {
+      console.log('[renderDetContent CS=4] BU → renderControlsBySpSection');
       // BU : pas de flowchart, vue simplifiée Contrôles par sous-processus (v65)
       html += renderControlsBySpSection();
     } else {
+      console.log('[renderDetContent CS=4] Process → flowchart editor/splash');
       // Process : vue flowchart prioritaire
       _fcEnsureState();
       if (_flowchartEditor) {
+        console.log('[renderDetContent CS=4] _flowchartEditor existe → renderFlowchartEditor');
         html += renderFlowchartEditor();
       } else {
+        console.log('[renderDetContent CS=4] _flowchartEditor null → renderFlowchartSplash');
         // Splash : pas encore de flowchart pour cet audit
         html += renderFlowchartSplash();
       }
