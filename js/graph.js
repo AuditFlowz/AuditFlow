@@ -469,6 +469,7 @@ var LIST_SCHEMAS = {
     {name:'kickoff_prep_json',text:{}},{name:'work_program_bu_json',text:{}},
     {name:'issues_json',text:{}},
     {name:'exec_summary_header',text:{}},
+    {name:'data_analyses_json',text:{}}, // v77.16a : analyses de données (Data Analysis module)
   ],
   AF_History: [{name:'af_type',text:{}},{name:'msg',text:{}},{name:'user_name',text:{}}],
   AF_Users: [
@@ -924,6 +925,8 @@ async function loadAuditData(auditId) {
         workProgramBU:tryParse(f.work_program_bu_json,{processes:[]}),
         issues:tryParse(f.issues_json,[]),
         execSummaryHeader:f.exec_summary_header||'',
+        // v77.16a : Data Analyses module
+        dataAnalyses:tryParse(f.data_analyses_json,[]),
         // Priorité : nouvelle colonne attachments_json, fallback ancien workaround
         attachments:attachments,
         // flowcharts : exposé directement à la racine pour les vues, mais persisté via attachments
@@ -944,35 +947,34 @@ async function loadAuditData(auditId) {
   return DB.auditData[auditId];
 }
 
+// v77.16a : Cache du flag "AF_AuditData supporte data_analyses_json"
+var _afAuditDataSupportsDataAnalyses = true;
+
 async function saveAuditData(auditId) {
   var d = AUD_DATA[auditId];
   if (!d) return;
   // Injecter d.flowcharts dans d.attachments.flowcharts avant la sérialisation
-  // Les flowcharts sont exposés à la racine de l'objet (pour les vues), mais
-  // persistés dans la colonne attachments_json (pour éviter de créer une nouvelle colonne SP).
   if (Array.isArray(d.flowcharts)) {
     if (!d.attachments) d.attachments = {};
     d.attachments.flowcharts = d.flowcharts;
   }
-  // v71 : pareil pour les entretiens (bibliothèque audit-level)
   if (Array.isArray(d.interviews)) {
     if (!d.attachments) d.attachments = {};
     d.attachments.interviews = d.interviews;
   }
-  // v73 : narratif consolidé au niveau de l'audit
   if (typeof d.consolidatedNarrative === 'string') {
     if (!d.attachments) d.attachments = {};
     d.attachments.consolidatedNarrative = d.consolidatedNarrative;
   }
   var attachmentsJson = JSON.stringify(d.attachments||{});
-  // v72.1 : log si la taille est conséquente (limite SharePoint ~63 KB par défaut sur multiline text)
   if (attachmentsJson.length > 50000) {
     console.warn('[saveAuditData] attachments_json size:', Math.round(attachmentsJson.length/1024), 'KB - approaching SharePoint limit');
   }
   if (attachmentsJson.length > 250000) {
     console.error('[saveAuditData] attachments_json TOO LARGE:', Math.round(attachmentsJson.length/1024), 'KB - SharePoint may reject');
   }
-  await spUpsert('AF_AuditData', auditId, {
+  // Payload de base (champs existants - toujours envoyés)
+  var basePayload = {
     tasks_json:JSON.stringify(d.tasks), controls_json:JSON.stringify(d.controls),
     findings_json:JSON.stringify(d.findings), mgt_resp_json:JSON.stringify(d.mgtResp),
     docs_json:JSON.stringify(d.docs), notes:d.notes||'',
@@ -988,7 +990,35 @@ async function saveAuditData(auditId) {
     exec_summary_header:d.execSummaryHeader||'',
     attachments_json:attachmentsJson,
     Title:auditId,
-  });
+  };
+  // v77.16a : champ étendu (envoyé seulement si SP le supporte)
+  var extendedPayload = {
+    data_analyses_json:JSON.stringify(d.dataAnalyses||[]),
+  };
+
+  if (_afAuditDataSupportsDataAnalyses) {
+    try {
+      await _spUpsertOrThrow('AF_AuditData', auditId, Object.assign({}, basePayload, extendedPayload));
+      return;
+    } catch(e) {
+      if (e && e.message && /Field '.+' is not recognized/i.test(e.message)) {
+        console.warn('[SP] AF_AuditData ne supporte pas data_analyses_json. Fallback. Ajoute la colonne dans la liste SharePoint AF_Actions pour persister les analyses.');
+        _afAuditDataSupportsDataAnalyses = false;
+      } else {
+        console.error('[SP] saveAuditData error', e.message);
+        if (typeof toast === 'function') toast('Erreur sauvegarde: ' + e.message);
+        throw e;
+      }
+    }
+  }
+  // Fallback : seulement les champs de base (data_analyses ne sera pas persisté)
+  try {
+    await _spUpsertOrThrow('AF_AuditData', auditId, basePayload);
+  } catch(e) {
+    console.error('[SP] saveAuditData error (fallback)', e.message);
+    if (typeof toast === 'function') toast('Erreur sauvegarde: ' + e.message);
+    throw e;
+  }
 }
 
 // ─── Risk Assessment : sauvegarde dans liste AF_RiskAssessment (1 seul item) ──

@@ -6470,6 +6470,8 @@ function renderDetContent(){
     // renderControlsSection désactivée - tout est dans renderWCGWSection
   } else if (CS === 5) {
     // Étape 6 (index 5) : Testings
+    // v77.16a : Data Analysis section pour tous les audits (au-dessus des tests classiques)
+    html += renderDataAnalysisSection();
     // Pour les audits BU : refonte avec sample/population/issues + extrapolation
     // Pour les audits Process : tests des contrôles uniquement (existant)
     if (a.type === 'BU') {
@@ -11879,6 +11881,1002 @@ async function removeControlAt(idx) {
   await saveAuditData(CA);
   document.getElementById('det-content').innerHTML = renderDetContent();
   toast('Contrôle supprimé ✓');
+}
+// ══════════════════════════════════════════════════════════════
+//  v77.16a : DATA ANALYSIS — module dans l'étape Testings
+//  Types : Rapprochement (matching A↔B) + Détection anomalies (1 fichier)
+//  Persistance : config + résultats agrégés dans d.dataAnalyses[]
+//  Fichiers sources : en mémoire pendant la session (v77.16b les persistera)
+// ══════════════════════════════════════════════════════════════
+
+// État global du wizard en cours (effacé à la fermeture de la modale)
+var _daWizard = null;
+
+// Cache mémoire des fichiers parsés pour la session (clés : fileId → {name, rows, columns})
+var _daFileCache = {};
+
+// ─── 1. Initialisation et helpers ──────────────────────────────
+
+function _daEnsure(d) {
+  if (!Array.isArray(d.dataAnalyses)) d.dataAnalyses = [];
+  return d.dataAnalyses;
+}
+
+// Format ID unique pour analyse/fichier
+function _daId(prefix) {
+  return prefix + '_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+}
+
+// Labels lisibles par type
+var _daTypeLabels = {
+  'reconciliation': 'Rapprochement',
+  'anomaly': 'Détection anomalies',
+  'comparison': 'Comparaison valeurs',
+  'stratification': 'Stratification',
+};
+
+var _daTypeIcons = {
+  'reconciliation': '🔗',
+  'anomaly': '⚠️',
+  'comparison': '🧮',
+  'stratification': '📊',
+};
+
+// Types disponibles en v77.16a
+var _daAvailableTypes = ['reconciliation', 'anomaly'];
+
+// ─── 2. Rendu section dans la page Testings ────────────────────
+
+function renderDataAnalysisSection() {
+  var d = getAudData(CA);
+  var analyses = _daEnsure(d);
+
+  var html = '<div class="card" style="margin-bottom:.75rem">';
+  html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">';
+  html += '<div style="font-size:12px;font-weight:600;color:var(--text-2)">📊 Data Analyses <span style="font-size:10px;font-weight:400;color:var(--text-3)">('+analyses.length+')</span></div>';
+  html += '<button class="bp" style="font-size:11px;padding:4px 11px" onclick="daStartWizard()">+ Nouvelle analyse</button>';
+  html += '</div>';
+  html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:10px;font-style:italic">Module d\'analyse de données sur fichiers Excel/CSV. Upload tes extractions, mappe les colonnes, et lance des analyses (rapprochement entre fichiers, détection d\'anomalies). Tu peux créer des issues directement depuis les exceptions trouvées.</div>';
+
+  if (!analyses.length) {
+    html += '<div style="font-size:11px;color:var(--text-3);font-style:italic;padding:1rem;text-align:center;background:var(--bg-card);border-radius:5px">Aucune analyse créée pour le moment. Clique sur « + Nouvelle analyse » pour commencer.</div>';
+  } else {
+    html += '<div style="display:flex;flex-direction:column;gap:6px">';
+    analyses.forEach(function(an, i) {
+      html += _daRenderCard(an, i);
+    });
+    html += '</div>';
+  }
+
+  html += '</div>';
+  return html;
+}
+
+function _daRenderCard(an, idx) {
+  var icon = _daTypeIcons[an.type] || '📋';
+  var typeLabel = _daTypeLabels[an.type] || an.type;
+  var r = an.results || {};
+  var totalRows = r.totalRows || 0;
+  var nbException = (r.exceptions || []).length;
+  var nbMatch = r.matches || 0;
+
+  var h = '<div style="background:#fff;border:.5px solid var(--border);border-radius:5px;padding:10px 12px;display:flex;align-items:center;gap:10px">';
+  // Icône
+  h += '<div style="width:32px;height:32px;background:#F5F4FE;color:#3C3489;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">'+icon+'</div>';
+  // Infos
+  h += '<div style="flex:1;min-width:0">';
+  h += '<div style="font-size:12px;font-weight:500">'+esc(an.title||'(sans titre)')+'</div>';
+  h += '<div style="font-size:10px;color:var(--text-3);margin-top:2px">';
+  h += esc(typeLabel)+' · '+esc((an.fileNames||[]).join(' + ')) + ' · ' + totalRows + ' lignes';
+  if (nbMatch > 0) h += ' · <span style="color:#16A34A;font-weight:500">'+nbMatch+' OK</span>';
+  if (nbException > 0) h += ' · <span style="color:#DC2626;font-weight:500">'+nbException+' exception'+(nbException>1?'s':'')+'</span>';
+  if (an.createdAt) h += ' · <span style="color:var(--text-3)">'+esc(an.createdAt.slice(0,10))+'</span>';
+  h += '</div>';
+  h += '</div>';
+  // Actions
+  h += '<div style="display:flex;gap:4px;flex-shrink:0">';
+  h += '<button class="bs" style="font-size:10px;padding:4px 8px" onclick="daShowResults(\''+_escJsArg(an.id)+'\')" title="Voir détails">Détails</button>';
+  h += '<button class="bs" style="font-size:10px;padding:4px 8px" onclick="daExportExcel(\''+_escJsArg(an.id)+'\')" title="Export Excel">⬇</button>';
+  h += '<button class="bs" style="font-size:10px;padding:4px 8px;color:#993C1D" onclick="daDeleteAnalysis(\''+_escJsArg(an.id)+'\')" title="Supprimer">🗑</button>';
+  h += '</div>';
+  h += '</div>';
+  return h;
+}
+
+// ─── 3. Wizard de création ─────────────────────────────────────
+
+function daStartWizard() {
+  _daWizard = {
+    step: 1,
+    type: null,
+    title: '',
+    files: [],         // [{id, name, rows, columns}]
+    mapping: {},       // selon type
+    filters: [],       // [{field, op, value}]
+    results: null,     // calculé à l'étape 5
+  };
+  _daRenderWizard();
+}
+
+function _daRenderWizard() {
+  if (!_daWizard) return;
+  var stepNum = _daWizard.step;
+  var body = '';
+
+  // Stepper
+  body += '<div style="display:flex;align-items:center;gap:4px;margin-bottom:14px;padding:10px;background:#F5F4FE;border-radius:5px">';
+  ['Type','Fichiers','Mapping','Filtres','Résultats'].forEach(function(label, i){
+    var s = i + 1;
+    var isActive = stepNum === s;
+    var isDone = stepNum > s;
+    var bg = isActive ? '#3C3489' : (isDone ? '#16A34A' : '#CECBF6');
+    var fg = (isActive || isDone) ? '#fff' : '#3C3489';
+    body += '<span style="width:22px;height:22px;border-radius:50%;background:'+bg+';color:'+fg+';display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;flex-shrink:0">'+(isDone?'✓':s)+'</span>';
+    body += '<span style="font-size:11px;color:'+(isActive?'#3C3489':'var(--text-2)')+';font-weight:'+(isActive?'600':'400')+'">'+esc(label)+'</span>';
+    if (i < 4) body += '<span style="color:var(--text-3);font-size:10px;margin:0 4px">→</span>';
+  });
+  body += '</div>';
+
+  // Étape courante
+  if (stepNum === 1) body += _daRenderStep1();
+  else if (stepNum === 2) body += _daRenderStep2();
+  else if (stepNum === 3) body += _daRenderStep3();
+  else if (stepNum === 4) body += _daRenderStep4();
+  else if (stepNum === 5) body += _daRenderStep5();
+
+  // Boutons navigation
+  body += '<div style="display:flex;justify-content:space-between;gap:8px;margin-top:14px;padding-top:10px;border-top:.5px solid var(--border)">';
+  if (stepNum > 1 && stepNum < 5) {
+    body += '<button class="bs" style="font-size:11px;padding:5px 12px" onclick="_daWizardPrev()">← Précédent</button>';
+  } else {
+    body += '<span></span>';
+  }
+  if (stepNum < 5) {
+    var canNext = _daCanGoNext();
+    body += '<button class="bp" style="font-size:11px;padding:5px 12px'+(canNext?'':';opacity:0.5;cursor:not-allowed')+'" '+(canNext?'':'disabled')+' onclick="_daWizardNext()">Suivant →</button>';
+  } else {
+    body += '<button class="bp" style="font-size:11px;padding:5px 12px" onclick="daSaveAnalysis()">Sauvegarder l\'analyse</button>';
+  }
+  body += '</div>';
+
+  openModal('Nouvelle analyse de données', body, null, {wide: true, hideOk: true, cancelLabel: 'Fermer'});
+}
+
+function _daCanGoNext() {
+  if (!_daWizard) return false;
+  var s = _daWizard.step;
+  if (s === 1) return !!_daWizard.type && !!_daWizard.title;
+  if (s === 2) {
+    var need = (_daWizard.type === 'reconciliation') ? 2 : 1;
+    return _daWizard.files.length >= need;
+  }
+  if (s === 3) {
+    if (_daWizard.type === 'reconciliation') {
+      var m = _daWizard.mapping || {};
+      return !!(m.keyA && m.keyB);
+    }
+    if (_daWizard.type === 'anomaly') {
+      var m2 = _daWizard.mapping || {};
+      return !!m2.ruleType;
+    }
+  }
+  return true;
+}
+
+function _daWizardNext() {
+  if (!_daCanGoNext()) return;
+  _daWizard.step++;
+  // Au passage à l'étape 5 : lancer le calcul
+  if (_daWizard.step === 5 && !_daWizard.results) {
+    _daRunAnalysis();
+  }
+  _daRenderWizard();
+}
+
+function _daWizardPrev() {
+  if (_daWizard.step > 1) _daWizard.step--;
+  // Reset les résultats si on revient en arrière
+  if (_daWizard.step < 5) _daWizard.results = null;
+  _daRenderWizard();
+}
+
+// ─── 4. Étape 1 : Type ────────────────────────────────────────
+
+function _daRenderStep1() {
+  var h = '<div>';
+  h += '<div style="margin-bottom:10px"><label style="font-size:11px;color:var(--text-2);font-weight:500;display:block;margin-bottom:4px">Titre de l\'analyse <span style="color:var(--red)">*</span></label>';
+  h += '<input id="da-title" type="text" placeholder="ex : Rapprochement Banks SAP vs Bank list officielle" value="'+esc(_daWizard.title||'')+'" oninput="_daWizard.title=this.value;_daUpdateNavButton()" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box"/></div>';
+
+  h += '<div style="font-size:11px;color:var(--text-2);font-weight:500;margin-bottom:4px">Type d\'analyse <span style="color:var(--red)">*</span></div>';
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">';
+
+  // Recommandation : 2 cards activées (Reco + Anomalies), 2 "à venir v77.16b"
+  var types = [
+    {key:'reconciliation', label:'Rapprochement', icon:'🔗', desc:'Matching ligne-à-ligne entre 2 fichiers sur une clé commune (IBAN, ID, etc.)'},
+    {key:'anomaly', label:'Détection anomalies', icon:'⚠️', desc:'Règles sur 1 fichier : doublons, seuils, conditions, regex'},
+    {key:'comparison', label:'Comparaison valeurs', icon:'🧮', desc:'Écarts de montants/quantités avec tolérance (v77.16b)', disabled:true},
+    {key:'stratification', label:'Stratification', icon:'📊', desc:'Statistiques par tranches / catégories sur 1 fichier (v77.16b)', disabled:true},
+  ];
+  types.forEach(function(t){
+    var isSel = _daWizard.type === t.key;
+    var op = t.disabled ? '0.4' : '1';
+    var cursor = t.disabled ? 'not-allowed' : 'pointer';
+    var clickH = t.disabled ? '' : 'onclick="_daWizard.type=\''+t.key+'\';_daRenderWizard()"';
+    h += '<div '+clickH+' style="border:1.5px solid '+(isSel?'#3C3489':'var(--border)')+';border-radius:5px;padding:11px;cursor:'+cursor+';background:'+(isSel?'#EEEDFE':'#fff')+';opacity:'+op+'">';
+    h += '<div style="display:flex;align-items:center;gap:7px;margin-bottom:3px"><span style="font-size:17px">'+t.icon+'</span><span style="font-size:13px;font-weight:600;color:'+(isSel?'#3C3489':'var(--text-1)')+'">'+esc(t.label)+'</span></div>';
+    h += '<div style="font-size:10px;color:var(--text-3);line-height:1.4">'+esc(t.desc)+'</div>';
+    h += '</div>';
+  });
+  h += '</div>';
+  h += '</div>';
+  return h;
+}
+
+// Helper : ré-évalue le bouton Suivant après input texte
+function _daUpdateNavButton() {
+  // Re-render léger : juste mettre à jour le bouton (pour ne pas perdre le focus)
+  // En pratique on re-render tout, on saute la perte de focus pour cette étape
+  // Compromis pragmatique : on évite le re-render full pour le titre
+  var modal = document.querySelector('#modal .md');
+  if (!modal) return;
+  var btns = modal.querySelectorAll('button.bp');
+  btns.forEach(function(b){
+    if (b.textContent && b.textContent.indexOf('Suivant') >= 0) {
+      var can = _daCanGoNext();
+      if (can) {
+        b.style.opacity = '1';
+        b.style.cursor = 'pointer';
+        b.disabled = false;
+      } else {
+        b.style.opacity = '0.5';
+        b.style.cursor = 'not-allowed';
+        b.disabled = true;
+      }
+    }
+  });
+}
+
+// ─── 5. Étape 2 : Upload fichiers ─────────────────────────────
+
+function _daRenderStep2() {
+  var d = getAudData(CA);
+  var nbRequired = (_daWizard.type === 'reconciliation') ? 2 : 1;
+  var labels = (_daWizard.type === 'reconciliation') ? ['Fichier A','Fichier B'] : ['Fichier source'];
+
+  // Fichiers déjà uploadés sur cet audit (cache mémoire de la session)
+  var available = Object.keys(_daFileCache).map(function(id){return _daFileCache[id];});
+
+  var h = '<div>';
+  h += '<div style="font-size:11px;color:var(--text-2);font-weight:500;margin-bottom:8px">Upload des fichiers sources ('+nbRequired+' requis)</div>';
+  h += '<div style="font-size:10px;color:var(--text-3);margin-bottom:10px;font-style:italic">Formats acceptés : .xlsx, .xls, .csv, .tsv. Limite recommandée : 100 000 lignes par fichier.</div>';
+
+  for (var i = 0; i < nbRequired; i++) {
+    var slot = _daWizard.files[i];
+    var label = labels[i];
+    var slotId = 'da-file-slot-' + i;
+    h += '<div style="border:.5px solid var(--border);border-radius:5px;padding:10px;margin-bottom:8px">';
+    h += '<div style="font-size:11px;color:var(--text-2);font-weight:500;margin-bottom:6px">'+esc(label)+'</div>';
+    if (slot) {
+      h += '<div style="background:#E8F5E9;border:.5px solid #A6E2CD;border-radius:4px;padding:8px;display:flex;align-items:center;gap:8px">';
+      h += '<span style="color:#085041">✓</span>';
+      h += '<div style="flex:1;min-width:0"><div style="font-size:11px;font-weight:500">'+esc(slot.name)+'</div><div style="font-size:10px;color:var(--text-3)">'+slot.rows.length+' lignes · '+slot.columns.length+' colonnes</div></div>';
+      h += '<button class="bs" style="font-size:10px;padding:3px 7px" onclick="_daPreviewFile(\''+_escJsArg(slot.id)+'\')">Aperçu</button>';
+      h += '<button class="bs" style="font-size:10px;padding:3px 7px;color:#993C1D" onclick="_daRemoveFile('+i+')">Retirer</button>';
+      h += '</div>';
+    } else {
+      // Zone d'upload + sélection
+      h += '<div style="border:.5px dashed var(--border);border-radius:4px;padding:14px;text-align:center;background:#FAFAFE">';
+      h += '<input type="file" id="'+slotId+'" accept=".xlsx,.xls,.csv,.tsv" style="display:none" onchange="_daHandleFileUpload(event,'+i+')"/>';
+      h += '<button class="bp" style="font-size:11px;padding:5px 14px" onclick="document.getElementById(\''+slotId+'\').click()">⬆ Choisir un fichier</button>';
+      if (available.length > 0) {
+        h += '<div style="font-size:10px;color:var(--text-3);margin-top:8px">ou réutiliser :</div>';
+        h += '<div style="display:flex;flex-direction:column;gap:3px;margin-top:4px">';
+        available.forEach(function(f){
+          // Ne pas proposer si déjà sélectionné dans un autre slot
+          var alreadyUsed = _daWizard.files.some(function(sl){return sl && sl.id === f.id;});
+          if (alreadyUsed) return;
+          h += '<button class="bs" style="font-size:10px;padding:3px 8px;text-align:left" onclick="_daReuseFile('+i+',\''+_escJsArg(f.id)+'\')">📄 '+esc(f.name)+' ('+f.rows.length+' lignes)</button>';
+        });
+        h += '</div>';
+      }
+      h += '</div>';
+    }
+    h += '</div>';
+  }
+  h += '</div>';
+  return h;
+}
+
+function _daHandleFileUpload(event, slotIdx) {
+  var file = event.target.files[0];
+  if (!file) return;
+
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      var data = new Uint8Array(e.target.result);
+      var workbook = XLSX.read(data, {type: 'array'});
+      var sheetName = workbook.SheetNames[0];
+      var sheet = workbook.Sheets[sheetName];
+      // Convertir en JSON avec les en-têtes
+      var jsonData = XLSX.utils.sheet_to_json(sheet, {defval: '', raw: false});
+      if (!jsonData.length) {
+        toast('Le fichier est vide ou mal formé.');
+        return;
+      }
+      var columns = Object.keys(jsonData[0]);
+      if (jsonData.length > 100000) {
+        if (!confirm('Ce fichier contient '+jsonData.length+' lignes (limite recommandée : 100 000). Continuer ?')) return;
+      }
+
+      var fileId = _daId('file');
+      var fileObj = {
+        id: fileId,
+        name: file.name,
+        rows: jsonData,
+        columns: columns,
+      };
+      _daFileCache[fileId] = fileObj;
+      _daWizard.files[slotIdx] = fileObj;
+      _daRenderWizard();
+      toast('✓ Fichier chargé : '+jsonData.length+' lignes');
+    } catch(err) {
+      console.error('Erreur parsing fichier:', err);
+      toast('Erreur lors de la lecture du fichier : '+err.message);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function _daRemoveFile(slotIdx) {
+  _daWizard.files.splice(slotIdx, 1);
+  _daRenderWizard();
+}
+
+function _daReuseFile(slotIdx, fileId) {
+  var f = _daFileCache[fileId];
+  if (!f) return;
+  _daWizard.files[slotIdx] = f;
+  _daRenderWizard();
+}
+
+function _daPreviewFile(fileId) {
+  var f = _daFileCache[fileId];
+  if (!f) return;
+  var rows = f.rows.slice(0, 10);
+  var body = '<div style="font-size:11px;color:var(--text-3);margin-bottom:6px">10 premières lignes sur '+f.rows.length+'</div>';
+  body += '<div style="overflow-x:auto;border:.5px solid var(--border);border-radius:4px">';
+  body += '<table style="width:100%;font-size:10px;border-collapse:collapse">';
+  body += '<thead><tr style="background:#F5F4FE">';
+  f.columns.forEach(function(c){
+    body += '<th style="padding:5px 8px;text-align:left;font-weight:500;color:var(--text-2);border-bottom:.5px solid var(--border)">'+esc(c)+'</th>';
+  });
+  body += '</tr></thead><tbody>';
+  rows.forEach(function(r){
+    body += '<tr style="border-bottom:.5px solid var(--border)">';
+    f.columns.forEach(function(c){
+      body += '<td style="padding:4px 8px">'+esc(r[c])+'</td>';
+    });
+    body += '</tr>';
+  });
+  body += '</tbody></table></div>';
+  // On affiche une "alerte" — modale read-only
+  openModal('Aperçu : '+f.name, body, function(){
+    // Fermer puis re-render le wizard
+    setTimeout(function(){ _daRenderWizard(); }, 50);
+  }, {wide: true, cancelLabel: 'Retour'});
+}
+
+// ─── 6. Étape 3 : Mapping colonnes ─────────────────────────────
+
+function _daRenderStep3() {
+  if (_daWizard.type === 'reconciliation') return _daRenderStep3_reconciliation();
+  if (_daWizard.type === 'anomaly') return _daRenderStep3_anomaly();
+  return '<div>Type non supporté.</div>';
+}
+
+function _daRenderStep3_reconciliation() {
+  var fA = _daWizard.files[0];
+  var fB = _daWizard.files[1];
+  var m = _daWizard.mapping;
+
+  var optsA = '<option value="">— choisir —</option>' + fA.columns.map(function(c){
+    return '<option value="'+esc(c)+'"'+(m.keyA===c?' selected':'')+'>'+esc(c)+'</option>';
+  }).join('');
+  var optsB = '<option value="">— choisir —</option>' + fB.columns.map(function(c){
+    return '<option value="'+esc(c)+'"'+(m.keyB===c?' selected':'')+'>'+esc(c)+'</option>';
+  }).join('');
+
+  var h = '<div>';
+  h += '<div style="font-size:11px;color:var(--text-2);font-weight:500;margin-bottom:8px">Clé de rapprochement <span style="color:var(--red)">*</span></div>';
+  h += '<div style="background:#FAFAFE;border:.5px solid var(--border);border-radius:5px;padding:10px;margin-bottom:10px">';
+  h += '<div style="display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:end">';
+  h += '<div><label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:3px">Fichier A : '+esc(fA.name)+'</label><select onchange="_daWizard.mapping.keyA=this.value;_daUpdateNavButton()" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px">'+optsA+'</select></div>';
+  h += '<div style="font-size:14px;color:var(--text-3);padding-bottom:5px">↔</div>';
+  h += '<div><label style="font-size:10px;color:var(--text-3);display:block;margin-bottom:3px">Fichier B : '+esc(fB.name)+'</label><select onchange="_daWizard.mapping.keyB=this.value;_daUpdateNavButton()" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px">'+optsB+'</select></div>';
+  h += '</div>';
+  h += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:6px">Les lignes seront rapprochées en comparant ces colonnes (recherche exacte, insensible à la casse).</div>';
+  h += '</div>';
+  h += '</div>';
+  return h;
+}
+
+function _daRenderStep3_anomaly() {
+  var f = _daWizard.files[0];
+  var m = _daWizard.mapping;
+  var opts = '<option value="">— choisir —</option>' + f.columns.map(function(c){
+    return '<option value="'+esc(c)+'"'+(m.column===c?' selected':'')+'>'+esc(c)+'</option>';
+  }).join('');
+
+  var h = '<div>';
+  h += '<div style="font-size:11px;color:var(--text-2);font-weight:500;margin-bottom:8px">Type de règle <span style="color:var(--red)">*</span></div>';
+  h += '<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px">';
+
+  var rules = [
+    {key:'duplicates', label:'Doublons', desc:'Lignes ayant la même valeur dans la colonne sélectionnée'},
+    {key:'threshold_gt', label:'Valeur > seuil', desc:'Lignes où la colonne (numérique) dépasse un seuil'},
+    {key:'threshold_lt', label:'Valeur < seuil', desc:'Lignes où la colonne (numérique) est inférieure à un seuil'},
+    {key:'empty', label:'Valeurs vides', desc:'Lignes où la colonne est vide / null'},
+    {key:'regex', label:'Pattern (regex)', desc:'Lignes où la colonne matche un motif (ex : email invalide)'},
+  ];
+  rules.forEach(function(r){
+    var isSel = m.ruleType === r.key;
+    h += '<div onclick="_daWizard.mapping.ruleType=\''+r.key+'\';_daRenderWizard()" style="border:1.5px solid '+(isSel?'#3C3489':'var(--border)')+';border-radius:4px;padding:8px 12px;cursor:pointer;background:'+(isSel?'#EEEDFE':'#fff')+'">';
+    h += '<div style="font-size:11px;font-weight:600;color:'+(isSel?'#3C3489':'var(--text-1)')+'">'+esc(r.label)+'</div>';
+    h += '<div style="font-size:10px;color:var(--text-3);margin-top:1px">'+esc(r.desc)+'</div>';
+    h += '</div>';
+  });
+  h += '</div>';
+
+  if (m.ruleType) {
+    h += '<div style="background:#FAFAFE;border:.5px solid var(--border);border-radius:5px;padding:10px;margin-bottom:10px">';
+    h += '<div><label style="font-size:11px;color:var(--text-2);font-weight:500;display:block;margin-bottom:4px">Colonne à analyser</label>';
+    h += '<select onchange="_daWizard.mapping.column=this.value" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px">'+opts+'</select></div>';
+
+    if (m.ruleType === 'threshold_gt' || m.ruleType === 'threshold_lt') {
+      h += '<div style="margin-top:8px"><label style="font-size:11px;color:var(--text-2);font-weight:500;display:block;margin-bottom:4px">Seuil (numérique)</label>';
+      h += '<input type="number" step="any" value="'+esc(m.threshold||'')+'" onchange="_daWizard.mapping.threshold=parseFloat(this.value)" placeholder="ex : 10000" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box"/></div>';
+    } else if (m.ruleType === 'regex') {
+      h += '<div style="margin-top:8px"><label style="font-size:11px;color:var(--text-2);font-weight:500;display:block;margin-bottom:4px">Pattern regex (JavaScript)</label>';
+      h += '<input type="text" value="'+esc(m.pattern||'')+'" onchange="_daWizard.mapping.pattern=this.value" placeholder="ex : ^[\\w.-]+@[\\w.-]+\\.\\w+$" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box;font-family:monospace"/>';
+      h += '<div style="font-size:9px;color:var(--text-3);font-style:italic;margin-top:3px">Les exceptions seront les lignes qui ne matchent PAS le pattern.</div></div>';
+    }
+    h += '</div>';
+  }
+  h += '</div>';
+  return h;
+}
+
+// ─── 7. Étape 4 : Filtres préalables ───────────────────────────
+
+function _daRenderStep4() {
+  var f0 = _daWizard.files[0];
+  if (!f0) return '<div>Erreur : fichier manquant.</div>';
+
+  var h = '<div>';
+  h += '<div style="font-size:11px;color:var(--text-2);font-weight:500;margin-bottom:4px">Filtres préalables (optionnel)</div>';
+  h += '<div style="font-size:10px;color:var(--text-3);margin-bottom:10px;font-style:italic">Limite le périmètre des données analysées. Les filtres s\'appliquent sur le fichier A (ou unique). Tous les filtres sont combinés par ET.</div>';
+
+  (_daWizard.filters || []).forEach(function(flt, i){
+    var opts = '<option value="">— colonne —</option>' + f0.columns.map(function(c){
+      return '<option value="'+esc(c)+'"'+(flt.field===c?' selected':'')+'>'+esc(c)+'</option>';
+    }).join('');
+    h += '<div style="display:grid;grid-template-columns:1fr auto 1fr auto;gap:6px;align-items:center;margin-bottom:5px">';
+    h += '<select onchange="_daWizard.filters['+i+'].field=this.value" style="font-size:11px;padding:4px 6px;border:1px solid var(--border);border-radius:3px">'+opts+'</select>';
+    h += '<select onchange="_daWizard.filters['+i+'].op=this.value" style="font-size:11px;padding:4px 6px;border:1px solid var(--border);border-radius:3px">';
+    [['eq','='],['neq','≠'],['contains','contient'],['gt','>'],['lt','<']].forEach(function(opPair){
+      h += '<option value="'+opPair[0]+'"'+(flt.op===opPair[0]?' selected':'')+'>'+opPair[1]+'</option>';
+    });
+    h += '</select>';
+    h += '<input type="text" value="'+esc(flt.value||'')+'" oninput="_daWizard.filters['+i+'].value=this.value" placeholder="valeur" style="font-size:11px;padding:4px 6px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box"/>';
+    h += '<button class="bs" style="font-size:10px;padding:3px 6px;color:#993C1D" onclick="_daRemoveFilter('+i+')">✕</button>';
+    h += '</div>';
+  });
+
+  h += '<button class="bs" style="font-size:11px;padding:4px 11px;margin-top:6px" onclick="_daAddFilter()">+ Ajouter un filtre</button>';
+  h += '</div>';
+  return h;
+}
+
+function _daAddFilter() {
+  if (!Array.isArray(_daWizard.filters)) _daWizard.filters = [];
+  _daWizard.filters.push({field:'', op:'eq', value:''});
+  _daRenderWizard();
+}
+
+function _daRemoveFilter(i) {
+  _daWizard.filters.splice(i, 1);
+  _daRenderWizard();
+}
+
+// ─── 8. Étape 5 : Résultats ────────────────────────────────────
+
+function _daRenderStep5() {
+  var r = _daWizard.results;
+  if (!r) {
+    return '<div style="text-align:center;padding:30px"><div style="font-size:14px;color:var(--text-3)">Calcul en cours...</div></div>';
+  }
+  if (r.error) {
+    return '<div style="background:#FEF3F2;color:#7F1D1D;padding:12px;border-radius:5px;font-size:11px">⚠ Erreur lors du calcul : '+esc(r.error)+'</div>';
+  }
+
+  var h = '<div>';
+  // KPIs
+  h += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px">';
+  h += '<div style="background:#FAFAFE;border:.5px solid var(--border);border-radius:5px;padding:10px"><div style="font-size:10px;color:var(--text-3)">Total lignes</div><div style="font-size:18px;font-weight:600;margin-top:2px">'+(r.totalRows||0)+'</div></div>';
+  if (_daWizard.type === 'reconciliation') {
+    h += '<div style="background:#E8F5E9;border:.5px solid #A6E2CD;border-radius:5px;padding:10px"><div style="font-size:10px;color:#085041">Matchs</div><div style="font-size:18px;font-weight:600;color:#085041;margin-top:2px">'+(r.matches||0)+'</div></div>';
+    h += '<div style="background:#FEF3F2;border:.5px solid #FCA5A5;border-radius:5px;padding:10px"><div style="font-size:10px;color:#7F1D1D">Manquants A</div><div style="font-size:18px;font-weight:600;color:#7F1D1D;margin-top:2px">'+(r.missingA||0)+'</div></div>';
+    h += '<div style="background:#FEF3F2;border:.5px solid #FCA5A5;border-radius:5px;padding:10px"><div style="font-size:10px;color:#7F1D1D">Manquants B</div><div style="font-size:18px;font-weight:600;color:#7F1D1D;margin-top:2px">'+(r.missingB||0)+'</div></div>';
+  } else {
+    h += '<div style="background:#E8F5E9;border:.5px solid #A6E2CD;border-radius:5px;padding:10px"><div style="font-size:10px;color:#085041">Lignes OK</div><div style="font-size:18px;font-weight:600;color:#085041;margin-top:2px">'+((r.totalRows||0)-((r.exceptions||[]).length))+'</div></div>';
+    h += '<div style="background:#FEF3F2;border:.5px solid #FCA5A5;border-radius:5px;padding:10px"><div style="font-size:10px;color:#7F1D1D">Exceptions</div><div style="font-size:18px;font-weight:600;color:#7F1D1D;margin-top:2px">'+((r.exceptions||[]).length)+'</div></div>';
+    h += '<div style="background:#FAFAFE;border:.5px solid var(--border);border-radius:5px;padding:10px"><div style="font-size:10px;color:var(--text-3)">% exceptions</div><div style="font-size:18px;font-weight:600;margin-top:2px">'+(r.totalRows>0?Math.round((r.exceptions||[]).length / r.totalRows * 100):0)+'%</div></div>';
+  }
+  h += '</div>';
+
+  // Table d'exceptions (limite à 50 pour pas exploser le DOM)
+  var exc = r.exceptions || [];
+  if (exc.length > 0) {
+    h += '<div style="font-size:11px;color:var(--text-2);font-weight:500;margin-bottom:6px">Exceptions (max 50 affichées)</div>';
+    h += '<div style="overflow-x:auto;border:.5px solid var(--border);border-radius:5px;max-height:300px;overflow-y:auto">';
+    h += '<table style="width:100%;font-size:10px;border-collapse:collapse">';
+    h += '<thead style="position:sticky;top:0;background:#F5F4FE"><tr>';
+    // En-têtes : la première colonne = type, puis les colonnes pertinentes
+    var cols = _daGetExceptionColumns();
+    cols.forEach(function(c){
+      h += '<th style="padding:5px 8px;text-align:left;font-weight:500;color:var(--text-2);border-bottom:.5px solid var(--border)">'+esc(c)+'</th>';
+    });
+    h += '</tr></thead><tbody>';
+    exc.slice(0, 50).forEach(function(e){
+      h += '<tr style="border-bottom:.5px solid var(--border)">';
+      cols.forEach(function(c){
+        var val = e[c];
+        var color = '';
+        if (c === 'Type' && val) {
+          if (val.indexOf('Manque') >= 0) color = ';color:#7F1D1D';
+          else if (val.indexOf('Doublon') >= 0) color = ';color:#854F0B';
+        }
+        h += '<td style="padding:4px 8px'+color+'">'+esc(val == null ? '' : String(val))+'</td>';
+      });
+      h += '</tr>';
+    });
+    h += '</tbody></table></div>';
+    if (exc.length > 50) {
+      h += '<div style="font-size:10px;color:var(--text-3);font-style:italic;text-align:center;margin-top:5px">+ '+(exc.length-50)+' autres exceptions (visibles dans l\'export Excel)</div>';
+    }
+  } else {
+    h += '<div style="text-align:center;padding:20px;background:#E8F5E9;border-radius:5px;color:#085041;font-size:11px">✓ Aucune exception détectée.</div>';
+  }
+  h += '</div>';
+  return h;
+}
+
+function _daGetExceptionColumns() {
+  if (_daWizard.type === 'reconciliation') {
+    return ['Type', 'Clé', 'Source'];
+  } else if (_daWizard.type === 'anomaly') {
+    var f = _daWizard.files[0];
+    if (f && f.columns) return ['Raison'].concat(f.columns.slice(0, 5));
+    return ['Raison'];
+  }
+  return ['Détail'];
+}
+
+// ─── 9. Calcul des analyses ────────────────────────────────────
+
+function _daRunAnalysis() {
+  try {
+    if (_daWizard.type === 'reconciliation') _daRunReconciliation();
+    else if (_daWizard.type === 'anomaly') _daRunAnomalies();
+    else _daWizard.results = {error: 'Type non supporté en v77.16a'};
+  } catch(e) {
+    console.error('Erreur calcul analyse:', e);
+    _daWizard.results = {error: e.message};
+  }
+}
+
+// Applique les filtres préalables à un dataset
+function _daApplyFilters(rows, filters) {
+  if (!filters || !filters.length) return rows;
+  return rows.filter(function(r){
+    return filters.every(function(flt){
+      if (!flt.field) return true;
+      var v = r[flt.field];
+      var vs = v == null ? '' : String(v).toLowerCase();
+      var fv = (flt.value || '').toLowerCase();
+      switch(flt.op) {
+        case 'eq':       return vs === fv;
+        case 'neq':      return vs !== fv;
+        case 'contains': return vs.indexOf(fv) >= 0;
+        case 'gt':       return parseFloat(v) > parseFloat(flt.value);
+        case 'lt':       return parseFloat(v) < parseFloat(flt.value);
+        default: return true;
+      }
+    });
+  });
+}
+
+function _daRunReconciliation() {
+  var fA = _daWizard.files[0];
+  var fB = _daWizard.files[1];
+  var keyA = _daWizard.mapping.keyA;
+  var keyB = _daWizard.mapping.keyB;
+
+  // Filtres sur A uniquement (sur B aussi sans état séparé pour simplicité)
+  var rowsA = _daApplyFilters(fA.rows, _daWizard.filters);
+  var rowsB = fB.rows;
+
+  // Indexer B par clé pour lookup O(1)
+  var indexB = {};
+  var keyNorm = function(v) { return (v == null ? '' : String(v)).trim().toLowerCase(); };
+  rowsB.forEach(function(r){
+    var k = keyNorm(r[keyB]);
+    if (!k) return;
+    if (!indexB[k]) indexB[k] = [];
+    indexB[k].push(r);
+  });
+
+  var matches = 0;
+  var missingA = 0; // dans A mais pas dans B
+  var missingB = 0; // dans B mais pas dans A
+  var exceptions = [];
+  var seenInA = {};
+
+  // Parcours A : on cherche dans B
+  rowsA.forEach(function(rA){
+    var k = keyNorm(rA[keyA]);
+    if (!k) return;
+    seenInA[k] = true;
+    if (indexB[k]) {
+      matches++;
+    } else {
+      missingB++; // ligne A sans correspondance dans B
+      exceptions.push({
+        'Type': 'Manque dans B',
+        'Clé': rA[keyA],
+        'Source': fA.name,
+      });
+    }
+  });
+
+  // Parcours B : ce qui n'est pas dans A
+  Object.keys(indexB).forEach(function(k){
+    if (!seenInA[k]) {
+      missingA++;
+      indexB[k].forEach(function(rB){
+        exceptions.push({
+          'Type': 'Manque dans A',
+          'Clé': rB[keyB],
+          'Source': fB.name,
+        });
+      });
+    }
+  });
+
+  _daWizard.results = {
+    totalRows: rowsA.length + rowsB.length,
+    matches: matches,
+    missingA: missingA,
+    missingB: missingB,
+    exceptions: exceptions,
+  };
+}
+
+function _daRunAnomalies() {
+  var f = _daWizard.files[0];
+  var m = _daWizard.mapping;
+  var rows = _daApplyFilters(f.rows, _daWizard.filters);
+
+  var exceptions = [];
+
+  if (m.ruleType === 'duplicates') {
+    var groups = {};
+    rows.forEach(function(r){
+      var v = String(r[m.column] || '').trim().toLowerCase();
+      if (!v) return;
+      if (!groups[v]) groups[v] = [];
+      groups[v].push(r);
+    });
+    Object.keys(groups).forEach(function(k){
+      if (groups[k].length > 1) {
+        groups[k].forEach(function(r){
+          var ex = Object.assign({'Raison': 'Doublon ('+groups[k].length+'×)'}, r);
+          exceptions.push(ex);
+        });
+      }
+    });
+  } else if (m.ruleType === 'threshold_gt') {
+    rows.forEach(function(r){
+      var v = parseFloat(r[m.column]);
+      if (!isNaN(v) && v > m.threshold) {
+        exceptions.push(Object.assign({'Raison': '> '+m.threshold}, r));
+      }
+    });
+  } else if (m.ruleType === 'threshold_lt') {
+    rows.forEach(function(r){
+      var v = parseFloat(r[m.column]);
+      if (!isNaN(v) && v < m.threshold) {
+        exceptions.push(Object.assign({'Raison': '< '+m.threshold}, r));
+      }
+    });
+  } else if (m.ruleType === 'empty') {
+    rows.forEach(function(r){
+      var v = r[m.column];
+      if (v == null || String(v).trim() === '') {
+        exceptions.push(Object.assign({'Raison': 'Valeur vide'}, r));
+      }
+    });
+  } else if (m.ruleType === 'regex') {
+    var re;
+    try { re = new RegExp(m.pattern); }
+    catch(e) { _daWizard.results = {error: 'Pattern regex invalide : '+e.message}; return; }
+    rows.forEach(function(r){
+      var v = String(r[m.column] || '');
+      if (!re.test(v)) {
+        exceptions.push(Object.assign({'Raison': 'Ne matche pas le pattern'}, r));
+      }
+    });
+  }
+
+  _daWizard.results = {
+    totalRows: rows.length,
+    exceptions: exceptions,
+  };
+}
+
+// ─── 10. Sauvegarde de l'analyse ───────────────────────────────
+
+async function daSaveAnalysis() {
+  if (!_daWizard || !_daWizard.results) return;
+  var d = getAudData(CA);
+  _daEnsure(d);
+
+  // Limiter le nb d'exceptions stockées (les autres sont retrouvables via rerun)
+  var exc = _daWizard.results.exceptions || [];
+  var maxStored = 500; // limite raisonnable pour SP
+  var storedExceptions = exc.slice(0, maxStored);
+
+  var an = {
+    id: _daId('analysis'),
+    type: _daWizard.type,
+    title: _daWizard.title,
+    fileNames: _daWizard.files.map(function(f){return f.name;}),
+    fileColumns: _daWizard.files.map(function(f){return f.columns;}),
+    mapping: _daWizard.mapping,
+    filters: _daWizard.filters,
+    createdAt: new Date().toISOString(),
+    createdBy: (typeof CU !== 'undefined' && CU ? CU.name : '—'),
+    results: {
+      totalRows: _daWizard.results.totalRows,
+      matches: _daWizard.results.matches,
+      missingA: _daWizard.results.missingA,
+      missingB: _daWizard.results.missingB,
+      exceptions: storedExceptions,
+      truncated: exc.length > maxStored,
+    },
+  };
+  d.dataAnalyses.push(an);
+
+  try {
+    await saveAuditData(CA);
+    toast('✓ Analyse sauvegardée ('+exc.length+' exceptions)');
+  } catch(e) {
+    toast('Erreur de sauvegarde : '+e.message);
+    return;
+  }
+
+  _daWizard = null;
+  closeModal();
+  // Re-render la page Testings
+  document.getElementById('det-content').innerHTML = renderDetContent();
+}
+
+// ─── 11. Affichage détails d'une analyse sauvegardée ───────────
+
+function daShowResults(analysisId) {
+  var d = getAudData(CA);
+  var an = (d.dataAnalyses || []).find(function(x){return x.id === analysisId;});
+  if (!an) { toast('Analyse introuvable'); return; }
+
+  var r = an.results || {};
+  var exc = r.exceptions || [];
+  var icon = _daTypeIcons[an.type] || '📋';
+  var typeLabel = _daTypeLabels[an.type] || an.type;
+
+  var body = '<div style="background:#F5F4FE;padding:10px 12px;border-radius:5px;margin-bottom:14px">';
+  body += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:17px">'+icon+'</span><span style="font-size:13px;font-weight:600;color:#3C3489">'+esc(an.title)+'</span></div>';
+  body += '<div style="font-size:10px;color:var(--text-3)">';
+  body += esc(typeLabel)+' · '+esc((an.fileNames||[]).join(' + '));
+  if (an.createdAt) body += ' · créé le '+esc(an.createdAt.slice(0,10));
+  if (an.createdBy) body += ' par '+esc(an.createdBy);
+  body += '</div>';
+  if (an.mapping) {
+    body += '<div style="font-size:10px;color:var(--text-3);margin-top:4px">Mapping : ';
+    if (an.type === 'reconciliation') body += 'Clé A = '+esc(an.mapping.keyA)+' ↔ Clé B = '+esc(an.mapping.keyB);
+    else if (an.type === 'anomaly') body += 'Règle = '+esc(an.mapping.ruleType)+' sur colonne '+esc(an.mapping.column);
+    body += '</div>';
+  }
+  body += '</div>';
+
+  // KPIs
+  body += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px">';
+  body += '<div style="background:#FAFAFE;border:.5px solid var(--border);border-radius:5px;padding:10px"><div style="font-size:10px;color:var(--text-3)">Total lignes</div><div style="font-size:18px;font-weight:600;margin-top:2px">'+(r.totalRows||0)+'</div></div>';
+  if (an.type === 'reconciliation') {
+    body += '<div style="background:#E8F5E9;border:.5px solid #A6E2CD;border-radius:5px;padding:10px"><div style="font-size:10px;color:#085041">Matchs</div><div style="font-size:18px;font-weight:600;color:#085041;margin-top:2px">'+(r.matches||0)+'</div></div>';
+    body += '<div style="background:#FEF3F2;border:.5px solid #FCA5A5;border-radius:5px;padding:10px"><div style="font-size:10px;color:#7F1D1D">Manquants A</div><div style="font-size:18px;font-weight:600;color:#7F1D1D;margin-top:2px">'+(r.missingA||0)+'</div></div>';
+    body += '<div style="background:#FEF3F2;border:.5px solid #FCA5A5;border-radius:5px;padding:10px"><div style="font-size:10px;color:#7F1D1D">Manquants B</div><div style="font-size:18px;font-weight:600;color:#7F1D1D;margin-top:2px">'+(r.missingB||0)+'</div></div>';
+  } else {
+    body += '<div style="background:#E8F5E9;border:.5px solid #A6E2CD;border-radius:5px;padding:10px"><div style="font-size:10px;color:#085041">Lignes OK</div><div style="font-size:18px;font-weight:600;color:#085041;margin-top:2px">'+((r.totalRows||0) - exc.length)+'</div></div>';
+    body += '<div style="background:#FEF3F2;border:.5px solid #FCA5A5;border-radius:5px;padding:10px"><div style="font-size:10px;color:#7F1D1D">Exceptions</div><div style="font-size:18px;font-weight:600;color:#7F1D1D;margin-top:2px">'+exc.length+'</div></div>';
+    body += '<div style="background:#FAFAFE;border:.5px solid var(--border);border-radius:5px;padding:10px"><div style="font-size:10px;color:var(--text-3)">% exceptions</div><div style="font-size:18px;font-weight:600;margin-top:2px">'+(r.totalRows>0?Math.round(exc.length/r.totalRows*100):0)+'%</div></div>';
+  }
+  body += '</div>';
+
+  // Table exceptions
+  if (exc.length > 0) {
+    body += '<div style="font-size:11px;color:var(--text-2);font-weight:500;margin-bottom:6px">Exceptions';
+    if (r.truncated) body += ' <span style="font-size:9px;color:#7F1D1D">(limitées à 500 ; rerunne pour voir toutes)</span>';
+    body += '</div>';
+    body += '<div style="overflow-x:auto;border:.5px solid var(--border);border-radius:5px;max-height:300px;overflow-y:auto">';
+    body += '<table style="width:100%;font-size:10px;border-collapse:collapse">';
+    body += '<thead style="position:sticky;top:0;background:#F5F4FE"><tr>';
+    var cols = Object.keys(exc[0] || {});
+    cols.forEach(function(c){
+      body += '<th style="padding:5px 8px;text-align:left;font-weight:500;color:var(--text-2);border-bottom:.5px solid var(--border)">'+esc(c)+'</th>';
+    });
+    body += '</tr></thead><tbody>';
+    exc.slice(0, 100).forEach(function(e){
+      body += '<tr style="border-bottom:.5px solid var(--border)">';
+      cols.forEach(function(c){
+        body += '<td style="padding:4px 8px">'+esc(e[c] == null ? '' : String(e[c]))+'</td>';
+      });
+      body += '</tr>';
+    });
+    body += '</tbody></table></div>';
+    if (exc.length > 100) {
+      body += '<div style="font-size:10px;color:var(--text-3);font-style:italic;text-align:center;margin-top:5px">+ '+(exc.length-100)+' autres exceptions (visibles dans l\'export Excel)</div>';
+    }
+  } else {
+    body += '<div style="text-align:center;padding:20px;background:#E8F5E9;border-radius:5px;color:#085041;font-size:11px">✓ Aucune exception détectée.</div>';
+  }
+
+  // Boutons d'action
+  body += '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;padding-top:10px;border-top:.5px solid var(--border)">';
+  body += '<button class="bs" style="font-size:11px;padding:5px 12px" onclick="daExportExcel(\''+_escJsArg(analysisId)+'\')">⬇ Export Excel</button>';
+  if (exc.length > 0) {
+    body += '<button class="bp" style="font-size:11px;padding:5px 12px" onclick="daCreateIssueFromAnalysis(\''+_escJsArg(analysisId)+'\')">📋 Créer Issue depuis '+exc.length+' exception'+(exc.length>1?'s':'')+'</button>';
+  }
+  body += '</div>';
+
+  openModal('Détails de l\'analyse', body, null, {wide: true, hideOk: true, cancelLabel: 'Fermer'});
+}
+
+// ─── 12. Export Excel ──────────────────────────────────────────
+
+function daExportExcel(analysisId) {
+  var d = getAudData(CA);
+  var an = (d.dataAnalyses || []).find(function(x){return x.id === analysisId;});
+  if (!an) { toast('Analyse introuvable'); return; }
+
+  try {
+    var wb = XLSX.utils.book_new();
+    // Onglet 1 : Résumé
+    var summary = [
+      ['Titre', an.title || ''],
+      ['Type', _daTypeLabels[an.type] || an.type],
+      ['Fichiers', (an.fileNames||[]).join(', ')],
+      ['Créé le', (an.createdAt || '').slice(0,10)],
+      ['Créé par', an.createdBy || ''],
+      ['Total lignes', an.results.totalRows || 0],
+    ];
+    if (an.type === 'reconciliation') {
+      summary.push(['Matchs', an.results.matches || 0]);
+      summary.push(['Manquants A', an.results.missingA || 0]);
+      summary.push(['Manquants B', an.results.missingB || 0]);
+    } else {
+      summary.push(['Exceptions', (an.results.exceptions || []).length]);
+    }
+    if (an.mapping) {
+      summary.push(['', '']);
+      summary.push(['Mapping', '']);
+      Object.keys(an.mapping).forEach(function(k){
+        summary.push([k, String(an.mapping[k])]);
+      });
+    }
+    var wsSummary = XLSX.utils.aoa_to_sheet(summary);
+    XLSX.utils.book_append_sheet(wb, wsSummary, 'Résumé');
+
+    // Onglet 2 : Exceptions
+    var exc = an.results.exceptions || [];
+    if (exc.length > 0) {
+      var wsExc = XLSX.utils.json_to_sheet(exc);
+      XLSX.utils.book_append_sheet(wb, wsExc, 'Exceptions');
+    }
+
+    var fileName = (an.title || 'analysis').replace(/[^a-z0-9_-]/gi, '_').slice(0,40) + '.xlsx';
+    XLSX.writeFile(wb, fileName);
+    toast('✓ Export Excel généré');
+  } catch(e) {
+    console.error('Erreur export:', e);
+    toast('Erreur d\'export : '+e.message);
+  }
+}
+
+// ─── 13. Création d'issue depuis exceptions ────────────────────
+
+async function daCreateIssueFromAnalysis(analysisId) {
+  var d = getAudData(CA);
+  var an = (d.dataAnalyses || []).find(function(x){return x.id === analysisId;});
+  if (!an) { toast('Analyse introuvable'); return; }
+  var exc = an.results.exceptions || [];
+  if (!exc.length) { toast('Aucune exception pour créer une issue'); return; }
+
+  // Construire un titre + description par défaut
+  var typeLabel = _daTypeLabels[an.type] || an.type;
+  var title = 'Exceptions identifiées : ' + (an.title || typeLabel);
+  var desc = 'Analyse "' + an.title + '" (' + typeLabel + ')\n';
+  desc += 'Fichiers : ' + (an.fileNames||[]).join(', ') + '\n';
+  desc += 'Total lignes analysées : ' + (an.results.totalRows || 0) + '\n';
+  desc += 'Nombre d\'exceptions : ' + exc.length + '\n\n';
+  desc += 'Détail des premières exceptions :\n';
+  exc.slice(0, 10).forEach(function(e, i){
+    var key = e['Clé'] || e['Raison'] || JSON.stringify(e).slice(0,80);
+    desc += (i+1) + '. ' + (e['Type'] || e['Raison'] || '') + ' — ' + key + '\n';
+  });
+  if (exc.length > 10) desc += '... + ' + (exc.length - 10) + ' autres (voir export Excel)\n';
+
+  // Body de la modale Issue (simplifié pour cette intégration)
+  var body = '';
+  body += '<div style="background:#FFF7ED;border:.5px solid #FAC775;border-radius:4px;padding:10px;margin-bottom:12px;font-size:10px;color:#854F0B">⚠ Cette issue regroupera <strong>'+exc.length+' exceptions</strong> trouvées par l\'analyse. Tu peux ajuster le titre et la description.</div>';
+  body += '<div style="margin-bottom:10px"><label style="font-size:11px;color:var(--text-2);font-weight:500;display:block;margin-bottom:3px">Titre <span style="color:var(--red)">*</span></label>';
+  body += '<input id="da-issue-title" type="text" value="'+_escAttr(title)+'" style="width:100%;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;box-sizing:border-box"/></div>';
+  body += '<div style="margin-bottom:10px"><label style="font-size:11px;color:var(--text-2);font-weight:500;display:block;margin-bottom:3px">Description</label>';
+  body += '<textarea id="da-issue-desc" style="width:100%;min-height:120px;font-size:11px;padding:6px 8px;border:1px solid var(--border);border-radius:3px;font-family:inherit;resize:vertical;box-sizing:border-box;line-height:1.5">'+esc(desc)+'</textarea></div>';
+
+  openModal('Créer une issue depuis ces exceptions', body, async function(){
+    var t = document.getElementById('da-issue-title').value.trim();
+    if (!t) { toast('Titre obligatoire'); return; }
+    var dsc = document.getElementById('da-issue-desc').value.trim();
+
+    // Ajouter dans d.issues
+    if (!Array.isArray(d.issues)) d.issues = [];
+    var issueId = 'iss_da_' + Date.now() + '_' + Math.random().toString(36).slice(2,5);
+    d.issues.push({
+      id: issueId,
+      title: t,
+      description: dsc,
+      source: 'data_analysis',
+      analysisId: analysisId,
+      createdAt: new Date().toISOString(),
+      createdBy: (typeof CU !== 'undefined' && CU ? CU.name : '—'),
+      validationStatus: 'pending',
+    });
+
+    try {
+      await saveAuditData(CA);
+      toast('✓ Issue créée depuis l\'analyse');
+      // Re-render page
+      document.getElementById('det-content').innerHTML = renderDetContent();
+    } catch(e) {
+      toast('Erreur sauvegarde : '+e.message);
+    }
+  }, {wide: true});
+}
+
+// ─── 14. Suppression d'une analyse ─────────────────────────────
+
+async function daDeleteAnalysis(analysisId) {
+  if (!confirm('Supprimer cette analyse définitivement ?')) return;
+  var d = getAudData(CA);
+  d.dataAnalyses = (d.dataAnalyses || []).filter(function(x){return x.id !== analysisId;});
+  try {
+    await saveAuditData(CA);
+    toast('Analyse supprimée');
+    document.getElementById('det-content').innerHTML = renderDetContent();
+  } catch(e) {
+    toast('Erreur : '+e.message);
+  }
 }
 function renderTestsSection() {
   var d = getAudData(CA);
