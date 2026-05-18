@@ -1207,13 +1207,26 @@ V['dashboard']=()=>{
   if(typeof _dbAuditeur==='undefined') window._dbAuditeur='all';
   if(typeof _dbStatut==='undefined') window._dbStatut='all';
 
+  // v77.22 (Issue 1) : helper qui matche l'audit avec _dbAuditeur,
+  // y compris quand celui-ci contient plusieurs IDs séparés par "|" (alias d'un même user).
+  function _dbMatchesAuditeur(a) {
+    if (_dbAuditeur === 'all') return true;
+    var auditList = a.auditeurs || [];
+    if (_dbAuditeur.indexOf('|') < 0) return auditList.indexOf(_dbAuditeur) >= 0;
+    var ids = _dbAuditeur.split('|');
+    for (var i = 0; i < ids.length; i++) {
+      if (auditList.indexOf(ids[i]) >= 0) return true;
+    }
+    return false;
+  }
+
   // Appliquer filtres
   // Les missions "Other" ne sont PAS affichées dans le tableau principal
   // (elles ont leur propre capsule dédiée)
   var filtered=AUDIT_PLAN.filter(function(a){
     var okY  = a.annee===_dbYear;
     var okT  = a.type !== 'Other';
-    var okA  = _dbAuditeur==='all'||(a.auditeurs||[]).includes(_dbAuditeur);
+    var okA  = _dbMatchesAuditeur(a);
     var okS  = _dbStatut==='all'||(a.statut||'').startsWith(_dbStatut);
     return okY&&okT&&okA&&okS;
   });
@@ -1228,7 +1241,7 @@ V['dashboard']=()=>{
   var forChart=AUDIT_PLAN.filter(function(a){
     return a.annee===_dbYear
       && a.type !== 'Other'
-      && (_dbAuditeur==='all'||(a.auditeurs||[]).includes(_dbAuditeur));
+      && (_dbMatchesAuditeur(a));
   });
   var cClosed  = forChart.filter(function(a){return (a.statut||'').startsWith('Clôturé');}).length;
   var cInProg  = forChart.filter(function(a){return (a.statut||'').startsWith('En cours');}).length;
@@ -1239,7 +1252,7 @@ V['dashboard']=()=>{
   // ── Stats spécifiques pour les Process Audits uniquement ──
   var processOnly = AUDIT_PLAN.filter(function(a){
     return a.annee===_dbYear && a.type==='Process'
-      && (_dbAuditeur==='all'||(a.auditeurs||[]).includes(_dbAuditeur));
+      && (_dbMatchesAuditeur(a));
   });
   var pTotal = processOnly.length;
 
@@ -1257,9 +1270,9 @@ V['dashboard']=()=>{
 
   // Stats pour la nouvelle capsule "Missions par type"
   var byType = {
-    Process: AUDIT_PLAN.filter(function(a){return a.annee===_dbYear && a.type==='Process' && (_dbAuditeur==='all'||(a.auditeurs||[]).includes(_dbAuditeur));}).length,
-    BU:      AUDIT_PLAN.filter(function(a){return a.annee===_dbYear && a.type==='BU' && (_dbAuditeur==='all'||(a.auditeurs||[]).includes(_dbAuditeur));}).length,
-    Other:   AUDIT_PLAN.filter(function(a){return a.annee===_dbYear && a.type==='Other' && (_dbAuditeur==='all'||(a.auditeurs||[]).includes(_dbAuditeur));}).length,
+    Process: AUDIT_PLAN.filter(function(a){return a.annee===_dbYear && a.type==='Process' && (_dbMatchesAuditeur(a));}).length,
+    BU:      AUDIT_PLAN.filter(function(a){return a.annee===_dbYear && a.type==='BU' && (_dbMatchesAuditeur(a));}).length,
+    Other:   AUDIT_PLAN.filter(function(a){return a.annee===_dbYear && a.type==='Other' && (_dbMatchesAuditeur(a));}).length,
   };
   var totalAll = byType.Process + byType.BU + byType.Other;
 
@@ -1270,9 +1283,29 @@ V['dashboard']=()=>{
     return '<option value="'+y+'"'+(_dbYear===y?' selected':'')+'>'+y+'</option>';
   }).join('');
 
+  // v77.22 (Issue 1) : dédupliquer les auditeurs par nom (TM contient parfois plusieurs entrées
+  // pour le même utilisateur — alias legacy, sync TM répétée, casses différentes...).
+  // On regroupe par nom normalisé, et la valeur du <option> contient TOUS les IDs
+  // associés à ce nom séparés par "|" pour pouvoir filtrer correctement.
+  var nameGroups = {}; // nameKey → {displayName, ids: [...]}
+  Object.keys(TM).forEach(function(id){
+    var member = TM[id];
+    if (!member || !member.name) return;
+    // Clé normalisée : minuscules + trim + suppression points/espaces multiples
+    var nk = String(member.name).toLowerCase().trim().replace(/\s+/g,' ').replace(/\./g, '');
+    if (!nameGroups[nk]) nameGroups[nk] = {displayName: member.name, ids: []};
+    nameGroups[nk].ids.push(id);
+  });
+  var sortedGroups = Object.keys(nameGroups)
+    .map(function(k){return nameGroups[k];})
+    .sort(function(a,b){return a.displayName.localeCompare(b.displayName,'fr',{sensitivity:'base'});});
   var audOpts='<option value="all">Tous</option>'
-    +Object.keys(TM).map(function(id){
-      return '<option value="'+id+'"'+(_dbAuditeur===id?' selected':'')+'>'+TM[id].name+'</option>';
+    + sortedGroups.map(function(g){
+      var val = g.ids.join('|');
+      // Considère comme "sélectionné" si _dbAuditeur correspond à n'importe lequel des IDs du groupe
+      var isSel = (_dbAuditeur && g.ids.indexOf(_dbAuditeur) >= 0)
+                  || (_dbAuditeur && _dbAuditeur.indexOf('|') >= 0 && _dbAuditeur === val);
+      return '<option value="'+val+'"'+(isSel?' selected':'')+'>'+TM[g.ids[0]].name+'</option>';
     }).join('');
 
   var statOpts=[
@@ -1334,7 +1367,7 @@ V['dashboard']=()=>{
   // On prend tous les audits BU de l'année (filtrés par auditeur si applicable)
   var buAudits = AUDIT_PLAN.filter(function(a){
     return a.type==='BU' && a.annee===_dbYear
-      && (_dbAuditeur==='all'||(a.auditeurs||[]).includes(_dbAuditeur));
+      && (_dbMatchesAuditeur(a));
   });
   // Construire la liste : {pays, region, statut, titre}
   var countryEntries = [];
@@ -1357,7 +1390,7 @@ V['dashboard']=()=>{
   // Préparer données Capsule 3 : Autres missions
   var otherMissions = AUDIT_PLAN.filter(function(a){
     return a.type==='Other' && a.annee===_dbYear
-      && (_dbAuditeur==='all'||(a.auditeurs||[]).includes(_dbAuditeur));
+      && (_dbMatchesAuditeur(a));
   });
   otherMissions.sort(function(a,b){
     return (a.categorie||'').localeCompare(b.categorie||'', 'fr', {sensitivity:'base'});
@@ -1393,9 +1426,9 @@ V['dashboard']=()=>{
   html += '<div style="display:flex;flex-direction:column;gap:2px;font-size:9px;flex:1;min-width:0">';
   html += '<div style="font-size:10px;color:var(--text-2);font-weight:600;margin-bottom:2px">Par statut</div>';
   var statusItems = [
-    {label:'Clôturés', val: AUDIT_PLAN.filter(function(a){var s=(a.statut||'');return a.annee===_dbYear && (_dbAuditeur==='all'||(a.auditeurs||[]).includes(_dbAuditeur)) && (s.startsWith('Clôturé')||s.startsWith('Fait'));}).length, color:'#5DCAA5'},
-    {label:'En cours', val: AUDIT_PLAN.filter(function(a){return a.annee===_dbYear && (_dbAuditeur==='all'||(a.auditeurs||[]).includes(_dbAuditeur)) && (a.statut||'').startsWith('En cours');}).length, color:'#AFA9EC'},
-    {label:'Planifiés', val: AUDIT_PLAN.filter(function(a){return a.annee===_dbYear && (_dbAuditeur==='all'||(a.auditeurs||[]).includes(_dbAuditeur)) && (a.statut||'').startsWith('Planifié');}).length, color:'#EF9F27'},
+    {label:'Clôturés', val: AUDIT_PLAN.filter(function(a){var s=(a.statut||'');return a.annee===_dbYear && (_dbMatchesAuditeur(a)) && (s.startsWith('Clôturé')||s.startsWith('Fait'));}).length, color:'#5DCAA5'},
+    {label:'En cours', val: AUDIT_PLAN.filter(function(a){return a.annee===_dbYear && (_dbMatchesAuditeur(a)) && (a.statut||'').startsWith('En cours');}).length, color:'#AFA9EC'},
+    {label:'Planifiés', val: AUDIT_PLAN.filter(function(a){return a.annee===_dbYear && (_dbMatchesAuditeur(a)) && (a.statut||'').startsWith('Planifié');}).length, color:'#EF9F27'},
   ];
   statusItems.forEach(function(si){
     html+='<div style="display:flex;align-items:center;gap:4px;font-size:10px">'
@@ -2553,64 +2586,122 @@ function gsRender(){
     return;
   }
 
-  // Grouper par région
-  var byRegion = {};
-  GROUP_STRUCTURE.forEach(function(entry){
-    var reg = entry.region || '— Sans région —';
-    if (!byRegion[reg]) byRegion[reg] = [];
-    byRegion[reg].push(entry);
+  // v77.22 (Issue 2) : tableau plat 1 ligne par société (+ lignes de pays sans société)
+  // Tri : par région alphabétique, puis pays alphabétique
+  var sorted = GROUP_STRUCTURE.slice().sort(function(a,b){
+    var ra = (a.region||'~').toLowerCase();
+    var rb = (b.region||'~').toLowerCase();
+    if (ra !== rb) return ra.localeCompare(rb,'fr',{sensitivity:'base'});
+    return (a.country||'').localeCompare(b.country||'','fr',{sensitivity:'base'});
   });
-  var regions = Object.keys(byRegion).sort(function(a,b){return a.localeCompare(b,'fr',{sensitivity:'base'});});
 
-  var html = '';
-  regions.forEach(function(region){
-    var countries = byRegion[region].sort(function(a,b){
-      return (a.country||'').localeCompare(b.country||'','fr',{sensitivity:'base'});
-    });
-    html += '<div style="margin-bottom:1.5rem">';
-    html += '<div style="font-size:11px;font-weight:700;color:var(--purple-dk);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.5rem;padding-bottom:4px;border-bottom:1px solid var(--border)">'+region+' ('+countries.length+' pays)</div>';
-    html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px">';
-    countries.forEach(function(entry){
-      var companiesHtml = entry.companies && entry.companies.length
-        ? entry.companies.map(function(co){
-            var plNames = (co.productLineIds||[]).map(function(plId){
-              var pl = (PRODUCT_LINES||[]).find(function(p){return p.id===plId;});
-              return pl ? pl.name : plId;
-            });
-            var plHtml = plNames.length
-              ? plNames.map(function(n){return '<span class="badge bpl" style="font-size:9px;padding:2px 6px">'+n+'</span>';}).join(' ')
-              : '<span style="font-size:10px;color:var(--text-3);font-style:italic">Aucune PL</span>';
-            var socColor = co.society === 'SBS' ? '#9FE1CB' : co.society === 'AXW' ? '#B5D4F4' : '#CECBF6';
-            var socTxt = co.society === 'SBS' ? '#085041' : co.society === 'AXW' ? '#0C447C' : '#3C3489';
-            return '<div style="background:var(--bg);border-radius:6px;padding:8px 10px;margin-bottom:6px">'
-              + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">'
-                + '<span class="badge" style="background:'+socColor+';color:'+socTxt+';font-weight:600;font-size:10px">'+(co.society||'?')+'</span>'
-                + '<div style="display:flex;gap:4px">'
-                  + (CU&&CU.role==='admin'?'<button class="bs" style="font-size:10px;padding:2px 6px" onclick="gsEditCompany(\''+entry.id+'\',\''+co.id+'\')">Éditer</button>':'')
-                  + (CU&&CU.role==='admin'?'<button class="bd" style="font-size:10px;padding:2px 6px" onclick="gsRemoveCompany(\''+entry.id+'\',\''+co.id+'\')">×</button>':'')
-                + '</div>'
-              + '</div>'
-              + '<div style="font-size:11px;color:var(--text-2);margin-bottom:3px"><strong>Salariés :</strong> '+(co.employees||'—')+'</div>'
-              + '<div style="font-size:10px;margin-bottom:4px"><strong style="color:var(--text-2)">Product Lines :</strong> '+plHtml+'</div>'
-              + (co.domains?'<div style="font-size:10px;color:var(--text-2)"><strong>Domaines :</strong> '+co.domains+'</div>':'')
-              + '</div>';
-          }).join('')
-        : '<div style="font-size:11px;color:var(--text-3);text-align:center;padding:8px 0;font-style:italic">Aucune société</div>';
+  var isAdmin = CU && CU.role==='admin';
 
-      html += '<div class="card" style="padding:12px 14px">'
-        + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;padding-bottom:8px;border-bottom:.5px solid var(--border)">'
-          + '<div style="font-size:14px;font-weight:600">'+entry.country+'</div>'
-          + '<div style="display:flex;gap:4px">'
-            + (CU&&CU.role==='admin'?'<button class="bs" style="font-size:10px;padding:2px 6px" onclick="gsAddCompany(\''+entry.id+'\')">+ Société</button>':'')
-            + (CU&&CU.role==='admin'?'<button class="bs" style="font-size:10px;padding:2px 6px" onclick="gsEditCountry(\''+entry.id+'\')">Éditer</button>':'')
-            + (CU&&CU.role==='admin'?'<button class="bd" style="font-size:10px;padding:2px 6px" onclick="gsDeleteCountryAsk(\''+entry.id+'\')">×</button>':'')
-          + '</div>'
-        + '</div>'
-        + companiesHtml
-        + '</div>';
+  var html = '<div class="card" style="padding:0;overflow:hidden">';
+  html += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">';
+  html += '<thead><tr style="background:#F5F4FE">';
+  html += '<th style="padding:8px 12px;text-align:left;border-bottom:.5px solid var(--border);font-weight:600;color:var(--text-2);white-space:nowrap">Région</th>';
+  html += '<th style="padding:8px 12px;text-align:left;border-bottom:.5px solid var(--border);font-weight:600;color:var(--text-2);white-space:nowrap">Pays</th>';
+  html += '<th style="padding:8px 12px;text-align:center;border-bottom:.5px solid var(--border);font-weight:600;color:var(--text-2);white-space:nowrap">Société</th>';
+  html += '<th style="padding:8px 12px;text-align:right;border-bottom:.5px solid var(--border);font-weight:600;color:var(--text-2);white-space:nowrap">Salariés</th>';
+  html += '<th style="padding:8px 12px;text-align:left;border-bottom:.5px solid var(--border);font-weight:600;color:var(--text-2)">Product Lines</th>';
+  html += '<th style="padding:8px 12px;text-align:left;border-bottom:.5px solid var(--border);font-weight:600;color:var(--text-2)">Domaines</th>';
+  if (isAdmin) {
+    html += '<th style="padding:8px 12px;text-align:right;border-bottom:.5px solid var(--border);font-weight:600;color:var(--text-2);white-space:nowrap">Actions</th>';
+  }
+  html += '</tr></thead><tbody>';
+
+  // Pour grouper visuellement par pays : on retient la dernière région/pays affichés
+  // et on les laisse vides sur les lignes suivantes du même pays (style "merged" CSS)
+  var lastRegion = null;
+  var lastCountry = null;
+
+  sorted.forEach(function(entry){
+    var region = entry.region || '— Sans région —';
+    var companies = entry.companies || [];
+
+    if (companies.length === 0) {
+      // Ligne unique pour le pays sans société
+      html += '<tr style="border-bottom:.5px solid var(--border)">';
+      html += '<td style="padding:8px 12px;vertical-align:top;font-weight:500;color:var(--purple-dk)">'+(region !== lastRegion ? esc(region) : '<span style="color:var(--text-3)">↑</span>')+'</td>';
+      html += '<td style="padding:8px 12px;vertical-align:top;font-weight:500">'+esc(entry.country||'')+'</td>';
+      html += '<td colspan="4" style="padding:8px 12px;vertical-align:top;color:var(--text-3);font-style:italic">Aucune société</td>';
+      if (isAdmin) {
+        html += '<td style="padding:8px 12px;text-align:right;white-space:nowrap;vertical-align:top">';
+        html += '<button class="bs" style="font-size:10px;padding:3px 7px;margin-right:3px" onclick="gsAddCompany(\''+entry.id+'\')" title="Ajouter une société">+ Société</button>';
+        html += '<button class="bs" style="font-size:10px;padding:3px 7px;margin-right:3px" onclick="gsEditCountry(\''+entry.id+'\')">Éditer</button>';
+        html += '<button class="bd" style="font-size:10px;padding:3px 6px" onclick="gsDeleteCountryAsk(\''+entry.id+'\')">×</button>';
+        html += '</td>';
+      }
+      html += '</tr>';
+      lastRegion = region;
+      lastCountry = entry.country;
+      return;
+    }
+
+    // 1 ligne par société
+    companies.forEach(function(co, ciIdx){
+      var soc = co.society || '?';
+      var socColor = soc === 'SBS' ? '#9FE1CB' : (soc === 'AXW' ? '#B5D4F4' : '#CECBF6');
+      var socTxt = soc === 'SBS' ? '#085041' : (soc === 'AXW' ? '#0C447C' : '#3C3489');
+      var plNames = (co.productLineIds||[]).map(function(plId){
+        var pl = (PRODUCT_LINES||[]).find(function(p){return p.id===plId;});
+        return pl ? pl.name : plId;
+      });
+
+      html += '<tr style="border-bottom:.5px solid var(--border)">';
+      // Région : affichée seulement à la 1ère ligne de ce groupe
+      html += '<td style="padding:8px 12px;vertical-align:top;font-weight:500;color:var(--purple-dk)">'+(region !== lastRegion ? esc(region) : '<span style="color:var(--text-3)">↑</span>')+'</td>';
+      // Pays : affiché seulement à la 1ère ligne du pays
+      var showCountry = (entry.country !== lastCountry || region !== lastRegion);
+      html += '<td style="padding:8px 12px;vertical-align:top;font-weight:500">'+(showCountry ? esc(entry.country||'') : '<span style="color:var(--text-3)">↑</span>')+'</td>';
+      // Société
+      html += '<td style="padding:8px 12px;text-align:center;vertical-align:top;white-space:nowrap">';
+      html += '<span class="badge" style="background:'+socColor+';color:'+socTxt+';font-weight:600;font-size:10px">'+esc(soc)+'</span>';
+      html += '</td>';
+      // Salariés
+      html += '<td style="padding:8px 12px;text-align:right;vertical-align:top;font-variant-numeric:tabular-nums">'+(co.employees != null && co.employees !== '' ? esc(String(co.employees)) : '<span style="color:var(--text-3);font-style:italic">—</span>')+'</td>';
+      // Product Lines
+      html += '<td style="padding:8px 12px;vertical-align:top">';
+      if (plNames.length) {
+        html += '<div style="display:flex;flex-wrap:wrap;gap:3px">';
+        plNames.forEach(function(n){html += '<span class="badge bpl" style="font-size:9px;padding:2px 6px">'+esc(n)+'</span>';});
+        html += '</div>';
+      } else {
+        html += '<span style="font-size:10px;color:var(--text-3);font-style:italic">—</span>';
+      }
+      html += '</td>';
+      // Domaines
+      html += '<td style="padding:8px 12px;vertical-align:top;color:var(--text-2);font-size:10px">';
+      if (co.domains) {
+        var dm = co.domains.length > 120 ? co.domains.slice(0,118)+'…' : co.domains;
+        html += '<span title="'+esc(co.domains)+'">'+esc(dm)+'</span>';
+      } else {
+        html += '<span style="color:var(--text-3);font-style:italic">—</span>';
+      }
+      html += '</td>';
+      // Actions
+      if (isAdmin) {
+        html += '<td style="padding:8px 12px;text-align:right;white-space:nowrap;vertical-align:top">';
+        html += '<button class="bs" style="font-size:10px;padding:3px 7px;margin-right:3px" onclick="gsEditCompany(\''+entry.id+'\',\''+co.id+'\')" title="Éditer la société">Société ✎</button>';
+        html += '<button class="bd" style="font-size:10px;padding:3px 6px;margin-right:5px" onclick="gsRemoveCompany(\''+entry.id+'\',\''+co.id+'\')" title="Supprimer la société">×</button>';
+        // Actions au niveau Pays : seulement sur la dernière ligne du pays
+        if (ciIdx === companies.length - 1) {
+          html += '<span style="display:inline-block;width:8px"></span>';
+          html += '<button class="bs" style="font-size:10px;padding:3px 7px;margin-right:3px" onclick="gsAddCompany(\''+entry.id+'\')" title="Ajouter une société à ce pays">+ Société</button>';
+          html += '<button class="bs" style="font-size:10px;padding:3px 7px;margin-right:3px" onclick="gsEditCountry(\''+entry.id+'\')" title="Éditer le pays">Pays ✎</button>';
+          html += '<button class="bd" style="font-size:10px;padding:3px 6px" onclick="gsDeleteCountryAsk(\''+entry.id+'\')" title="Supprimer le pays (et toutes ses sociétés)">⊘</button>';
+        }
+        html += '</td>';
+      }
+      html += '</tr>';
+
+      lastRegion = region;
+      lastCountry = entry.country;
     });
-    html += '</div></div>';
   });
+
+  html += '</tbody></table></div></div>';
   root.innerHTML = html;
 }
 
@@ -5798,41 +5889,74 @@ function plRender(){
     return;
   }
 
-  // Grouper par société
-  var bySociety = { SBS:[], AXW:[], Autre:[] };
-  PRODUCT_LINES.forEach(function(pl){
-    var soc = (pl.society==='SBS' || pl.society==='AXW') ? pl.society : 'Autre';
-    bySociety[soc].push(pl);
+  // v77.22 (Issue 2) : tableau au lieu des cards
+  // Tri : par société (SBS → AXW → Autre) puis par nom alphabétique
+  var societyOrder = {'SBS':1, 'AXW':2};
+  var sorted = PRODUCT_LINES.slice().sort(function(a,b){
+    var sa = societyOrder[a.society] || 3;
+    var sb = societyOrder[b.society] || 3;
+    if (sa !== sb) return sa - sb;
+    return (a.name||'').localeCompare(b.name||'','fr',{sensitivity:'base'});
   });
 
-  var html = '';
-  ['SBS','AXW','Autre'].forEach(function(soc){
-    var list = bySociety[soc];
-    if (!list.length) return;
-    list.sort(function(a,b){return (a.name||'').localeCompare(b.name||'','fr',{sensitivity:'base'});});
-    html += '<div style="margin-bottom:1.5rem">';
-    html += '<div style="font-size:11px;font-weight:700;color:var(--purple-dk);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.5rem;padding-bottom:4px;border-bottom:1px solid var(--border)">'+soc+' ('+list.length+')</div>';
-    html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px">';
-    list.forEach(function(pl){
-      var countries = pl.countries || [];
-      var countriesHtml = countries.length
-        ? countries.map(function(c){return '<span class="badge bpl" style="font-size:9px;padding:2px 6px">'+c+'</span>';}).join(' ')
-        : '<span style="font-size:10px;color:var(--text-3);font-style:italic">Aucun pays</span>';
-      html += '<div class="card" style="padding:12px 14px">'
-        + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">'
-          + '<div style="font-size:13px;font-weight:600">'+esc(pl.name)+'</div>'
-          + '<div style="display:flex;gap:4px">'
-            + (CU&&CU.role==='admin'?'<button class="bs" style="font-size:10px;padding:2px 6px" onclick="plEditProductLine(\''+pl.id+'\')">Éditer</button>':'')
-            + (CU&&CU.role==='admin'?'<button class="bd" style="font-size:10px;padding:2px 6px" onclick="plDeleteProductLine(\''+pl.id+'\')">×</button>':'')
-          + '</div>'
-        + '</div>'
-        + (pl.description ? '<div style="font-size:11px;color:var(--text-2);margin-bottom:8px">'+esc(pl.description)+'</div>' : '')
-        + '<div style="font-size:10px;color:var(--text-3);margin-bottom:4px">Pays ('+countries.length+')</div>'
-        + '<div style="display:flex;flex-wrap:wrap;gap:3px">'+countriesHtml+'</div>'
-        + '</div>';
-    });
-    html += '</div></div>';
+  var html = '<div class="card" style="padding:0;overflow:hidden">';
+  html += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">';
+  html += '<thead><tr style="background:#F5F4FE">';
+  html += '<th style="padding:8px 12px;text-align:left;border-bottom:.5px solid var(--border);font-weight:600;color:var(--text-2);white-space:nowrap">Société</th>';
+  html += '<th style="padding:8px 12px;text-align:left;border-bottom:.5px solid var(--border);font-weight:600;color:var(--text-2)">Nom</th>';
+  html += '<th style="padding:8px 12px;text-align:left;border-bottom:.5px solid var(--border);font-weight:600;color:var(--text-2)">Description</th>';
+  html += '<th style="padding:8px 12px;text-align:left;border-bottom:.5px solid var(--border);font-weight:600;color:var(--text-2)">Pays</th>';
+  if (CU && CU.role==='admin') {
+    html += '<th style="padding:8px 12px;text-align:right;border-bottom:.5px solid var(--border);font-weight:600;color:var(--text-2);white-space:nowrap">Actions</th>';
+  }
+  html += '</tr></thead><tbody>';
+
+  sorted.forEach(function(pl){
+    var soc = (pl.society==='SBS' || pl.society==='AXW') ? pl.society : 'Autre';
+    var socColor = soc === 'SBS' ? '#9FE1CB' : (soc === 'AXW' ? '#B5D4F4' : '#CECBF6');
+    var socTxt = soc === 'SBS' ? '#085041' : (soc === 'AXW' ? '#0C447C' : '#3C3489');
+    var countries = pl.countries || [];
+
+    html += '<tr style="border-bottom:.5px solid var(--border)">';
+    // Société
+    html += '<td style="padding:8px 12px;vertical-align:top;white-space:nowrap">';
+    html += '<span class="badge" style="background:'+socColor+';color:'+socTxt+';font-weight:600;font-size:10px">'+soc+'</span>';
+    html += '</td>';
+    // Nom
+    html += '<td style="padding:8px 12px;vertical-align:top;font-weight:500">'+esc(pl.name||'(sans nom)')+'</td>';
+    // Description
+    html += '<td style="padding:8px 12px;vertical-align:top;color:var(--text-2)">';
+    if (pl.description) {
+      var d = pl.description.length > 150 ? pl.description.slice(0,148)+'…' : pl.description;
+      html += '<span title="'+esc(pl.description)+'">'+esc(d)+'</span>';
+    } else {
+      html += '<span style="color:var(--text-3);font-style:italic">—</span>';
+    }
+    html += '</td>';
+    // Pays
+    html += '<td style="padding:8px 12px;vertical-align:top">';
+    if (countries.length) {
+      html += '<div style="font-size:10px;color:var(--text-3);margin-bottom:3px">'+countries.length+' pays</div>';
+      html += '<div style="display:flex;flex-wrap:wrap;gap:3px">';
+      countries.forEach(function(c){
+        html += '<span class="badge bpl" style="font-size:9px;padding:2px 6px">'+esc(c)+'</span>';
+      });
+      html += '</div>';
+    } else {
+      html += '<span style="font-size:10px;color:var(--text-3);font-style:italic">Aucun pays</span>';
+    }
+    html += '</td>';
+    // Actions
+    if (CU && CU.role==='admin') {
+      html += '<td style="padding:8px 12px;text-align:right;white-space:nowrap;vertical-align:top">';
+      html += '<button class="bs" style="font-size:10px;padding:3px 8px" onclick="plEditProductLine(\''+pl.id+'\')">Éditer</button> ';
+      html += '<button class="bd" style="font-size:10px;padding:3px 7px" onclick="plDeleteProductLine(\''+pl.id+'\')">×</button>';
+      html += '</td>';
+    }
+    html += '</tr>';
   });
+
+  html += '</tbody></table></div></div>';
   root.innerHTML = html;
 }
 
@@ -16996,6 +17120,13 @@ function renderFindingsBuSection() {
   html += '</div>';
 
   // v77.19c (Bug 1) : Ajouter la section des issues issues des Data Analyses (non agrégées)
+  // v77.22 (Issue 3) : diagnostic console pour comprendre pourquoi tu ne les vois pas sur BU
+  var _dbgD = getAudData(CA);
+  var _dbgDA = ((_dbgD && _dbgD.issues) || []).filter(function(i){return i.source==='data_analysis';});
+  console.log('[renderFindingsBuSection] BU audit '+CA+' — issues data_analysis trouvées : ' + _dbgDA.length);
+  if (_dbgDA.length > 0) {
+    console.log('[renderFindingsBuSection] détail :', _dbgDA.map(function(i){return {id:i.id, title:i.title, source:i.source};}));
+  }
   html += renderDataAnalysisIssuesSection();
 
   return html;
@@ -18217,8 +18348,8 @@ function renderMgtRespSection() {
     });
   }
   html += '</div>';
-  // v77.19c (Bug 1) : Issues data_analysis dans MR aussi (compact)
-  html += renderDataAnalysisIssuesSection({compact: true, titleLabel: '📊 Issues Data Analyses (sans MR formelle)'});
+  // v77.22 (Issue 4) : les issues Data Analyses ne s'affichent QUE dans Report (CS=6),
+  // plus dans MR (CS=8). Le doublon a été retiré ici.
   return html;
 }
 
